@@ -760,6 +760,7 @@ function removeEpFromPlaylist(pi,ei){
 
 // ── SMART SHUFFLE + EXTENSION HANDOFF ───────────────────────────────────────
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
+const MAX_WATCH_ORIGIN='https://play.max.com';
 const SERVICE_AVAILABILITY={
   netflix:{ids:[8],names:['netflix']},
   max:{ids:[384,1899],names:['max','hbo max','hbo']},
@@ -815,7 +816,40 @@ async function showAvailableOnService(showId,type,selectedService){
     return all.some(p=>svc.ids.includes(p.provider_id)||svc.names.some(n=>(p.provider_name||'').toLowerCase().includes(n)));
   }catch(e){return true;}
 }
-async function fetchShowEpisodes(showId,showMeta,manualEps){
+async function fetchMaxEpisodesViaExtension(showName,tmdbId){
+  return new Promise(resolve=>{
+    const requestId=Math.random().toString(36).slice(2);
+    const timer=setTimeout(()=>{cleanup();resolve([]);},15000);
+    function handler(e){
+      if(e.source!==window||e.data?.type!=='SHUFFLR_MAX_EPISODES'||e.data.requestId!==requestId)return;
+      cleanup();
+      resolve(e.data.episodes||[]);
+    }
+    function cleanup(){
+      clearTimeout(timer);
+      window.removeEventListener('message',handler);
+    }
+    window.addEventListener('message',handler);
+    window.postMessage({type:'SHUFFLR_FETCH_MAX_EPISODES',source:'shufflr-web',requestId,showName,tmdbId},'*');
+  });
+}
+function mergeMaxEpisodeMetadata(episodes,maxEpisodes){
+  if(!maxEpisodes?.length)return episodes;
+  const map={};
+  maxEpisodes.forEach(ep=>{
+    map[smartShuffleEpKey(ep.seasonNum,ep.episode_number)]=ep;
+  });
+  return episodes.map(ep=>{
+    const max=map[ep.id];
+    if(!max)return ep;
+    return {
+      ...ep,
+      alternateId:max.alternateId,
+      watchUrl:max.watchUrl||(`${MAX_WATCH_ORIGIN}/video/watch/${max.alternateId}`),
+    };
+  });
+}
+async function fetchShowEpisodes(showId,showMeta,manualEps,selectedService){
   if(showMeta.release_date){
     return [{
       id:`movie-${showId}`,
@@ -859,18 +893,24 @@ async function fetchShowEpisodes(showId,showMeta,manualEps){
         name:ep.name||'',
         runtime:ep.runtime||0,
         manuallyAdded:true,
+        alternateId:ep.alternateId||null,
+        watchUrl:ep.watchUrl||null,
       });
     }
   });
+  if(selectedService==='max'){
+    const maxEps=await fetchMaxEpisodesViaExtension(showMeta.name||showMeta.title||d.name||'',showId);
+    return mergeMaxEpisodeMetadata(episodes,maxEps);
+  }
   return episodes;
 }
-async function buildEnrichedPlaylist(playlist){
+async function buildEnrichedPlaylist(playlist,selectedService){
   const shows=playlist.shows||[];
   const manualEps=playlist.episodes||[];
   const enriched=[];
   const seenShowIds=new Set();
   await Promise.all(shows.map(async show=>{
-    const eps=await fetchShowEpisodes(show.id,show,manualEps.filter(e=>e.showId===show.id));
+    const eps=await fetchShowEpisodes(show.id,show,manualEps.filter(e=>e.showId===show.id),selectedService);
     enriched.push({
       id:show.id,
       name:show.name||show.title||'',
@@ -907,6 +947,10 @@ async function filterPlaylistByService(enriched,selectedService){
   return checked.filter(show=>show.onService);
 }
 function buildSmartShuffleEpisodeUrl(pick,selectedService){
+  if(pick.watchUrl)return pick.watchUrl;
+  if(pick.alternateId&&selectedService==='max'){
+    return `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
+  }
   const svc=STREAMING_SERVICES.find(s=>s.id===selectedService);
   const showName=pick.showName||'';
   if(pick.isMovie)return svc?svc.url+encodeURIComponent(showName):getEpLink();
@@ -926,6 +970,7 @@ function buildActivePlaylistHandoff(playlist,enriched,selectedService,pick,playe
       name:pick.name,
       isMovie:!!pick.isMovie,
       id:pick.id,
+      alternateId:pick.alternateId||null,
     },
     currentEpisodeUrl:buildSmartShuffleEpisodeUrl(pick,selectedService),
     playedByShow:serializePlayedByShow(playedByShow),
@@ -958,7 +1003,7 @@ async function playPlaylist(pi){
   const playedByShow={};
   const lastPlayedShow=null;
   try{
-    let enriched=await buildEnrichedPlaylist(p);
+    let enriched=await buildEnrichedPlaylist(p,selectedService);
     enriched=await filterPlaylistByService(enriched,selectedService);
     if(!enriched.length)return;
     const result=smartShuffle(enriched,playedByShow,lastPlayedShow);
