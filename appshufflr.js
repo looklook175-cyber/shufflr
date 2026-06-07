@@ -816,21 +816,21 @@ async function showAvailableOnService(showId,type,selectedService){
     return all.some(p=>svc.ids.includes(p.provider_id)||svc.names.some(n=>(p.provider_name||'').toLowerCase().includes(n)));
   }catch(e){return true;}
 }
-async function fetchMaxEpisodesViaExtension(showName,tmdbId){
+async function readMaxEpisodeCacheFromStorage(showName,tmdbId){
   return new Promise(resolve=>{
     const requestId=Math.random().toString(36).slice(2);
-    const timer=setTimeout(()=>{cleanup();resolve([]);},15000);
+    const timer=setTimeout(()=>{cleanup();resolve([]);},5000);
     function handler(e){
-      if(e.source!==window||e.data?.type!=='SHUFFLR_MAX_EPISODES'||e.data.requestId!==requestId)return;
+      if(e.source!==window||e.data?.type!=='SHUFFLR_EPISODE_CACHE'||e.data.requestId!==requestId)return;
       cleanup();
-      resolve(e.data.episodes||[]);
+      resolve(e.data.episodeDetails||[]);
     }
     function cleanup(){
       clearTimeout(timer);
       window.removeEventListener('message',handler);
     }
     window.addEventListener('message',handler);
-    window.postMessage({type:'SHUFFLR_FETCH_MAX_EPISODES',source:'shufflr-web',requestId,showName,tmdbId},'*');
+    window.postMessage({type:'SHUFFLR_READ_EPISODE_CACHE',source:'shufflr-web',requestId,showName,tmdbId},'*');
   });
 }
 function mergeMaxEpisodeMetadata(episodes,maxEpisodes){
@@ -899,7 +899,7 @@ async function fetchShowEpisodes(showId,showMeta,manualEps,selectedService){
     }
   });
   if(selectedService==='max'){
-    const maxEps=await fetchMaxEpisodesViaExtension(showMeta.name||showMeta.title||d.name||'',showId);
+    const maxEps=await readMaxEpisodeCacheFromStorage(showMeta.name||showMeta.title||d.name||'',showId);
     return mergeMaxEpisodeMetadata(episodes,maxEps);
   }
   return episodes;
