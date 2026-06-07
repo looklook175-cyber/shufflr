@@ -24,6 +24,11 @@ let highlightedEps=[];
 let cameFromFree=false,freeScrollPos=0;
 let lastShowNav={shows:null,movies:null};
 let homeNavType='shows',homeScrollPos=0;
+let _timerInterval=null,_timerSecondsLeft=0,_timerTotalSeconds=0;
+let _timerEp=null,_timerNextEp=null;
+let _timerStartTimestamp=null,_timerPhase=null;
+let _timerBufferSecs=10,_timerRuntimeSecs=60,_timerNotifAt=10;
+let _timerNotifScheduled=false,_timerNotifTimeout=null;
 
 // LOADING
 window.addEventListener('load',()=>{
@@ -1779,12 +1784,6 @@ function showInstallPrompt() {
 }
 
 // ── TIMER SYSTEM ─────────────────────────────────────────────────────────────
-let _timerInterval = null;
-let _timerSecondsLeft = 0;
-let _timerTotalSeconds = 0;
-let _timerEp = null;
-let _timerNextEp = null;
-
 function startWatching(){
   const ep = _currentSheetEp;
   if(!ep) return;
@@ -1834,15 +1833,6 @@ function getNextEpisode(currentEp){
   }
   return null;
 }
-
-// Timestamp-based timer — survives iOS background killing setInterval
-let _timerStartTimestamp = null;
-let _timerPhase = null; // 'buffer' or 'episode'
-let _timerBufferSecs = 10;  // TEST: 10s buffer
-let _timerRuntimeSecs = 60; // TEST: 60s episode
-let _timerNotifAt = 10;     // TEST: notify 10s before end
-let _timerNotifScheduled = false;
-let _timerNotifTimeout = null;
 
 function startTimerPhase1(runtimeSecs){
   _timerRuntimeSecs = runtimeSecs;
