@@ -674,11 +674,8 @@ function renderPlaylistPage(){
               <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
               SHARE
             </button>
-            <button class="pl-shuffle-btn" onclick="shufflePlaylist(${pi})">
-              <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
-                <polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line>
-              </svg>SHUFFLE
+            <button class="pl-shuffle-btn" onclick="playPlaylist(${pi})" style="background:var(--blue);color:#000;border-color:var(--blue);" title="Open your connected streaming service">
+              ▶ PLAY
             </button>
             <button class="pl-delete-btn" onclick="deletePlaylist(${pi})">Delete</button>
           </div>
@@ -754,6 +751,14 @@ function removeEpFromPlaylist(pi,ei){
   if(playlists[pi].episodes) playlists[pi].episodes.splice(ei,1);
   localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
   renderPlaylistPage();
+}
+
+async function playPlaylist(pi){
+  const p=playlists[pi];
+  const shows=p.shows||[];
+  const episodes=p.episodes||[];
+  if(!shows.length&&!episodes.length){showToast('NOTHING IN PLAYLIST');return;}
+  window.open(getEpLink(),'_blank');
 }
 
 async function shufflePlaylist(pi){
