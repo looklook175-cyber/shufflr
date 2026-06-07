@@ -19,7 +19,18 @@ let selectedSeason=null,allEpisodes={},currentNav='shows';
 let minRating=0,searchTimer=null,isLightMode=false;
 let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
-let playlists=JSON.parse(localStorage.getItem('shufflr_playlists')||'[]');
+const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
+let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
+function savePlaylists(){
+  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
+  window.dispatchEvent(new CustomEvent('shufflr-playlists-sync',{detail:playlists}));
+  window.postMessage({type:'SHUFFLR_SYNC_PLAYLISTS',source:'shufflr-web',playlists},'*');
+  try{
+    if(typeof chrome!=='undefined'&&chrome.storage&&chrome.storage.local){
+      chrome.storage.local.set({[SHUFFLR_PLAYLISTS_KEY]:playlists});
+    }
+  }catch(e){}
+}
 let highlightedEps=[];
 let cameFromFree=false,freeScrollPos=0;
 let lastShowNav={shows:null,movies:null};
@@ -41,6 +52,7 @@ window.addEventListener('load',()=>{
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
       updateConnectBtnLabel();
       renderHomeScreen('shows');
+      savePlaylists();
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
     },500);
@@ -731,30 +743,30 @@ function createInlinePlaylist(){
   const name=input.value.trim();
   if(!name)return;
   playlists.push({name,shows:[]});
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   renderPlaylistPage();
 }
 
 function deletePlaylist(i){
   playlists.splice(i,1);
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   renderPlaylistPage();
 }
 
 function removeFromPlaylist(pi,si){
   // legacy - remove show
   if(playlists[pi].shows) playlists[pi].shows.splice(si,1);
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   renderPlaylistPage();
 }
 function removeShowFromPlaylist(pi,si){
   if(playlists[pi].shows) playlists[pi].shows.splice(si,1);
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   renderPlaylistPage();
 }
 function removeEpFromPlaylist(pi,ei){
   if(playlists[pi].episodes) playlists[pi].episodes.splice(ei,1);
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   renderPlaylistPage();
 }
 
@@ -1140,7 +1152,7 @@ function addToPlaylist(i){
     };
     const already=playlists[i].episodes.some(e=>e.showId===epEntry.showId&&e.episode_number===epEntry.episode_number&&e.seasonNum===epEntry.seasonNum);
     if(!already) playlists[i].episodes.push(epEntry);
-    localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+    savePlaylists();
     renderPlaylistModal();
     showToast('EPISODE ADDED TO '+playlists[i].name.toUpperCase().slice(0,10));
   } else {
@@ -1148,7 +1160,7 @@ function addToPlaylist(i){
     if(!playlists[i].shows) playlists[i].shows=[];
     if(!playlists[i].shows.some(s=>s.id===currentShow.id)){
       playlists[i].shows.push(currentShow);
-      localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+      savePlaylists();
     }
     renderPlaylistModal();
     showToast('SHOW ADDED TO '+playlists[i].name.toUpperCase().slice(0,10));
@@ -1178,7 +1190,7 @@ function createPlaylist(){
     newP.shows.push(currentShow);
   }
   playlists.push(newP);
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   input.value='';
   renderPlaylistModal();
   showToast('PLAYLIST CREATED');
@@ -1730,7 +1742,7 @@ function dragDrop(e,pi,si){
   const shows=playlists[pi].shows;
   const moved=shows.splice(dragSi,1)[0];
   shows.splice(si,0,moved);
-  localStorage.setItem('shufflr_playlists',JSON.stringify(playlists));
+  savePlaylists();
   renderPlaylistPage();
 }
 function dragEnd(e){e.currentTarget.classList.remove('dragging');}
