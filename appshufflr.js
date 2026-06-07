@@ -21,6 +21,13 @@ let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
+window.addEventListener('message',(event)=>{
+  if(event.source!==window)return;
+  if(event.data?.type!=='SHUFFLR_PLAYLISTS_FROM_EXTENSION'||event.data?.source!=='shufflr-extension')return;
+  playlists=Array.isArray(event.data.playlists)?event.data.playlists:[];
+  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
+  if(currentNav==='playlist')renderPlaylistPage();
+});
 function savePlaylists(){
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
   window.dispatchEvent(new CustomEvent('shufflr-playlists-sync',{detail:playlists}));
@@ -668,6 +675,14 @@ function clearHistory(){
 }
 
 // PLAYLISTS PAGE
+function getPlaylistAddShowSection(){
+  return `<div class="pl-add-show-section">
+    <span class="pl-coming-soon-badge">Coming Soon</span>
+    <button class="pl-add-show-btn" type="button" disabled aria-disabled="true">+ Add Show</button>
+    <p class="pl-add-show-hint">Add shows directly from Max using the + button in the Shufflr dropdown</p>
+  </div>`;
+}
+
 function renderPlaylistPage(){
   let html=`<div class="playlist-page-header">
     <div class="playlist-page-title">MY PLAYLISTS</div>
@@ -677,7 +692,8 @@ function renderPlaylistPage(){
     <button class="new-pl-btn" onclick="createInlinePlaylist()">+ Create</button>
   </div>`;
   if(!playlists.length){
-    html+=`<div class="empty-state"><div class="empty-sub">No playlists yet.<br>Create one above and add shows to it.</div></div>`;
+    html+=`<div class="empty-state"><div class="empty-sub">No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.</div></div>`;
+    html+=getPlaylistAddShowSection();
   } else {
     html+=playlists.map((p,pi)=>`
       <div class="pl-card">
@@ -733,6 +749,7 @@ function renderPlaylistPage(){
           });
           return rows;
         })()}
+        ${getPlaylistAddShowSection()}
       </div>`).join('');
   }
   showMain(html);
@@ -1100,12 +1117,98 @@ async function shufflePlaylist(pi){
 }
 
 // PLAYLIST MODAL
+function getShowMaxId(show){
+  return show?.maxId||show?.maxShowId||show?.max_id||null;
+}
+function getShowLabel(show){
+  return (show?.title||show?.name||show?.original_name||'').trim();
+}
+function normalizePlShowName(name){
+  return String(name||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+}
+function showsMatchForMaxIdLookup(targetShow,entry){
+  if(!getShowMaxId(entry))return false;
+  if(targetShow?.id!=null&&entry?.id!=null&&String(targetShow.id)===String(entry.id))return true;
+  const targetName=normalizePlShowName(targetShow?.name||targetShow?.title);
+  const entryName=normalizePlShowName(getShowLabel(entry));
+  return !!(targetName&&entryName&&targetName===entryName);
+}
+function isShowInPlaylist(playlist,show){
+  return (playlist?.shows||[]).some(s=>{
+    if(show?.id!=null&&s?.id!=null&&s.id===show.id)return true;
+    const maxId=getShowMaxId(s);
+    if(maxId&&show?.maxId&&String(maxId)===String(show.maxId))return true;
+    const nameA=normalizePlShowName(show?.name||show?.title);
+    const nameB=normalizePlShowName(getShowLabel(s));
+    return !!(nameA&&nameB&&nameA===nameB);
+  });
+}
+function escapeHtml(text){
+  return String(text||'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+function findMaxIdEntryForShow(allPlaylists,targetShow){
+  if(!Array.isArray(allPlaylists)||!targetShow)return null;
+  for(const playlist of allPlaylists){
+    for(const show of (playlist?.shows||[])){
+      if(!showsMatchForMaxIdLookup(targetShow,show))continue;
+      const maxId=getShowMaxId(show);
+      if(!maxId)continue;
+      return {
+        title:getShowLabel(show)||getShowLabel(targetShow)||'Show',
+        maxId:String(maxId),
+      };
+    }
+  }
+  return null;
+}
+async function resolveMaxIdEntryForShow(targetShow){
+  const storedPlaylists=await readPlaylistsFromChromeStorage();
+  return findMaxIdEntryForShow(storedPlaylists||playlists,targetShow);
+}
+function dismissPlaylistMaxNotice(){
+  const el=document.getElementById('playlist-max-notice');
+  if(el)el.hidden=true;
+}
+function showPlaylistMaxNotice(showName){
+  const el=document.getElementById('playlist-max-notice');
+  if(!el)return;
+  const label=escapeHtml(showName||'this show');
+  el.innerHTML=`<div class="playlist-max-notice-body">
+    <p>To add <strong>${label}</strong> to a playlist, visit its page on Max and click <strong>▾ → +</strong> in the Shufflr button. Once added once, you can add it to any playlist here.</p>
+    <button type="button" class="playlist-max-notice-dismiss" onclick="dismissPlaylistMaxNotice()" aria-label="Dismiss">✕</button>
+  </div>`;
+  el.hidden=false;
+}
+function readPlaylistsFromChromeStorage(){
+  return new Promise(resolve=>{
+    try{
+      if(typeof chrome==='undefined'||!chrome.storage?.local){
+        resolve(null);
+        return;
+      }
+      chrome.storage.local.get(SHUFFLR_PLAYLISTS_KEY,result=>{
+        const stored=result?.[SHUFFLR_PLAYLISTS_KEY];
+        resolve(Array.isArray(stored)?stored:null);
+      });
+    }catch(e){
+      resolve(null);
+    }
+  });
+}
 function openPlaylistModal(ep){
   _pendingEp = ep || null;
+  dismissPlaylistMaxNotice();
   renderPlaylistModal();
   document.getElementById('playlist-modal').classList.add('open');
 }
-function closePlaylistModal(){document.getElementById('playlist-modal').classList.remove('open');}
+function closePlaylistModal(){
+  dismissPlaylistMaxNotice();
+  document.getElementById('playlist-modal').classList.remove('open');
+}
 function renderPlaylistModal(){
   // Update modal subtitle to reflect what we're adding
   const sub=document.querySelector('.playlist-card-sub');
@@ -1124,7 +1227,7 @@ function renderPlaylistModal(){
       if(_pendingEp){
         has=(p.episodes||[]).some(e=>e.showId===currentShow?.id&&e.episode_number===_pendingEp.episode_number&&e.seasonNum===(_pendingEp.seasonNum||_pendingEp.season_number));
       } else {
-        has=(p.shows||[]).some(s=>s.id===currentShow?.id);
+        has=isShowInPlaylist(p,currentShow);
       }
       const count=(p.shows||[]).length+(p.episodes||[]).length;
       return `<div class="playlist-modal-row" onclick="addToPlaylist(${i})">
@@ -1133,7 +1236,7 @@ function renderPlaylistModal(){
       </div>`;}).join('')
     :'<div style="color:var(--muted);font-size:0.8rem;padding:8px 0;">No playlists yet. Create one below.</div>';
 }
-function addToPlaylist(i){
+async function addToPlaylist(i){
   if(!currentShow)return;
   if(_pendingEp){
     // Add individual episode — manuallyAdded:true so blocked seasons don't filter it
@@ -1155,20 +1258,32 @@ function addToPlaylist(i){
     savePlaylists();
     renderPlaylistModal();
     showToast('EPISODE ADDED TO '+playlists[i].name.toUpperCase().slice(0,10));
-  } else {
-    // Add whole show
-    if(!playlists[i].shows) playlists[i].shows=[];
-    if(!playlists[i].shows.some(s=>s.id===currentShow.id)){
-      playlists[i].shows.push(currentShow);
-      savePlaylists();
-    }
+    return;
+  }
+
+  if(!playlists[i].shows) playlists[i].shows=[];
+  if(isShowInPlaylist(playlists[i],currentShow)){
     renderPlaylistModal();
-    showToast('SHOW ADDED TO '+playlists[i].name.toUpperCase().slice(0,10));
+    showToast('Already in '+playlists[i].name);
+    return;
+  }
+
+  const maxIdEntry=await resolveMaxIdEntryForShow(currentShow);
+
+  if(maxIdEntry){
+    dismissPlaylistMaxNotice();
+    playlists[i].shows.push({title:maxIdEntry.title,maxId:maxIdEntry.maxId});
+    savePlaylists();
+    renderPlaylistModal();
+    showToast('Added '+maxIdEntry.title+' to '+playlists[i].name);
     if(currentType==='tv')renderMain();
     else renderMovieMain(currentShow);
+    return;
   }
+
+  showPlaylistMaxNotice(getShowLabel(currentShow)||'this show');
 }
-function createPlaylist(){
+async function createPlaylist(){
   const input=document.getElementById('new-playlist-input');
   const name=input.value.trim();
   if(!name)return;
@@ -1187,7 +1302,13 @@ function createPlaylist(){
       manuallyAdded:true,
     });
   } else if(currentShow){
-    newP.shows.push(currentShow);
+    const maxIdEntry=await resolveMaxIdEntryForShow(currentShow);
+    if(!maxIdEntry){
+      showPlaylistMaxNotice(getShowLabel(currentShow)||'this show');
+      return;
+    }
+    dismissPlaylistMaxNotice();
+    newP.shows.push({title:maxIdEntry.title,maxId:maxIdEntry.maxId});
   }
   playlists.push(newP);
   savePlaylists();
