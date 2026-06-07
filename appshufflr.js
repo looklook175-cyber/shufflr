@@ -753,12 +753,232 @@ function removeEpFromPlaylist(pi,ei){
   renderPlaylistPage();
 }
 
+// ── SMART SHUFFLE + EXTENSION HANDOFF ───────────────────────────────────────
+const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
+const SERVICE_AVAILABILITY={
+  netflix:{ids:[8],names:['netflix']},
+  max:{ids:[384,1899],names:['max','hbo max','hbo']},
+  hulu:{ids:[15],names:['hulu']},
+  disney:{ids:[337],names:['disney','disney+']},
+  prime:{ids:[9,119],names:['prime','amazon','prime video']},
+  tubi:{ids:[531],names:['tubi']},
+  peacock:{ids:[387],names:['peacock']},
+  paramount:{ids:[1855],names:['paramount']},
+  appletv:{ids:[2,386],names:['apple','apple tv']},
+  crunchyroll:{ids:[583],names:['crunchyroll']},
+  pluto:{ids:[257],names:['pluto']},
+};
+
+function smartShuffleEpKey(seasonNum,epNum){return `s${seasonNum}e${epNum}`;}
+function serializePlayedByShow(playedByShow){
+  const out={};
+  Object.keys(playedByShow).forEach(showId=>{out[showId]=[...playedByShow[showId]];});
+  return out;
+}
+function smartShuffle(enrichedShows,playedByShow,lastPlayedShow){
+  const availableShows=enrichedShows.filter(show=>show.onService!==false&&show.episodes.length);
+  let candidates=[];
+  for(const show of availableShows){
+    const showId=String(show.id);
+    if(!playedByShow[showId])playedByShow[showId]=new Set();
+    let unplayed=show.episodes.filter(ep=>!playedByShow[showId].has(ep.id));
+    if(!unplayed.length){
+      playedByShow[showId].clear();
+      unplayed=show.episodes;
+    }
+    if(String(show.id)!==String(lastPlayedShow)){
+      candidates=candidates.concat(unplayed.map(ep=>({...ep,showId:show.id})));
+    }
+  }
+  if(!candidates.length){
+    candidates=availableShows.flatMap(s=>s.episodes.map(ep=>({...ep,showId:s.id})));
+  }
+  if(!candidates.length)return null;
+  const pick=candidates[Math.floor(Math.random()*candidates.length)];
+  const pickShowId=String(pick.showId);
+  if(!playedByShow[pickShowId])playedByShow[pickShowId]=new Set();
+  playedByShow[pickShowId].add(pick.id);
+  return {pick,lastPlayedShow:pickShowId};
+}
+async function showAvailableOnService(showId,type,selectedService){
+  const svc=SERVICE_AVAILABILITY[selectedService];
+  if(!svc)return true;
+  try{
+    const pd=await fetchProviders(showId,type);
+    if(!pd)return true;
+    const all=[...(pd.free||[]),...(pd.flatrate||[]),...(pd.sub||[]),...(pd.rent||[])];
+    return all.some(p=>svc.ids.includes(p.provider_id)||svc.names.some(n=>(p.provider_name||'').toLowerCase().includes(n)));
+  }catch(e){return true;}
+}
+async function fetchShowEpisodes(showId,showMeta,manualEps){
+  if(showMeta.release_date){
+    return [{
+      id:`movie-${showId}`,
+      showId,
+      showName:showMeta.name||showMeta.title||'',
+      isMovie:true,
+      name:showMeta.name||showMeta.title||'',
+    }];
+  }
+  const r=await fetch(`https://api.themoviedb.org/3/tv/${showId}?api_key=${KEY}`);
+  const d=await r.json();
+  const seasons=(d.seasons||[]).filter(s=>s.season_number>0&&s.episode_count>0);
+  const episodes=[];
+  await Promise.all(seasons.map(async s=>{
+    try{
+      const sr=await fetch(`https://api.themoviedb.org/3/tv/${showId}/season/${s.season_number}?api_key=${KEY}`);
+      const sd=await sr.json();
+      (sd.episodes||[]).forEach(ep=>{
+        episodes.push({
+          id:smartShuffleEpKey(s.season_number,ep.episode_number),
+          showId,
+          showName:d.name||showMeta.name||'',
+          seasonNum:s.season_number,
+          episode_number:ep.episode_number,
+          name:ep.name||'',
+          runtime:ep.runtime||0,
+          vote_average:ep.vote_average||0,
+        });
+      });
+    }catch(e){}
+  }));
+  (manualEps||[]).forEach(ep=>{
+    const id=smartShuffleEpKey(ep.seasonNum,ep.episode_number);
+    if(!episodes.some(e=>e.id===id)){
+      episodes.push({
+        id,
+        showId:ep.showId,
+        showName:ep.showName||d.name||'',
+        seasonNum:ep.seasonNum,
+        episode_number:ep.episode_number,
+        name:ep.name||'',
+        runtime:ep.runtime||0,
+        manuallyAdded:true,
+      });
+    }
+  });
+  return episodes;
+}
+async function buildEnrichedPlaylist(playlist){
+  const shows=playlist.shows||[];
+  const manualEps=playlist.episodes||[];
+  const enriched=[];
+  const seenShowIds=new Set();
+  await Promise.all(shows.map(async show=>{
+    const eps=await fetchShowEpisodes(show.id,show,manualEps.filter(e=>e.showId===show.id));
+    enriched.push({
+      id:show.id,
+      name:show.name||show.title||'',
+      type:show.release_date?'movie':'tv',
+      episodes:eps,
+    });
+    seenShowIds.add(show.id);
+  }));
+  const orphanByShow={};
+  manualEps.filter(e=>!seenShowIds.has(e.showId)).forEach(ep=>{
+    if(!orphanByShow[ep.showId])orphanByShow[ep.showId]=[];
+    orphanByShow[ep.showId].push({
+      id:smartShuffleEpKey(ep.seasonNum,ep.episode_number),
+      showId:ep.showId,
+      showName:ep.showName||'',
+      seasonNum:ep.seasonNum,
+      episode_number:ep.episode_number,
+      name:ep.name||'',
+      runtime:ep.runtime||0,
+      manuallyAdded:true,
+    });
+  });
+  Object.keys(orphanByShow).forEach(showId=>{
+    const episodes=orphanByShow[showId];
+    enriched.push({id:Number(showId),name:episodes[0].showName,type:'tv',episodes});
+  });
+  return enriched;
+}
+async function filterPlaylistByService(enriched,selectedService){
+  const checked=await Promise.all(enriched.map(async show=>{
+    const onService=await showAvailableOnService(show.id,show.type==='movie'?'movie':'tv',selectedService);
+    return {...show,onService};
+  }));
+  return checked.filter(show=>show.onService);
+}
+function buildSmartShuffleEpisodeUrl(pick,selectedService){
+  const svc=STREAMING_SERVICES.find(s=>s.id===selectedService);
+  const showName=pick.showName||'';
+  if(pick.isMovie)return svc?svc.url+encodeURIComponent(showName):getEpLink();
+  const query=`${showName} S${String(pick.seasonNum).padStart(2,'0')}E${String(pick.episode_number).padStart(2,'0')}`;
+  return svc?svc.url+encodeURIComponent(query):getEpLink();
+}
+function buildActivePlaylistHandoff(playlist,enriched,selectedService,pick,playedByShow,lastPlayedShow){
+  return {
+    playlist:enriched.map(s=>({id:s.id,name:s.name,type:s.type,episodes:s.episodes})),
+    playlistName:playlist.name||'',
+    selectedService,
+    currentEpisode:{
+      showId:pick.showId,
+      showName:pick.showName,
+      seasonNum:pick.seasonNum,
+      episode_number:pick.episode_number,
+      name:pick.name,
+      isMovie:!!pick.isMovie,
+      id:pick.id,
+    },
+    currentEpisodeUrl:buildSmartShuffleEpisodeUrl(pick,selectedService),
+    playedByShow:serializePlayedByShow(playedByShow),
+    lastPlayedShow,
+    sessionStartedAt:Date.now(),
+  };
+}
+function handoffActivePlaylistToExtension(payload){
+  return new Promise(resolve=>{
+    const finish=()=>{
+      localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY,JSON.stringify(payload));
+      window.dispatchEvent(new CustomEvent('shufflr-handoff',{detail:payload}));
+      window.postMessage({type:'SHUFFLR_HANDOFF',source:'shufflr-web',payload},'*');
+      resolve();
+    };
+    try{
+      if(typeof chrome!=='undefined'&&chrome.storage&&chrome.storage.local){
+        chrome.storage.local.set({[SHUFFLR_ACTIVE_PLAYLIST_KEY]:payload},finish);
+        return;
+      }
+    }catch(e){}
+    finish();
+  });
+}
 async function playPlaylist(pi){
   const p=playlists[pi];
-  const shows=p.shows||[];
-  const episodes=p.episodes||[];
-  if(!shows.length&&!episodes.length){showToast('NOTHING IN PLAYLIST');return;}
-  window.open(getEpLink(),'_blank');
+  if(!(p.shows||[]).length&&!(p.episodes||[]).length){showToast('NOTHING IN PLAYLIST');return;}
+  const selectedService=localStorage.getItem('shufflr_service')||'netflix';
+  showToast('SMART SHUFFLE...');
+  const playedByShow={};
+  const lastPlayedShow=null;
+  try{
+    let enriched=await buildEnrichedPlaylist(p);
+    enriched=await filterPlaylistByService(enriched,selectedService);
+    if(!enriched.length)return;
+    const result=smartShuffle(enriched,playedByShow,lastPlayedShow);
+    if(!result){showToast('NO EPISODES FOUND');return;}
+    const {pick,lastPlayedShow:newLast}=result;
+    const handoff=buildActivePlaylistHandoff(p,enriched,selectedService,pick,playedByShow,newLast);
+    await handoffActivePlaylistToExtension(handoff);
+    if(!pick.isMovie){
+      markWatched(`${pick.showId}-s${pick.seasonNum}e${pick.episode_number}`,pick.showName,pick.name,pick.seasonNum,pick.episode_number,'');
+      highlightedEps=[{...pick,seasonNum:pick.seasonNum,episode_number:pick.episode_number}];
+      _timerEp={
+        name:pick.name||'Episode',
+        code:`S${String(pick.seasonNum).padStart(2,'0')} E${String(pick.episode_number).padStart(2,'0')}`,
+        runtime:pick.runtime||45,
+      };
+      _timerNextEp=null;
+      startTimerPhase1(60);
+    }
+    const label=(pick.name||pick.showName||'').toUpperCase().slice(0,18);
+    showToast('PLAYING: '+label);
+    window.open(handoff.currentEpisodeUrl,'_blank');
+  }catch(e){
+    console.error('[Shufflr] playPlaylist',e);
+    showToast('PLAY FAILED');
+  }
 }
 
 async function shufflePlaylist(pi){
