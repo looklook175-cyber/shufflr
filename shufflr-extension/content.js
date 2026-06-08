@@ -1480,21 +1480,26 @@ async function getActivePlaylistFromStorage() {
 }
 
 function updateShuffleUI(playlistName) {
-  const btn = document.getElementById('shufflr-btn');
-  const label = document.getElementById('shufflr-label');
-  const status = document.getElementById('shufflr-status');
-  if (!btn || !label || !status) return;
+  if (!isChromeContextValid()) return;
+  try {
+    const btn = document.getElementById('shufflr-btn');
+    const label = document.getElementById('shufflr-label');
+    const status = document.getElementById('shufflr-status');
+    if (!btn || !label || !status) return;
 
-  if (shufflrActive) {
-    btn.classList.add('active');
-    label.textContent = 'ON';
-    status.textContent = playlistName
-      ? playlistName.toUpperCase().slice(0, 24)
-      : 'WAITING FOR EP END...';
-  } else {
-    btn.classList.remove('active');
-    label.textContent = 'SHUFFLR';
-    status.textContent = '';
+    if (shufflrActive) {
+      btn.classList.add('active');
+      label.textContent = 'ON';
+      status.textContent = playlistName
+        ? playlistName.toUpperCase().slice(0, 24)
+        : 'WAITING FOR EP END...';
+    } else {
+      btn.classList.remove('active');
+      label.textContent = 'SHUFFLR';
+      status.textContent = '';
+    }
+  } catch {
+    return;
   }
 }
 
@@ -1505,7 +1510,10 @@ async function fullyRestoreArmedShuffleSessionAfterInject() {
 
   if (!active?.armed) {
     shufflrActive = false;
-    if (hasShufflrButtonInDom()) updateShuffleUI('');
+    if (hasShufflrButtonInDom()) {
+      if (!isChromeContextValid()) return false;
+      updateShuffleUI('');
+    }
     return false;
   }
 
@@ -1513,6 +1521,7 @@ async function fullyRestoreArmedShuffleSessionAfterInject() {
   startShuffleWatchdog();
 
   if (hasShufflrButtonInDom()) {
+    if (!isChromeContextValid()) return false;
     updateShuffleUI(active.playlistName || '');
   }
 
@@ -1854,6 +1863,7 @@ async function armPlaylistFromDropdown(playlistIndex) {
   shufflrActive = true;
   armedPlaylistCached = true;
   const playlistName = preparedPlaylist.name || 'Untitled';
+  if (!isChromeContextValid()) return;
   updateShuffleUI(playlistName);
   showToast(`Playlist: ${playlistName} — will shuffle when episode ends`);
 }
@@ -1969,6 +1979,7 @@ async function resetShuffleState(options = {}) {
   } catch (err) {
     console.error('[Shufflr] resetShuffleState storage error:', err);
   }
+  if (!isChromeContextValid()) return;
   updateShuffleUI('');
   closePlaylistDropdown();
 }
@@ -2900,15 +2911,18 @@ async function toggleShuffle() {
       label.textContent = 'ON';
       const active = await getActivePlaylistFromStorage();
       if (active?.armed && active.playlistName) {
+        if (!isChromeContextValid()) return;
         updateShuffleUI(active.playlistName);
         showToast(`Playlist: ${active.playlistName} — will shuffle when episode ends`);
       } else {
+        if (!isChromeContextValid()) return;
         updateShuffleUI('');
         showToast('Shufflr ON — will shuffle when episode ends');
       }
     } else {
       await clearActivePlaylist();
       armedPlaylistCached = false;
+      if (!isChromeContextValid()) return;
       updateShuffleUI('');
       showToast('Shufflr OFF');
     }
