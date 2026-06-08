@@ -632,20 +632,6 @@ function installArmedUrlGuard() {
     notifyArmedUrlChange(prevUrl);
   });
 
-  const wrapHistory = method => {
-    const original = history[method];
-    history[method] = function (...args) {
-      const prevUrl = location.href;
-      const result = original.apply(this, args);
-      if (location.href !== prevUrl) {
-        notifyArmedUrlChange(prevUrl);
-      }
-      return result;
-    };
-  };
-
-  wrapHistory('pushState');
-  wrapHistory('replaceState');
   console.log('[Shufflr] Armed URL guard ready');
 }
 
@@ -2639,75 +2625,6 @@ function getShufflrTargetFromActive(active) {
   };
 }
 
-function resolveHistoryTargetUrl(args) {
-  const urlArg = args[2];
-  if (urlArg == null || urlArg === '') return location.href.split('?')[0];
-  try {
-    return new URL(String(urlArg), location.origin).href.split('?')[0];
-  } catch {
-    return null;
-  }
-}
-
-function shouldBlockMaxHistoryNavigation(targetUrl) {
-  if (!maxAutoNextArmedCache && !armedPlaylistCached) return false;
-  if (!targetUrl) return false;
-
-  const isVideoNav = targetUrl.includes('/video/') || targetUrl.includes('/play/');
-  if (!isVideoNav) return false;
-
-  const targetEp = getMaxEpisodeIdFromUrl(targetUrl, shufflrTargetShowHint);
-  if (!targetEp) return false;
-  const targetNorm = normalizeMaxId(targetEp);
-
-  if (shufflrPendingEpisodeId && targetNorm === shufflrPendingEpisodeId) return false;
-  if (shufflrTargetWatchUrl && maxWatchUrlsRepresentSameEpisode(shufflrTargetWatchUrl, targetUrl, shufflrTargetShowHint)) {
-    return false;
-  }
-  if (maxWatchUrlsRepresentSameEpisode(location.href, targetUrl, shufflrTargetShowHint)) return false;
-  if (shufflrTargetEpisodeId && targetNorm === shufflrTargetEpisodeId && !shufflrPendingEpisodeId) {
-    return false;
-  }
-
-  return true;
-}
-
-function redirectBlockedMaxHistoryNavigation() {
-  if (shufflrTargetWatchUrl && (shufflrPendingEpisodeId || shufflrNavigating || shufflrTargetEpisodeId)) {
-    console.log('[Shufflr] Blocked Max history navigation — redirecting to Shufflr pick');
-    beginShufflrNavigation(shufflrTargetEpisodeId || shufflrPendingEpisodeId);
-    location.href = shufflrTargetWatchUrl;
-    return;
-  }
-
-  console.log('[Shufflr] Blocked Max history navigation — triggering Shufflr shuffle');
-  handleShufflrNextEpisode('history-intercept').catch(err => {
-    console.error('[Shufflr] history-intercept shuffle error:', err);
-  });
-}
-
-function installMaxAutoNextHistoryIntercept() {
-  if (window.__shufflrMaxAutoNextHistoryIntercept) return;
-  window.__shufflrMaxAutoNextHistoryIntercept = true;
-
-  ['pushState', 'replaceState'].forEach(method => {
-    const original = history[method];
-    history[method] = function (...args) {
-      if (!isChromeContextValid()) {
-        return original.apply(this, args);
-      }
-
-      const targetUrl = resolveHistoryTargetUrl(args);
-      if (shouldBlockMaxHistoryNavigation(targetUrl)) {
-        redirectBlockedMaxHistoryNavigation();
-        return undefined;
-      }
-
-      return original.apply(this, args);
-    };
-  });
-}
-
 function findMaxAutoNextDismissButton(container) {
   const selectorMatches = [
     'button[class*="cancel"]',
@@ -2863,8 +2780,6 @@ function teardownMaxAutoNextSuppression() {
 
 function suppressMaxAutoNext() {
   if (!isChromeContextValid()) return;
-
-  installMaxAutoNextHistoryIntercept();
 
   if (!maxAutoNextObserver) {
     maxAutoNextObserver = new MutationObserver(mutations => {
