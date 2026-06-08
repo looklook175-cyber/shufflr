@@ -2558,15 +2558,11 @@ function injectShufflrStyles() {
       padding: 10px 16px;
       color: #1a6bff;
       font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 1.5px;
       box-shadow: 0 0 20px rgba(26,107,255,0.4);
       transition: all 0.2s ease;
       backdrop-filter: blur(8px);
-    }
-    #shufflr-label {
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
     }
     #shufflr-btn:hover #shufflr-inner {
       background: #1a6bff;
@@ -2637,7 +2633,6 @@ function injectShufflrStyles() {
       color: #1a6bff;
       font-family: monospace;
       font-size: 8px;
-      font-weight: 600;
       letter-spacing: 1.5px;
       padding: 6px 10px 4px;
       opacity: 0.9;
@@ -2841,8 +2836,7 @@ function injectShufflrStyles() {
       box-shadow: 0 0 12px rgba(26,107,255,0.6);
     }
     #shufflr-status {
-      font-size: 10px;
-      font-weight: 600;
+      font-size: 8px;
       color: #1a6bff;
       text-align: right;
       margin: 0;
