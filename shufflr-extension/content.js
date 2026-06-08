@@ -102,6 +102,10 @@ let shuffleWatchdogTimer = null;
 let uiRecoveryGraceTimer = null;
 let timeupdateWatcherVideo = null;
 let timeupdateWatcherHandler = null;
+let maxAutoNextObserver = null;
+let maxAutoNextVisibilityHandler = null;
+let maxAutoNextBeforeUnloadHandler = null;
+let maxAutoNextArmedCache = false;
 
 function isChromeContextValid() {
   if (extensionContextInvalidated) return false;
@@ -143,6 +147,8 @@ function handleExtensionContextInvalidated() {
     const video = document.querySelector('video');
     if (video) video.removeEventListener('timeupdate', onTimeUpdate);
   } catch {}
+
+  teardownMaxAutoNextSuppression();
 }
 
 function handleChromeRuntimeLastError() {
@@ -2407,6 +2413,151 @@ function attachVideoListeners(video) {
   video.addEventListener('playing', onVideoPlaying);
   window.__shufflrAttachedVideo = video;
   installTimeupdateWatcher();
+  suppressMaxAutoNext();
+}
+
+const MAX_AUTO_NEXT_OVERLAY_SELECTORS = [
+  '[class*="NextEpisode"]',
+  '[class*="next-episode"]',
+  '[class*="autoplay"]',
+  '[data-testid*="next"]',
+].join(', ');
+
+function findMaxAutoNextDismissButton(container) {
+  const selectorMatches = [
+    'button[class*="cancel"]',
+    'button[class*="Cancel"]',
+    'button[class*="dismiss"]',
+    'button[class*="Dismiss"]',
+    'button[data-testid*="cancel"]',
+    'button[data-testid*="dismiss"]',
+    '[role="button"][class*="cancel"]',
+    '[role="button"][class*="dismiss"]',
+  ];
+
+  for (const selector of selectorMatches) {
+    try {
+      const btn = container.querySelector(selector);
+      if (btn) return btn;
+    } catch {}
+  }
+
+  const clickables = container.querySelectorAll('button, [role="button"]');
+  for (const btn of clickables) {
+    const text = `${btn.textContent || ''} ${btn.getAttribute('aria-label') || ''}`.toLowerCase();
+    if (
+      text.includes('cancel')
+      || text.includes('dismiss')
+      || text.includes('stay')
+      || text.includes('not now')
+    ) {
+      return btn;
+    }
+  }
+
+  return null;
+}
+
+function refreshMaxAutoNextArmedCache() {
+  if (!isChromeContextValid()) {
+    maxAutoNextArmedCache = false;
+    return Promise.resolve(false);
+  }
+  return getActivePlaylistFromStorage().then(active => {
+    maxAutoNextArmedCache = !!active?.armed;
+    return maxAutoNextArmedCache;
+  }).catch(err => {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+    maxAutoNextArmedCache = false;
+    return false;
+  });
+}
+
+function suppressMaxAutoNextOverlay(element) {
+  if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
+
+  getActivePlaylistFromStorage().then(active => {
+    maxAutoNextArmedCache = !!active?.armed;
+    if (!active?.armed) return;
+
+    element.dataset.shufflrAutoNextSuppressed = '1';
+    element.style.display = 'none';
+
+    const dismissBtn = findMaxAutoNextDismissButton(element);
+    if (dismissBtn) {
+      try {
+        dismissBtn.click();
+      } catch {}
+    }
+  }).catch(err => {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  });
+}
+
+function scanForMaxAutoNextOverlays(root = document.body) {
+  if (!root?.querySelectorAll) return;
+
+  try {
+    if (root.matches?.(MAX_AUTO_NEXT_OVERLAY_SELECTORS)) {
+      suppressMaxAutoNextOverlay(root);
+    }
+    root.querySelectorAll(MAX_AUTO_NEXT_OVERLAY_SELECTORS).forEach(suppressMaxAutoNextOverlay);
+  } catch {}
+}
+
+function teardownMaxAutoNextSuppression() {
+  if (maxAutoNextObserver) {
+    maxAutoNextObserver.disconnect();
+    maxAutoNextObserver = null;
+  }
+  if (maxAutoNextVisibilityHandler) {
+    document.removeEventListener('visibilitychange', maxAutoNextVisibilityHandler, true);
+    maxAutoNextVisibilityHandler = null;
+  }
+  if (maxAutoNextBeforeUnloadHandler) {
+    window.removeEventListener('beforeunload', maxAutoNextBeforeUnloadHandler, true);
+    maxAutoNextBeforeUnloadHandler = null;
+  }
+  maxAutoNextArmedCache = false;
+}
+
+function suppressMaxAutoNext() {
+  if (!isChromeContextValid()) return;
+
+  if (!maxAutoNextObserver) {
+    maxAutoNextObserver = new MutationObserver(mutations => {
+      if (!isChromeContextValid()) {
+        teardownMaxAutoNextSuppression();
+        return;
+      }
+
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach(node => {
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          scanForMaxAutoNextOverlays(node);
+        });
+      }
+    });
+
+    maxAutoNextObserver.observe(document.body, { childList: true, subtree: true });
+
+    maxAutoNextVisibilityHandler = (event) => {
+      if (!isChromeContextValid()) return;
+      if (maxAutoNextArmedCache) event.stopImmediatePropagation();
+    };
+
+    maxAutoNextBeforeUnloadHandler = (event) => {
+      if (!isChromeContextValid()) return;
+      if (maxAutoNextArmedCache) event.stopImmediatePropagation();
+    };
+
+    document.addEventListener('visibilitychange', maxAutoNextVisibilityHandler, true);
+    window.addEventListener('beforeunload', maxAutoNextBeforeUnloadHandler, true);
+  }
+
+  refreshMaxAutoNextArmedCache().then(() => {
+    scanForMaxAutoNextOverlays();
+  });
 }
 
 function onVideoPlaying() {
