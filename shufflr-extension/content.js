@@ -169,6 +169,9 @@ let knownShowPageUrl = sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
 let shuffleInProgress = false;
 let lastPrefetchedEpisodeUrl = null;
 let prefetchInFlightShowId = null;
+let uiRecoveryInProgress = false;
+let lastUiRecoveryAt = 0;
+const UI_RECOVERY_COOLDOWN_MS = 1000;
 
 function saveShowPageUrl(url) {
   knownShowPageUrl = url.split('?')[0];
@@ -1028,8 +1031,18 @@ async function playPlaylistFromDropdown(playlistIndex) {
   await armPlaylistFromDropdown(playlistIndex);
 }
 
+function isShufflrPlayerPage() {
+  const href = location.href;
+  return href.includes('/video/') || href.includes('/play/') || href.includes('/show/');
+}
+
 function tryInjectButton() {
-  if (hasInjectedButton && document.getElementById('shufflr-wrap')) return;
+  if (document.getElementById('shufflr-wrap')) {
+    const video = document.querySelector('video');
+    if (video) attachVideoListeners(video);
+    syncShuffleUIFromStorage();
+    return;
+  }
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
   if (!isVideoPage && !isShowPage) return;
@@ -1051,6 +1064,46 @@ function tryInjectButton() {
   prefetchEpisodeList();
 }
 
+async function recoverShufflrUI(reason) {
+  if (uiRecoveryInProgress) return;
+  const now = Date.now();
+  if (now - lastUiRecoveryAt < UI_RECOVERY_COOLDOWN_MS) return;
+
+  uiRecoveryInProgress = true;
+  lastUiRecoveryAt = now;
+
+  try {
+    console.log(`[Shufflr] Watchdog: ${reason} — re-injecting UI`);
+    await syncShuffleUIFromStorage();
+
+    if (!isShufflrPlayerPage()) return;
+
+    hasInjectedButton = false;
+
+    const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+    const isShowPage = location.href.includes('/show/');
+
+    if (isShowPage) {
+      saveShowPageUrl(location.href);
+      injectShufflrButton(null);
+      return;
+    }
+
+    const video = document.querySelector('video');
+    if (video) {
+      injectShufflrButton(video);
+      prefetchEpisodeList();
+      return;
+    }
+
+    setTimeout(tryInjectButton, 500);
+  } catch (err) {
+    console.error('[Shufflr] recoverShufflrUI error:', err);
+  } finally {
+    uiRecoveryInProgress = false;
+  }
+}
+
 async function resetShuffleState(options = {}) {
   const { clearStorage = true } = options;
   shufflrActive = false;
@@ -1065,19 +1118,37 @@ async function resetShuffleState(options = {}) {
 }
 
 function runShuffleWatchdog() {
-  if (!shufflrActive) return;
+  runShuffleWatchdogAsync().catch(err => {
+    console.error('[Shufflr] Watchdog error:', err);
+  });
+}
 
+async function runShuffleWatchdogAsync() {
+  const active = await getActivePlaylistFromStorage();
+  const maintainSession = shufflrActive || active?.armed;
+  if (!maintainSession) return;
+
+  if (active?.armed && !shufflrActive) {
+    shufflrActive = true;
+  }
+
+  if (!isShufflrPlayerPage()) return;
+
+  const wrap = document.getElementById('shufflr-wrap');
   const btn = document.getElementById('shufflr-btn');
-  if (!btn) {
-    console.log('[Shufflr] Watchdog: button missing — resetting');
-    resetShuffleState({ clearStorage: false });
+  if (!wrap || !btn) {
+    await recoverShufflrUI('button missing');
     return;
   }
 
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (isVideoPage && !document.querySelector('video')) {
-    console.log('[Shufflr] Watchdog: active on video page with no video — resetting');
-    resetShuffleState({ clearStorage: false });
+  if (isVideoPage) {
+    const video = document.querySelector('video');
+    if (video) attachVideoListeners(video);
+  }
+
+  if (shufflrActive && active?.armed) {
+    updateShuffleUI(active.playlistName || '');
   }
 }
 
@@ -1534,8 +1605,21 @@ function injectShufflrStyles() {
   document.head.appendChild(style);
 }
 
+function ensureVideoSwapObserver() {
+  if (window.__shufflrVideoObserver) return;
+  window.__shufflrVideoObserver = new MutationObserver(() => {
+    const video = document.querySelector('video');
+    if (video && document.getElementById('shufflr-wrap')) attachVideoListeners(video);
+  });
+  window.__shufflrVideoObserver.observe(document.body, { childList: true, subtree: true });
+}
+
 function injectShufflrButton(video) {
-  if (hasInjectedButton && document.getElementById('shufflr-wrap')) return;
+  if (document.getElementById('shufflr-wrap')) {
+    if (video) attachVideoListeners(video);
+    syncShuffleUIFromStorage();
+    return;
+  }
 
   removeShufflrUI();
   hasInjectedButton = true;
@@ -1578,12 +1662,7 @@ function injectShufflrButton(video) {
 
   if (video) {
     attachVideoListeners(video);
-
-    // Re-attach if video element is swapped out
-    new MutationObserver(() => {
-      const v = document.querySelector('video');
-      if (v) attachVideoListeners(v);
-    }).observe(document.body, { childList: true, subtree: true });
+    ensureVideoSwapObserver();
   }
 
   syncShuffleUIFromStorage();
@@ -1610,6 +1689,11 @@ async function toggleShuffle() {
   const btn = document.getElementById('shufflr-btn');
   const label = document.getElementById('shufflr-label');
   if (!btn || !label) {
+    const active = await getActivePlaylistFromStorage();
+    if (active?.armed) {
+      await recoverShufflrUI('toggle click with missing UI');
+      return;
+    }
     await resetShuffleState();
     return;
   }
@@ -1658,8 +1742,11 @@ function onTimeUpdate() {
 }
 
 async function onEpisodeEnded() {
-  if (!shufflrActive) return;
   const active = await getActivePlaylistFromStorage();
+  if (active?.armed) {
+    shufflrActive = true;
+  }
+  if (!shufflrActive) return;
   if (active?.armed) {
     await shuffleFromActivePlaylist(active);
     return;
