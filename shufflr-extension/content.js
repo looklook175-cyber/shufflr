@@ -10,6 +10,9 @@ const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
+const MAX_SKIP_FORWARD_SELECTOR = 'button[data-testid="player-ux-skip-forward-button"]';
+const SHUFFLR_NATIVE_BTN_ID = 'shufflr-native-btn';
+const SHUFFLR_BRAND_BLUE = '#00b4d8';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function normalizeMaxId(id) {
@@ -444,7 +447,7 @@ let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
 const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
-const UI_RECOVERY_GRACE_MS = 4000;
+const UI_RECOVERY_GRACE_MS = 500;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
 const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
 const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
@@ -863,9 +866,17 @@ function escapePlaylistLabel(text) {
     .replace(/"/g, '&quot;');
 }
 
+function getShufflrNativeButton() {
+  return document.getElementById(SHUFFLR_NATIVE_BTN_ID);
+}
+
+function getShufflrDropdownToggleEl() {
+  return getShufflrNativeButton();
+}
+
 function closePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
-  const toggle = document.getElementById('shufflr-playlist-toggle');
+  const toggle = getShufflrDropdownToggleEl();
   if (dropdown) dropdown.classList.remove('open');
   if (toggle) toggle.classList.remove('open');
 }
@@ -874,7 +885,7 @@ function togglePlaylistDropdown(event) {
   event.preventDefault();
   event.stopPropagation();
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
-  const toggle = document.getElementById('shufflr-playlist-toggle');
+  const toggle = getShufflrDropdownToggleEl();
   if (!dropdown || !toggle) return;
   const willOpen = !dropdown.classList.contains('open');
   closePlaylistDropdown();
@@ -1516,21 +1527,23 @@ async function getActivePlaylistFromStorage() {
 function updateShuffleUI(playlistName) {
   if (!isChromeContextValid()) return;
   try {
-    const btn = document.getElementById('shufflr-btn');
+    const btn = getShufflrNativeButton();
     const label = document.getElementById('shufflr-label');
     const status = document.getElementById('shufflr-status');
-    if (!btn || !label || !status) return;
+    if (!btn) return;
 
     if (shufflrActive) {
       btn.classList.add('active');
-      label.textContent = 'ON';
-      status.textContent = playlistName
-        ? playlistName.toUpperCase().slice(0, 24)
-        : 'WAITING FOR EP END...';
+      if (label) label.textContent = 'ON';
+      if (status) {
+        status.textContent = playlistName
+          ? playlistName.toUpperCase().slice(0, 24)
+          : 'WAITING FOR EP END...';
+      }
     } else {
       btn.classList.remove('active');
-      label.textContent = 'SHUFFLR';
-      status.textContent = '';
+      if (label) label.textContent = 'SHUFFLR';
+      if (status) status.textContent = '';
     }
   } catch {
     return;
@@ -1599,7 +1612,7 @@ function scheduleVideoListenerRestore(retryMs = 1000) {
     if (!isChromeContextValid()) return;
     if (!shufflrActive && !armedPlaylistCached) return;
     const video = document.querySelector('video');
-    if (!video || !document.getElementById('shufflr-wrap')) return;
+    if (!video || !getShufflrNativeButton()) return;
     attachVideoListeners(video);
     ensureVideoSwapObserver();
   }, retryMs);
@@ -1618,7 +1631,40 @@ function getShowMaxIdHintFromActive(active) {
 }
 
 function hasShufflrButtonInDom() {
-  return !!(document.getElementById('shufflr-wrap') && document.getElementById('shufflr-btn'));
+  return !!getShufflrNativeButton();
+}
+
+function getMaxPlayerSkipForwardButton() {
+  return document.querySelector(MAX_SKIP_FORWARD_SELECTOR);
+}
+
+function renderShufflrShuffleIconSvg() {
+  return `
+    <svg id="shufflr-icon" width="24" height="24" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"
+      aria-hidden="true">
+      <path d="M16 3h5v5"></path>
+      <path d="M4 20 21 3"></path>
+      <path d="M21 16v5h-5"></path>
+      <path d="M15 15l6 6"></path>
+      <path d="M4 4l5 5"></path>
+    </svg>
+  `;
+}
+
+function buildShufflrPlayerButtonMarkup() {
+  return `
+    <button type="button" id="${SHUFFLR_NATIVE_BTN_ID}"
+      title="Shufflr shuffle (hold for playlists)"
+      aria-label="Shufflr shuffle, hold for playlists">
+      ${renderShufflrShuffleIconSvg()}
+      <span id="shufflr-label" class="shufflr-sr-only">SHUFFLR</span>
+    </button>
+    <div id="shufflr-playlist-dropdown">
+      ${renderPlaylistDropdownContent([])}
+    </div>
+    <span id="shufflr-status" class="shufflr-sr-only" aria-hidden="true"></span>
+  `;
 }
 
 function cancelUiRecoveryGraceTimer() {
@@ -1631,6 +1677,7 @@ function cancelUiRecoveryGraceTimer() {
 
 function scheduleUiRecoveryAfterGrace(reason) {
   if (!isChromeContextValid()) return;
+  tryReinjectShufflrPlayerButton();
   if (hasShufflrButtonInDom()) {
     cancelUiRecoveryGraceTimer();
     return;
@@ -1639,7 +1686,7 @@ function scheduleUiRecoveryAfterGrace(reason) {
 
   if (!uiMissingSince) {
     uiMissingSince = Date.now();
-    console.log(`[Shufflr] Watchdog: button missing — waiting ${UI_RECOVERY_GRACE_MS / 1000}s before recovery`);
+    console.log(`[Shufflr] Watchdog: button missing — waiting ${UI_RECOVERY_GRACE_MS}ms before recovery`);
   }
 
   uiRecoveryGraceTimer = setTimeout(() => {
@@ -1925,7 +1972,7 @@ function isShufflrPlayerPage() {
 
 function tryInjectButton() {
   if (!isChromeContextValid()) return Promise.resolve(false);
-  if (document.getElementById('shufflr-wrap')) {
+  if (getShufflrNativeButton()) {
     const video = document.querySelector('video');
     if (video) attachVideoListeners(video);
     return fullyRestoreArmedShuffleSessionAfterInject();
@@ -1958,6 +2005,7 @@ function tryInjectButton() {
     });
   }
   injectShufflrButton(video);
+  ensureVideoSwapObserver();
   prefetchEpisodeList();
   return fullyRestoreArmedShuffleSessionAfterInject();
 }
@@ -2030,8 +2078,16 @@ async function resetShuffleState(options = {}) {
   closePlaylistDropdown();
 }
 
+function stopShuffleWatchdog() {
+  if (shuffleWatchdogTimer) {
+    clearInterval(shuffleWatchdogTimer);
+    shuffleWatchdogTimer = null;
+  }
+}
+
 function runShuffleWatchdog() {
   if (!isChromeContextValid()) {
+    stopShuffleWatchdog();
     handleExtensionContextInvalidated();
     return;
   }
@@ -2091,8 +2147,8 @@ function startShuffleWatchdog() {
   if (shuffleWatchdogTimer) return;
   shuffleWatchdogTimer = setInterval(() => {
     if (!isChromeContextValid()) {
-      clearInterval(shuffleWatchdogTimer);
-      shuffleWatchdogTimer = null;
+      stopShuffleWatchdog();
+      handleExtensionContextInvalidated();
       return;
     }
     runShuffleWatchdog();
@@ -2164,19 +2220,56 @@ function onPlaylistDropdownKeydown(event) {
   submitCreatePlaylistForm();
 }
 
+let shufflrPlayerBtnPressTimer = null;
+let shufflrPlayerBtnSuppressClick = false;
+
+function clearShufflrPlayerBtnPressTimer() {
+  if (shufflrPlayerBtnPressTimer) {
+    clearTimeout(shufflrPlayerBtnPressTimer);
+    shufflrPlayerBtnPressTimer = null;
+  }
+}
+
+function onShufflrPlayerBtnPointerDown(event) {
+  if (event.button !== 0) return;
+  clearShufflrPlayerBtnPressTimer();
+  shufflrPlayerBtnPressTimer = setTimeout(() => {
+    shufflrPlayerBtnPressTimer = null;
+    shufflrPlayerBtnSuppressClick = true;
+    togglePlaylistDropdown(event);
+  }, 450);
+}
+
+function onShufflrPlayerBtnPointerEnd() {
+  clearShufflrPlayerBtnPressTimer();
+}
+
+function onShufflrPlayerBtnClick(event) {
+  if (shufflrPlayerBtnSuppressClick) {
+    shufflrPlayerBtnSuppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  onShuffleBtnClick(event);
+}
+
 function bindShufflrButtonHandlers() {
-  const shuffleBtn = document.getElementById('shufflr-btn');
-  const playlistToggle = document.getElementById('shufflr-playlist-toggle');
+  const shuffleBtn = getShufflrNativeButton();
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
 
   if (shuffleBtn) {
     shuffleBtn.removeEventListener('click', onShuffleBtnClick);
-    shuffleBtn.addEventListener('click', onShuffleBtnClick);
-  }
-
-  if (playlistToggle) {
-    playlistToggle.removeEventListener('click', togglePlaylistDropdown);
-    playlistToggle.addEventListener('click', togglePlaylistDropdown);
+    shuffleBtn.removeEventListener('click', onShufflrPlayerBtnClick);
+    shuffleBtn.removeEventListener('pointerdown', onShufflrPlayerBtnPointerDown);
+    shuffleBtn.removeEventListener('pointerup', onShufflrPlayerBtnPointerEnd);
+    shuffleBtn.removeEventListener('pointerleave', onShufflrPlayerBtnPointerEnd);
+    shuffleBtn.removeEventListener('pointercancel', onShufflrPlayerBtnPointerEnd);
+    shuffleBtn.addEventListener('pointerdown', onShufflrPlayerBtnPointerDown);
+    shuffleBtn.addEventListener('pointerup', onShufflrPlayerBtnPointerEnd);
+    shuffleBtn.addEventListener('pointerleave', onShufflrPlayerBtnPointerEnd);
+    shuffleBtn.addEventListener('pointercancel', onShufflrPlayerBtnPointerEnd);
+    shuffleBtn.addEventListener('click', onShufflrPlayerBtnClick);
   }
 
   if (dropdown) {
@@ -2201,19 +2294,66 @@ function injectShufflrStyles() {
   style.id = 'shufflr-styles';
   style.textContent = `
     #shufflr-wrap {
+      position: relative;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    #shufflr-wrap.shufflr-fallback-anchor {
       position: fixed;
       bottom: 90px;
       right: 24px;
       z-index: 999999;
-      user-select: none;
-      pointer-events: none;
     }
-    #shufflr-split,
-    #shufflr-status {
-      pointer-events: none;
+    .shufflr-sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
-    #shufflr-btn,
-    #shufflr-playlist-toggle,
+    #shufflr-native-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      min-width: 40px;
+      padding: 0;
+      margin: 0;
+      background: transparent;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      color: inherit;
+      vertical-align: middle;
+      flex-shrink: 0;
+      line-height: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s ease;
+    }
+    #shufflr-native-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    #shufflr-native-btn #shufflr-icon {
+      display: block;
+      width: 24px;
+      height: 24px;
+      color: rgba(255, 255, 255, 0.72);
+      transition: color 0.2s ease;
+    }
+    #shufflr-native-btn:hover #shufflr-icon {
+      color: rgba(255, 255, 255, 0.95);
+    }
+    #shufflr-native-btn.active #shufflr-icon {
+      color: ${SHUFFLR_BRAND_BLUE};
+    }
+    #shufflr-native-btn.open #shufflr-icon {
+      color: ${SHUFFLR_BRAND_BLUE};
+    }
     #shufflr-playlist-dropdown,
     .shufflr-pl-row,
     .shufflr-pl-add-btn,
@@ -2223,79 +2363,12 @@ function injectShufflrStyles() {
     .shufflr-pl-create-input {
       pointer-events: auto;
     }
-    #shufflr-split {
-      display: flex;
-      align-items: stretch;
-    }
-    #shufflr-btn {
-      cursor: pointer;
-      flex: 1;
-    }
-    #shufflr-inner {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      height: 100%;
-      box-sizing: border-box;
-      background: rgba(0,0,0,0.85);
-      border: 2px solid #1a6bff;
-      border-right: 1px solid rgba(26,107,255,0.35);
-      border-radius: 12px 0 0 12px;
-      padding: 10px 16px;
-      color: #1a6bff;
-      font-family: monospace;
-      font-size: 11px;
-      letter-spacing: 1.5px;
-      box-shadow: 0 0 20px rgba(26,107,255,0.4);
-      transition: all 0.2s ease;
-      backdrop-filter: blur(8px);
-    }
-    #shufflr-btn:hover #shufflr-inner {
-      background: #1a6bff;
-      color: #000;
-      box-shadow: 0 0 30px rgba(26,107,255,0.7);
-      transform: scale(1.04);
-      transform-origin: center right;
-    }
-    #shufflr-btn.active #shufflr-inner {
-      background: #23A8E0;
-      color: #000;
-      box-shadow: 0 0 30px rgba(35,168,224,0.8);
-      animation: shufflr-pulse 2s infinite;
-    }
-    #shufflr-btn.active #shufflr-icon {
-      animation: shufflr-spin 1.5s linear infinite;
-    }
-    #shufflr-playlist-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 34px;
-      padding: 0 10px;
-      background: rgba(0,0,0,0.85);
-      border: 2px solid #1a6bff;
-      border-left: none;
-      border-radius: 0 12px 12px 0;
-      color: #1a6bff;
-      font-family: monospace;
-      font-size: 13px;
-      line-height: 1;
-      cursor: pointer;
-      box-shadow: 0 0 20px rgba(26,107,255,0.4);
-      transition: all 0.2s ease;
-      backdrop-filter: blur(8px);
-    }
-    #shufflr-playlist-toggle:hover,
-    #shufflr-playlist-toggle.open {
-      background: #1a6bff;
-      color: #000;
-      box-shadow: 0 0 30px rgba(26,107,255,0.7);
-    }
     #shufflr-playlist-dropdown {
       display: none;
       position: absolute;
       right: 0;
       bottom: calc(100% + 8px);
+      z-index: 999999;
       min-width: 230px;
       max-width: 280px;
       max-height: 320px;
@@ -2521,24 +2594,6 @@ function injectShufflrStyles() {
     .shufflr-pl-create-confirm:hover {
       box-shadow: 0 0 12px rgba(26,107,255,0.6);
     }
-    #shufflr-status {
-      font-size: 8px;
-      color: #1a6bff;
-      text-align: center;
-      margin-top: 5px;
-      letter-spacing: 1px;
-      min-height: 10px;
-      font-family: monospace;
-      opacity: 0.8;
-    }
-    @keyframes shufflr-pulse {
-      0%, 100% { box-shadow: 0 0 30px rgba(35,168,224,0.8); }
-      50% { box-shadow: 0 0 50px rgba(35,168,224,1); }
-    }
-    @keyframes shufflr-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
     #shufflr-toast {
       position: fixed;
       bottom: 170px;
@@ -2563,24 +2618,85 @@ function injectShufflrStyles() {
   document.head.appendChild(style);
 }
 
-function ensureVideoSwapObserver() {
+function getMaxPlayerControlsContainer() {
+  const forwardBtn = getMaxPlayerSkipForwardButton();
+  if (forwardBtn?.parentElement) return forwardBtn.parentElement;
+  const video = document.querySelector('video');
+  return video?.parentElement || null;
+}
+
+function onPlayerControlsDomMutation() {
   if (!isChromeContextValid()) return;
-  if (window.__shufflrVideoObserver) return;
-  window.__shufflrVideoObserver = new MutationObserver(() => {
+  tryReinjectShufflrPlayerButton();
+  const video = document.querySelector('video');
+  if (video && getShufflrNativeButton()) attachVideoListeners(video);
+}
+
+function attachPlayerControlsObserver() {
+  const container = getMaxPlayerControlsContainer();
+  if (!container) return false;
+
+  if (window.__shufflrPlayerControlsObserved === container) {
+    onPlayerControlsDomMutation();
+    return true;
+  }
+
+  if (window.__shufflrPlayerControlsMO) {
+    window.__shufflrPlayerControlsMO.disconnect();
+    window.__shufflrPlayerControlsMO = null;
+  }
+
+  window.__shufflrPlayerControlsMO = new MutationObserver(() => {
     if (!isChromeContextValid()) return;
-    const video = document.querySelector('video');
-    if (video && document.getElementById('shufflr-wrap')) attachVideoListeners(video);
+    onPlayerControlsDomMutation();
   });
-  window.__shufflrVideoObserver.observe(document.body, { childList: true, subtree: true });
+  window.__shufflrPlayerControlsMO.observe(container, { childList: true, subtree: true });
+  window.__shufflrPlayerControlsObserved = container;
+  onPlayerControlsDomMutation();
+  return true;
+}
+
+function ensurePlayerControlsObserver() {
+  if (!isChromeContextValid()) return;
+
+  if (!window.__shufflrPlayerContainerWatcher) {
+    window.__shufflrPlayerContainerWatcher = new MutationObserver(() => {
+      if (!isChromeContextValid()) return;
+      attachPlayerControlsObserver();
+    });
+    window.__shufflrPlayerContainerWatcher.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  attachPlayerControlsObserver();
+}
+
+function tryReinjectShufflrPlayerButton() {
+  if (!isChromeContextValid()) return;
+  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (!isVideoPage) return;
+  const forwardBtn = getMaxPlayerSkipForwardButton();
+  if (!forwardBtn || getShufflrNativeButton()) return;
+  injectShufflrButton(document.querySelector('video'));
+}
+
+function ensureVideoSwapObserver() {
+  ensurePlayerControlsObserver();
 }
 
 function injectShufflrButton(video) {
   if (!isChromeContextValid()) return;
-  if (document.getElementById('shufflr-wrap')) {
+  if (getShufflrNativeButton()) {
     if (video) attachVideoListeners(video);
     void fullyRestoreArmedShuffleSessionAfterInject();
     return;
   }
+
+  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  const forwardBtn = isVideoPage ? getMaxPlayerSkipForwardButton() : null;
+  if (isVideoPage && !forwardBtn) return;
 
   removeShufflrUI();
   hasInjectedButton = true;
@@ -2589,27 +2705,14 @@ function injectShufflrButton(video) {
 
   const wrap = document.createElement('div');
   wrap.id = 'shufflr-wrap';
-  wrap.innerHTML = `
-    <div id="shufflr-playlist-dropdown">
-      ${renderPlaylistDropdownContent([])}
-    </div>
-    <div id="shufflr-split">
-      <div id="shufflr-btn">
-        <div id="shufflr-inner">
-          <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 3 21 3 21 8"></polyline>
-            <line x1="4" y1="20" x2="21" y2="3"></line>
-            <polyline points="21 16 21 21 16 21"></polyline>
-            <line x1="15" y1="15" x2="21" y2="21"></line>
-          </svg>
-          <span id="shufflr-label">SHUFFLR</span>
-        </div>
-      </div>
-      <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
-    </div>
-    <div id="shufflr-status"></div>
-  `;
-  document.body.appendChild(wrap);
+  wrap.className = forwardBtn ? 'shufflr-player-anchor' : 'shufflr-fallback-anchor';
+  wrap.innerHTML = buildShufflrPlayerButtonMarkup();
+
+  if (forwardBtn) {
+    forwardBtn.insertAdjacentElement('afterend', wrap);
+  } else {
+    document.body.appendChild(wrap);
+  }
 
   if (!document.getElementById('shufflr-toast')) {
     const toast = document.createElement('div');
@@ -2623,8 +2726,8 @@ function injectShufflrButton(video) {
 
   if (video) {
     attachVideoListeners(video);
-    ensureVideoSwapObserver();
   }
+  ensurePlayerControlsObserver();
 
   void fullyRestoreArmedShuffleSessionAfterInject();
 }
@@ -2899,7 +3002,7 @@ async function toggleShuffle() {
   if (!isChromeContextValid()) return;
   if (toggleShuffleInProgress) return;
 
-  const btn = document.getElementById('shufflr-btn');
+  const btn = getShufflrNativeButton();
   const label = document.getElementById('shufflr-label');
   if (!btn || !label) {
     const active = await getActivePlaylistFromStorage();
@@ -3996,6 +4099,7 @@ setTimeout(() => {
   if (!isChromeContextValid()) return;
   handleShowPageShuffle();
   tryInjectButton();
+  ensureVideoSwapObserver();
   startShuffleWatchdog();
   installTimeupdateWatcher();
   installArmedUrlGuard();

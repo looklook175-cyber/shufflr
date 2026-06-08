@@ -459,9 +459,10 @@ body.light-mode .playlist-max-notice-dismiss:hover{background:rgba(0,0,0,0.06);}
   input,button{-webkit-tap-highlight-color:transparent;}
 }
 
-/* Max extension overlay — pass mouse events through to the player */
-#shufflr-wrap,#shufflr-split,#shufflr-status{pointer-events:none;}
-#shufflr-playlist-dropdown,#shufflr-btn,#shufflr-playlist-toggle,
+/* Max extension player-bar button + upward dropdown */
+#shufflr-wrap.shufflr-fallback-anchor{pointer-events:none;}
+#shufflr-wrap.shufflr-fallback-anchor #shufflr-native-btn,
+#shufflr-wrap.shufflr-fallback-anchor #shufflr-playlist-dropdown,
 .shufflr-pl-row,.shufflr-pl-add-btn,.shufflr-pl-create-btn,.shufflr-pl-create-confirm,
 .shufflr-pl-toggle-row,.shufflr-pl-create-input{pointer-events:auto;}
 #loading-screen,#onboarding,#connect-modal,#playlist-modal,#ep-sheet-overlay{pointer-events:none;}
