@@ -1186,14 +1186,15 @@ function renderPlaylistDropdownContent(playlists, settings = {}) {
     const label = `🎬 ${playlist.name || 'Untitled'} (${showCount} show${showCount !== 1 ? 's' : ''})`;
     return `
       <div class="shufflr-pl-row-wrap" data-pl-index="${index}">
-        <div
-          class="shufflr-pl-row shufflr-pl-row-header"
-          data-pl-action="toggle-shows"
-          data-pl-index="${index}"
-          role="button"
-          tabindex="0"
-        >
-          <span class="shufflr-pl-name">${escapePlaylistLabel(label)}</span>
+        <div class="shufflr-pl-row shufflr-pl-row-header" data-pl-index="${index}">
+          <button
+            type="button"
+            class="shufflr-pl-shuffle-btn"
+            data-pl-action="shuffle"
+            data-pl-index="${index}"
+          >
+            <span class="shufflr-pl-name">${escapePlaylistLabel(label)}</span>
+          </button>
           <button
             type="button"
             class="shufflr-pl-shows-toggle"
@@ -2582,21 +2583,19 @@ function onPlaylistDropdownClick(event) {
     return;
   }
 
-  const toggleShows = event.target.closest('[data-pl-action="toggle-shows"]');
+  const toggleShows = event.target.closest('.shufflr-pl-shows-toggle');
   if (toggleShows) {
     event.preventDefault();
+    event.stopPropagation();
     const index = Number(toggleShows.dataset.plIndex);
     if (Number.isFinite(index)) togglePlaylistShowsList(index);
     return;
   }
-}
 
-function onPlaylistRowDoubleClick(event) {
-  const header = event.target.closest('.shufflr-pl-row-header');
-  if (!header) return;
+  const shuffleRow = event.target.closest('[data-pl-action="shuffle"]');
+  if (!shuffleRow) return;
   event.preventDefault();
-  event.stopPropagation();
-  const index = Number(header.dataset.plIndex);
+  const index = Number(shuffleRow.dataset.plIndex);
   const playlist = dropdownPlaylists[index];
   if (playlist) playPlaylistFromDropdown(index);
 }
@@ -2635,8 +2634,6 @@ function bindShufflrButtonHandlers() {
   if (dropdown) {
     dropdown.removeEventListener('click', onPlaylistDropdownClick);
     dropdown.addEventListener('click', onPlaylistDropdownClick);
-    dropdown.removeEventListener('dblclick', onPlaylistRowDoubleClick);
-    dropdown.addEventListener('dblclick', onPlaylistRowDoubleClick);
     dropdown.removeEventListener('change', onPlaylistDropdownChange);
     dropdown.addEventListener('change', onPlaylistDropdownChange);
     dropdown.removeEventListener('keydown', onPlaylistDropdownKeydown);
@@ -2691,6 +2688,7 @@ function injectShufflrStyles() {
     #shufflr-playlist-toggle,
     #shufflr-playlist-dropdown,
     .shufflr-pl-row,
+    .shufflr-pl-shuffle-btn,
     .shufflr-pl-shows-toggle,
     .shufflr-pl-add-btn,
     .shufflr-pl-create-btn,
@@ -2873,6 +2871,24 @@ function injectShufflrStyles() {
       align-items: center;
       justify-content: space-between;
       gap: 6px;
+      padding: 0 6px 0 0;
+      cursor: default;
+    }
+    .shufflr-pl-shuffle-btn {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s ease;
+    }
+    .shufflr-pl-shuffle-btn:hover {
+      background: rgba(26,107,255,0.18);
     }
     .shufflr-pl-row:hover,
     .shufflr-pl-row-header.open {
