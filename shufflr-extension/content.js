@@ -1,0 +1,2384 @@
+// Shufflr — Max Content Script v8
+// Fetches episode lists via Max Bolt CMS API (fast) with DOM-scrape fallback
+
+const SHUFFLR_PENDING_KEY = 'shufflr_pending';
+const SHUFFLR_SHOW_PAGE_KEY = 'shufflr_show_page';
+const SHUFFLR_ACTIVE_PLAYLIST_KEY = 'shufflr_active_playlist';
+const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists';
+const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
+const MAX_WATCH_ORIGIN = 'https://play.max.com';
+const CMS_CAPTURE_KEY = 'shufflr_cms_template';
+const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
+const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
+
+async function syncPlaylistsToWebApp(playlists) {
+  if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
+
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://shufflr-app.netlify.app/*' });
+    await Promise.all(tabs.map(tab => new Promise(resolve => {
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'SHUFFLR_SYNC_PLAYLISTS',
+        payload: playlists,
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('[Shufflr] Web app sync skipped:', chrome.runtime.lastError.message);
+        }
+        resolve();
+      });
+    })));
+  } catch (err) {
+    console.error('[Shufflr] syncPlaylistsToWebApp error:', err);
+  }
+}
+
+async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } = {}) {
+  await new Promise(resolve => {
+    chrome.storage.local.set({ [SHUFFLR_PLAYLISTS_KEY]: playlists }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('[Shufflr] Playlists storage error:', chrome.runtime.lastError.message);
+      }
+      resolve();
+    });
+  });
+  if (syncToWebApp) {
+    await syncPlaylistsToWebApp(playlists);
+  }
+}
+
+function saveActivePlaylistHandoff(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  chrome.storage.local.set({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload }, () => {
+    if (chrome.runtime.lastError) {
+      console.error('[Shufflr] Handoff storage error:', chrome.runtime.lastError.message);
+      return;
+    }
+    console.log('[Shufflr] Active playlist saved to chrome.storage.local');
+  });
+}
+
+function normalizeShowName(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function extractAlternateIdFromWatchUrl(url) {
+  const match = String(url).match(/\/video\/watch\/([^/?#]+)/i)
+    || String(url).match(/\/video\/([^/?#]+)/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function episodeDetailsFromCacheEntry(entry) {
+  if (entry.episodeDetails?.length) return entry.episodeDetails;
+  return (entry.episodes || []).map(url => {
+    const alternateId = extractAlternateIdFromWatchUrl(url);
+    if (!alternateId) return null;
+    return {
+      alternateId,
+      watchUrl: url.startsWith('http') ? url : `https://play.max.com/video/watch/${alternateId}`,
+    };
+  }).filter(Boolean);
+}
+
+async function readEpisodeCacheForShow(showName, tmdbId) {
+  const all = await new Promise(resolve => chrome.storage.local.get(null, resolve));
+  const target = normalizeShowName(showName);
+
+  for (const [key, entry] of Object.entries(all)) {
+    if (!key.startsWith(EPISODE_CACHE_PREFIX)) continue;
+    if (!entry?.cachedAt) continue;
+    if (Date.now() - entry.cachedAt > EPISODE_CACHE_TTL_MS) continue;
+    if (!entry.episodeDetails?.length && !entry.episodes?.length) continue;
+
+    if (entry.tmdbId && tmdbId && entry.tmdbId === tmdbId) {
+      return episodeDetailsFromCacheEntry(entry);
+    }
+    if (entry.showName && target && normalizeShowName(entry.showName) === target) {
+      return episodeDetailsFromCacheEntry(entry);
+    }
+  }
+
+  return [];
+}
+
+function installWebAppHandoffBridge() {
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data?.source !== 'shufflr-web') return;
+
+    if (event.data?.type === 'SHUFFLR_HANDOFF') {
+      saveActivePlaylistHandoff(event.data.payload);
+      return;
+    }
+
+    if (event.data?.type === 'SHUFFLR_SYNC_PLAYLISTS') {
+      setShufflrPlaylistsInStorage(event.data.playlists || [], { syncToWebApp: false }).then(() => {
+        console.log('[Shufflr] Playlists synced to chrome.storage.local');
+      });
+      return;
+    }
+
+    if (event.data?.type === 'SHUFFLR_READ_EPISODE_CACHE') {
+      readEpisodeCacheForShow(event.data.showName, event.data.tmdbId).then(episodeDetails => {
+        window.postMessage({
+          type: 'SHUFFLR_EPISODE_CACHE',
+          source: 'shufflr-extension',
+          requestId: event.data.requestId,
+          episodeDetails,
+        }, '*');
+      });
+    }
+  });
+
+  window.addEventListener('shufflr-handoff', (event) => {
+    saveActivePlaylistHandoff(event.detail);
+  });
+
+  window.addEventListener('shufflr-playlists-sync', (event) => {
+    setShufflrPlaylistsInStorage(event.detail || [], { syncToWebApp: false });
+  });
+
+  console.log('[Shufflr] Web app handoff bridge ready');
+}
+
+if (IS_SHUFFLR_WEB_APP) {
+  installWebAppHandoffBridge();
+} else {
+  installCmsRequestCapture();
+}
+
+let shufflrActive = false;
+let hasInjectedButton = false;
+let toggleShuffleInProgress = false;
+let documentClickBound = false;
+let shuffleWatchdogTimer = null;
+let lastUrl = location.href;
+let knownShowPageUrl = sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
+let shuffleInProgress = false;
+let lastPrefetchedEpisodeUrl = null;
+let prefetchInFlightShowId = null;
+
+function saveShowPageUrl(url) {
+  knownShowPageUrl = url.split('?')[0];
+  sessionStorage.setItem(SHUFFLR_SHOW_PAGE_KEY, knownShowPageUrl);
+}
+
+if (!IS_SHUFFLR_WEB_APP && location.href.includes('/show/')) {
+  saveShowPageUrl(location.href);
+}
+
+// ── URL CHANGE WATCHER ─────────────────────────────────────────────────────
+const urlObserver = new MutationObserver(() => {
+  if (location.href !== lastUrl) {
+    lastUrl = location.href;
+    removeShufflrUI();
+    runShuffleWatchdog();
+    // Save show page URL whenever we visit one
+    if (location.href.includes('/show/')) {
+      saveShowPageUrl(location.href);
+      console.log(`[Shufflr] Saved show page: ${knownShowPageUrl}`);
+      if (sessionStorage.getItem(SHUFFLR_PENDING_KEY)) {
+        setTimeout(handleShowPageShuffle, 500);
+      }
+    }
+    setTimeout(tryInjectButton, 2500);
+  }
+});
+if (!IS_SHUFFLR_WEB_APP) {
+urlObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// ── INJECT SHUFFLE BUTTON ──────────────────────────────────────────────────
+let dropdownPlaylists = [];
+
+function readPlaylistsFromStorage() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(SHUFFLR_PLAYLISTS_KEY, result => {
+      const playlists = result[SHUFFLR_PLAYLISTS_KEY];
+      resolve(Array.isArray(playlists) ? playlists : []);
+    });
+  });
+}
+
+function playlistShowCount(playlist) {
+  return (playlist?.shows || []).length;
+}
+
+function generatePlaylistId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `pl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function renderPlaylistCreateSection() {
+  return `
+    <button type="button" class="shufflr-pl-create-btn" data-pl-action="create">+ Create New Playlist</button>
+    <div class="shufflr-pl-create-form" id="shufflr-pl-create-form" hidden>
+      <input
+        type="text"
+        class="shufflr-pl-create-input"
+        id="shufflr-pl-create-input"
+        placeholder="Playlist name..."
+        maxlength="80"
+        autocomplete="off"
+      />
+      <button type="button" class="shufflr-pl-create-confirm" aria-label="Create playlist">✓</button>
+    </div>
+  `;
+}
+
+function openCreatePlaylistForm() {
+  const form = document.getElementById('shufflr-pl-create-form');
+  const input = document.getElementById('shufflr-pl-create-input');
+  if (!form || !input) return;
+  form.hidden = false;
+  input.value = '';
+  input.focus();
+}
+
+function closeCreatePlaylistForm() {
+  const form = document.getElementById('shufflr-pl-create-form');
+  const input = document.getElementById('shufflr-pl-create-input');
+  if (form) form.hidden = true;
+  if (input) input.value = '';
+}
+
+async function submitCreatePlaylistForm() {
+  const input = document.getElementById('shufflr-pl-create-input');
+  const name = input?.value?.trim();
+  if (!name) {
+    showToast('Enter a playlist name');
+    input?.focus();
+    return;
+  }
+
+  const uuid = getCurrentMaxShowUuid();
+  if (!uuid) {
+    showToast('Could not find show ID');
+    return;
+  }
+
+  const title = getCurrentShowTitle();
+  const playlists = await readPlaylistsFromStorage();
+  playlists.push({
+    id: generatePlaylistId(),
+    name,
+    shows: [{ title, maxId: uuid }],
+    episodes: [],
+  });
+
+  await writePlaylistsToStorage(playlists);
+  showToast('Playlist created & show added');
+  closeCreatePlaylistForm();
+  await populatePlaylistDropdown();
+}
+
+function escapePlaylistLabel(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function closePlaylistDropdown() {
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
+  const toggle = document.getElementById('shufflr-playlist-toggle');
+  if (dropdown) dropdown.classList.remove('open');
+  if (toggle) toggle.classList.remove('open');
+}
+
+function togglePlaylistDropdown(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
+  const toggle = document.getElementById('shufflr-playlist-toggle');
+  if (!dropdown || !toggle) return;
+  const willOpen = !dropdown.classList.contains('open');
+  closePlaylistDropdown();
+  if (willOpen) {
+    populatePlaylistDropdown().then(() => {
+      dropdown.classList.add('open');
+      toggle.classList.add('open');
+    });
+  }
+}
+
+function renderPlaylistDropdownContent(playlists) {
+  const emptyMessage = 'No playlists yet — create one below';
+
+  if (!playlists.length) {
+    return `
+      <div class="shufflr-pl-section">
+        <div class="shufflr-pl-section-header">SMART SHUFFLE</div>
+        <button type="button" class="shufflr-pl-row shufflr-pl-empty" disabled>${emptyMessage}</button>
+      </div>
+      <div class="shufflr-pl-divider"></div>
+      <div class="shufflr-pl-section">
+        <div class="shufflr-pl-section-header">ADD TO PLAYLIST</div>
+        ${renderPlaylistCreateSection()}
+      </div>
+    `;
+  }
+
+  const shuffleRows = playlists.map((playlist, index) => {
+    const showCount = playlistShowCount(playlist);
+    const label = `🎬 ${playlist.name || 'Untitled'} (${showCount} show${showCount !== 1 ? 's' : ''})`;
+    return `
+      <button type="button" class="shufflr-pl-row" data-pl-action="shuffle" data-pl-index="${index}">
+        <span class="shufflr-pl-name">${escapePlaylistLabel(label)}</span>
+      </button>
+    `;
+  }).join('');
+
+  const addRows = playlists.map((playlist, index) => `
+    <div class="shufflr-pl-add-row" data-pl-index="${index}">
+      <span class="shufflr-pl-add-name">${escapePlaylistLabel(playlist.name || 'Untitled')}</span>
+      <button
+        type="button"
+        class="shufflr-pl-add-btn"
+        data-pl-index="${index}"
+        aria-label="Add current show to ${escapePlaylistLabel(playlist.name || 'Untitled')}"
+      >+</button>
+    </div>
+  `).join('');
+
+  return `
+    <div class="shufflr-pl-section">
+      <div class="shufflr-pl-section-header">SMART SHUFFLE</div>
+      ${shuffleRows}
+    </div>
+    <div class="shufflr-pl-divider"></div>
+    <div class="shufflr-pl-section">
+      <div class="shufflr-pl-section-header">ADD TO PLAYLIST</div>
+      ${addRows}
+      ${renderPlaylistCreateSection()}
+    </div>
+  `;
+}
+
+function extractMaxShowUuidFromUrl(url) {
+  if (!url || !String(url).includes('/show/')) return null;
+  const match = String(url).match(
+    /\/show\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+  );
+  return match ? match[1] : null;
+}
+
+function getCurrentMaxShowUuid() {
+  const fromLocation = extractMaxShowUuidFromUrl(location.href);
+  if (fromLocation) return fromLocation;
+
+  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
+  return extractMaxShowUuidFromUrl(showPage);
+}
+
+function getCurrentShowTitle() {
+  const h1 = document.querySelector('h1');
+  if (h1?.textContent?.trim()) return h1.textContent.trim();
+
+  const videoTitleSelectors = [
+    '[data-testid="play-page-title"]',
+    '[data-testid="title"]',
+    'h2[data-testid]',
+    '[class*="VideoTitle"]',
+    '[class*="video-title"]',
+    'meta[property="og:title"]',
+  ];
+
+  for (const selector of videoTitleSelectors) {
+    const el = document.querySelector(selector);
+    if (!el) continue;
+    const raw = el.getAttribute?.('content') || el.textContent;
+    const text = raw?.trim();
+    if (text) return text.split('|')[0].trim();
+  }
+
+  return 'Unknown Show';
+}
+
+async function writePlaylistsToStorage(playlists) {
+  dropdownPlaylists = playlists;
+  await setShufflrPlaylistsInStorage(playlists, { syncToWebApp: true });
+}
+
+async function addCurrentShowToPlaylist(playlistIndex) {
+  const uuid = getCurrentMaxShowUuid();
+  if (!uuid) {
+    showToast('Could not find show ID');
+    return;
+  }
+
+  const title = getCurrentShowTitle();
+  const playlists = await readPlaylistsFromStorage();
+  const playlist = playlists[playlistIndex];
+  if (!playlist) {
+    showToast('Playlist not found');
+    return;
+  }
+
+  if (!playlist.shows) playlist.shows = [];
+
+  const alreadyAdded = playlist.shows.some(show => (
+    show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
+  ));
+  if (alreadyAdded) {
+    showToast(`Already in ${playlist.name || 'playlist'}`);
+    return;
+  }
+
+  playlist.shows.push({ title, maxId: uuid });
+  await writePlaylistsToStorage(playlists);
+  showToast(`Added ${title} to ${playlist.name || 'playlist'}`);
+
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
+  if (dropdown?.classList.contains('open')) {
+    await populatePlaylistDropdown();
+  }
+}
+
+async function populatePlaylistDropdown() {
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
+  if (!dropdown) return;
+  dropdownPlaylists = await readPlaylistsFromStorage();
+  dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists);
+}
+
+function smartShuffleEpKey(seasonNum, epNum) {
+  return `s${seasonNum}e${epNum}`;
+}
+
+function episodeCacheId(ep) {
+  if (ep.seasonNum != null && ep.episode_number != null) {
+    return smartShuffleEpKey(ep.seasonNum, ep.episode_number);
+  }
+  if (ep.alternateId) return `alt-${ep.alternateId}`;
+  return null;
+}
+
+function serializePlayedByShow(playedByShow) {
+  const out = {};
+  Object.keys(playedByShow).forEach(showId => {
+    out[showId] = [...(playedByShow[showId] || [])];
+  });
+  return out;
+}
+
+function deserializePlayedByShow(serialized) {
+  const out = {};
+  if (!serialized || typeof serialized !== 'object') return out;
+  Object.keys(serialized).forEach(showId => {
+    out[showId] = new Set(serialized[showId] || []);
+  });
+  return out;
+}
+
+const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function normalizeMaxId(id) {
+  return id == null || id === '' ? '' : String(id).toLowerCase();
+}
+
+function getPlaylistShowMaxId(show) {
+  const explicit = show?.maxId || show?.maxShowId || show?.max_id;
+  if (explicit) return String(explicit);
+
+  const id = show?.id;
+  if (typeof id === 'string' && MAX_SHOW_UUID_RE.test(id)) return id;
+  return null;
+}
+
+function getPlaylistShowTitle(show) {
+  return show?.title || show?.name || show?.original_name || 'Untitled';
+}
+
+function getPlaylistMaxIds(playlist) {
+  return new Set(
+    (playlist?.shows || [])
+      .map(getPlaylistShowMaxId)
+      .filter(Boolean)
+      .map(normalizeMaxId)
+  );
+}
+
+function filterEnrichedToPlaylist(enriched, playlist) {
+  const allowedMaxIds = getPlaylistMaxIds(playlist);
+  return enriched.filter(show => allowedMaxIds.has(normalizeMaxId(show.id)));
+}
+
+async function resolvePlaylistForShuffle(activePayload) {
+  const playlists = await readPlaylistsFromStorage();
+  const index = activePayload?.playlistIndex;
+  const name = String(activePayload?.playlistName || '');
+
+  if (Number.isFinite(index) && index >= 0 && playlists[index]) {
+    const byIndex = playlists[index];
+    if (!name || (byIndex.name || '') === name) return byIndex;
+  }
+
+  if (name) {
+    const byName = playlists.find(playlist => (playlist.name || '') === name);
+    if (byName) return byName;
+  }
+
+  return {
+    name: activePayload?.playlistName || '',
+    shows: activePayload?.shows || [],
+    episodes: activePayload?.episodes || [],
+  };
+}
+
+function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds = null) {
+  let availableShows = enrichedShows.filter(show => show.episodes?.length);
+  if (allowedMaxIds?.size) {
+    availableShows = availableShows.filter(show => allowedMaxIds.has(normalizeMaxId(show.id)));
+  }
+
+  let candidates = [];
+
+  for (const show of availableShows) {
+    const showId = String(show.id);
+    if (!playedByShow[showId]) playedByShow[showId] = new Set();
+
+    let unplayed = show.episodes.filter(ep => !playedByShow[showId].has(ep.id));
+    if (!unplayed.length) {
+      playedByShow[showId].clear();
+      unplayed = show.episodes;
+    }
+
+    if (String(show.id) !== String(lastPlayedShow)) {
+      candidates = candidates.concat(unplayed.map(ep => ({ ...ep, showId: show.id })));
+    }
+  }
+
+  if (!candidates.length) {
+    candidates = availableShows.flatMap(show => (
+      show.episodes.map(ep => ({ ...ep, showId: show.id }))
+    ));
+  }
+
+  if (allowedMaxIds?.size) {
+    candidates = candidates.filter(ep => allowedMaxIds.has(normalizeMaxId(ep.showId)));
+  }
+
+  if (!candidates.length) return null;
+
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  const pickShowId = String(pick.showId);
+  if (!playedByShow[pickShowId]) playedByShow[pickShowId] = new Set();
+  playedByShow[pickShowId].add(pick.id);
+  return { pick, lastPlayedShow: pickShowId };
+}
+
+async function getEpisodeDetailsForPlaylistShow(show) {
+  const maxId = getPlaylistShowMaxId(show);
+  if (!maxId) return [];
+
+  const entry = await getCachedEpisodeEntry(maxId);
+  if (entry) return episodeDetailsFromCacheEntry(entry);
+  return [];
+}
+
+async function buildEnrichedPlaylistFromCache(playlist) {
+  const allowedMaxIds = getPlaylistMaxIds(playlist);
+  const shows = (playlist?.shows || []).filter(show => {
+    const maxId = getPlaylistShowMaxId(show);
+    return maxId && allowedMaxIds.has(normalizeMaxId(maxId));
+  });
+  const enriched = [];
+
+  for (const show of shows) {
+    const maxId = String(getPlaylistShowMaxId(show));
+    const details = await getEpisodeDetailsForPlaylistShow(show);
+    const episodes = details.map(ep => {
+      const id = episodeCacheId(ep);
+      if (!id || !ep.alternateId) return null;
+      return {
+        id,
+        showId: maxId,
+        showName: getPlaylistShowTitle(show),
+        seasonNum: ep.seasonNum,
+        episode_number: ep.episode_number,
+        alternateId: String(ep.alternateId),
+        watchUrl: ep.watchUrl || `${MAX_WATCH_ORIGIN}/video/watch/${ep.alternateId}`,
+        name: ep.name || '',
+      };
+    }).filter(Boolean);
+
+    if (episodes.length) {
+      enriched.push({
+        id: maxId,
+        name: getPlaylistShowTitle(show),
+        episodes,
+      });
+    }
+  }
+
+  return enriched;
+}
+
+async function loadEpisodeStateForPlaylist(playlist, playlistIndex) {
+  const stored = await storageLocalGet(SHUFFLR_EPISODE_STATE_KEY);
+  if (
+    stored
+    && stored.playlistIndex === playlistIndex
+    && stored.playlistName === (playlist.name || '')
+  ) {
+    return {
+      playedByShow: deserializePlayedByShow(stored.playedByShow),
+      lastPlayedShow: stored.lastPlayedShow || null,
+    };
+  }
+
+  return { playedByShow: {}, lastPlayedShow: null };
+}
+
+async function hasEpisodeCacheForPlaylistShow(show) {
+  const details = await getEpisodeDetailsForPlaylistShow(show);
+  return details.length > 0;
+}
+
+async function findShowsMissingCache(shows) {
+  const checks = await Promise.all(shows.map(async show => ({
+    show,
+    missing: !(await hasEpisodeCacheForPlaylistShow(show)),
+  })));
+  return checks.filter(entry => entry.missing).map(entry => entry.show);
+}
+
+function showHasMaxId(show) {
+  return !!getPlaylistShowMaxId(show);
+}
+
+function preparePlaylistForShuffle(playlist) {
+  const allShows = playlist?.shows || [];
+  const validShows = allShows.filter(showHasMaxId);
+  const skippedCount = allShows.length - validShows.length;
+
+  if (skippedCount > 0) {
+    showToast(`${skippedCount} show${skippedCount !== 1 ? 's' : ''} skipped — add them from Max using +`);
+  }
+
+  return {
+    ...playlist,
+    shows: validShows,
+  };
+}
+
+async function fetchAndCachePlaylistShow(show) {
+  const label = show.name || show.title || 'show';
+  try {
+    const maxId = getPlaylistShowMaxId(show);
+    if (!maxId) return { show, success: false };
+
+    const episodes = await collectEpisodesViaMaxShowId(
+      maxId,
+      getPlaylistShowTitle(show),
+      show.id
+    );
+    if (!episodes?.length) {
+      console.log(`[Shufflr] No episodes returned for "${label}"`);
+      return { show, success: false };
+    }
+
+    return { show, success: true };
+  } catch (err) {
+    console.log(`[Shufflr] Episode fetch failed for "${label}":`, err);
+    return { show, success: false };
+  }
+}
+
+async function prefetchMissingPlaylistShows(shows) {
+  const missing = await findShowsMissingCache(shows);
+  if (!missing.length) return { fetched: 0, failed: 0 };
+
+  showToast(`Loading ${missing.length} show${missing.length !== 1 ? 's' : ''}...`);
+  const results = await Promise.all(missing.map(show => fetchAndCachePlaylistShow(show)));
+  return {
+    fetched: results.filter(result => result.success).length,
+    failed: results.filter(result => !result.success).length,
+  };
+}
+
+async function saveArmedActivePlaylist(playlist, playlistIndex) {
+  const payload = {
+    armed: true,
+    playlistName: playlist.name || '',
+    playlistIndex,
+    shows: [...(playlist.shows || [])],
+    episodes: [...(playlist.episodes || [])],
+    selectedService: 'max',
+    sessionStartedAt: Date.now(),
+  };
+
+  await new Promise(resolve => {
+    chrome.storage.local.set({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('[Shufflr] Armed playlist storage error:', chrome.runtime.lastError.message);
+      } else {
+        console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
+      }
+      resolve();
+    });
+  });
+}
+
+async function clearActivePlaylist() {
+  await new Promise(resolve => {
+    chrome.storage.local.remove(SHUFFLR_ACTIVE_PLAYLIST_KEY, resolve);
+  });
+}
+
+async function getActivePlaylistFromStorage() {
+  return storageLocalGet(SHUFFLR_ACTIVE_PLAYLIST_KEY);
+}
+
+function updateShuffleUI(playlistName) {
+  const btn = document.getElementById('shufflr-btn');
+  const label = document.getElementById('shufflr-label');
+  const status = document.getElementById('shufflr-status');
+  if (!btn || !label || !status) return;
+
+  if (shufflrActive) {
+    btn.classList.add('active');
+    label.textContent = 'ON';
+    status.textContent = playlistName
+      ? playlistName.toUpperCase().slice(0, 24)
+      : 'WAITING FOR EP END...';
+  } else {
+    btn.classList.remove('active');
+    label.textContent = 'SHUFFLR';
+    status.textContent = '';
+  }
+}
+
+async function syncShuffleUIFromStorage() {
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+  shufflrActive = true;
+  updateShuffleUI(active.playlistName || '');
+}
+
+async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex) {
+  const watchUrl = `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
+  const activePayload = {
+    armed: true,
+    playlistName: playlist.name || '',
+    playlistIndex,
+    shows: [...(playlist.shows || [])],
+    episodes: [...(playlist.episodes || [])],
+    selectedService: 'max',
+    currentEpisode: {
+      showId: pick.showId,
+      showName: pick.showName,
+      seasonNum: pick.seasonNum,
+      episode_number: pick.episode_number,
+      name: pick.name,
+      id: pick.id,
+      alternateId: pick.alternateId,
+    },
+    currentEpisodeUrl: watchUrl,
+    sessionStartedAt: Date.now(),
+  };
+  const episodeState = {
+    playedByShow: serializePlayedByShow(playedByShow),
+    lastPlayedShow,
+    playlistName: playlist.name || '',
+    playlistIndex,
+  };
+
+  await new Promise(resolve => {
+    chrome.storage.local.set({
+      [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
+      [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('[Shufflr] Playlist shuffle storage error:', chrome.runtime.lastError.message);
+      } else {
+        console.log('[Shufflr] Saved active playlist + episode state');
+      }
+      resolve();
+    });
+  });
+}
+
+async function shuffleFromActivePlaylist(activePayload) {
+  const sourcePlaylist = await resolvePlaylistForShuffle(activePayload);
+  const playlistIndex = activePayload.playlistIndex ?? 0;
+  const status = document.getElementById('shufflr-status');
+
+  const preparedPlaylist = preparePlaylistForShuffle(sourcePlaylist);
+  if (!preparedPlaylist.shows.length) {
+    showToast('No shows with Max ID — add shows using +');
+    if (status) status.textContent = 'NO MAX SHOWS';
+    return;
+  }
+
+  const allowedMaxIds = getPlaylistMaxIds(preparedPlaylist);
+
+  if (status) status.textContent = 'SMART SHUFFLE...';
+  showToast('Smart Shuffle...');
+
+  await prefetchMissingPlaylistShows(preparedPlaylist.shows);
+
+  const enriched = await buildEnrichedPlaylistFromCache(preparedPlaylist);
+  const playlistShows = filterEnrichedToPlaylist(enriched, preparedPlaylist);
+  console.log(
+    `[Shufflr] Smart Shuffle — playlist "${preparedPlaylist.name || 'Untitled'}": ` +
+    `allowed maxIds [${[...allowedMaxIds].join(', ')}], ` +
+    `picking from [${playlistShows.map(show => show.name).join(', ')}]`
+  );
+
+  if (!playlistShows.length) {
+    showToast('Could not load episodes for this playlist');
+    if (status) status.textContent = 'NO EPISODES';
+    return;
+  }
+
+  const { playedByShow, lastPlayedShow } = await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
+  const result = smartShuffle(playlistShows, playedByShow, lastPlayedShow, allowedMaxIds);
+  if (!result?.pick?.alternateId) {
+    showToast('No episodes found');
+    if (status) status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || 'NO EPISODES';
+    return;
+  }
+
+  const { pick, lastPlayedShow: newLast } = result;
+  await savePlaylistShuffleState(preparedPlaylist, pick, playedByShow, newLast, playlistIndex);
+
+  const label = (pick.showName || 'Show').slice(0, 24);
+  showToast(`Playing: ${label}`);
+  if (status) status.textContent = label.toUpperCase().slice(0, 24);
+  location.href = `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
+}
+
+async function armPlaylistFromDropdown(playlistIndex) {
+  const playlists = await readPlaylistsFromStorage();
+  dropdownPlaylists = playlists;
+  const playlist = playlists[playlistIndex];
+  if (!playlist) return;
+
+  const shows = playlist.shows || [];
+  if (!shows.length) {
+    showToast('No shows in this playlist');
+    return;
+  }
+
+  closePlaylistDropdown();
+
+  const preparedPlaylist = preparePlaylistForShuffle(playlist);
+  if (!preparedPlaylist.shows.length) {
+    showToast('No shows with Max ID — add shows using +');
+    return;
+  }
+
+  await prefetchMissingPlaylistShows(preparedPlaylist.shows);
+  await saveArmedActivePlaylist(preparedPlaylist, playlistIndex);
+
+  shufflrActive = true;
+  const playlistName = preparedPlaylist.name || 'Untitled';
+  updateShuffleUI(playlistName);
+  showToast(`Playlist: ${playlistName} — will shuffle when episode ends`);
+}
+
+async function playPlaylistFromDropdown(playlistIndex) {
+  await armPlaylistFromDropdown(playlistIndex);
+}
+
+function tryInjectButton() {
+  if (hasInjectedButton && document.getElementById('shufflr-wrap')) return;
+  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  const isShowPage = location.href.includes('/show/');
+  if (!isVideoPage && !isShowPage) return;
+
+  if (isShowPage) {
+    saveShowPageUrl(location.href);
+    injectShufflrButton(null);
+    return;
+  }
+
+  // Save show page from referrer if we don't have it yet
+  if (!knownShowPageUrl && document.referrer.includes('/show/')) {
+    saveShowPageUrl(document.referrer);
+    console.log(`[Shufflr] Got show page from referrer: ${knownShowPageUrl}`);
+  }
+  const video = document.querySelector('video');
+  if (!video) { setTimeout(tryInjectButton, 1500); return; }
+  injectShufflrButton(video);
+  prefetchEpisodeList();
+}
+
+async function resetShuffleState(options = {}) {
+  const { clearStorage = true } = options;
+  shufflrActive = false;
+  toggleShuffleInProgress = false;
+  try {
+    if (clearStorage) await clearActivePlaylist();
+  } catch (err) {
+    console.error('[Shufflr] resetShuffleState storage error:', err);
+  }
+  updateShuffleUI('');
+  closePlaylistDropdown();
+}
+
+function runShuffleWatchdog() {
+  if (!shufflrActive) return;
+
+  const btn = document.getElementById('shufflr-btn');
+  if (!btn) {
+    console.log('[Shufflr] Watchdog: button missing — resetting');
+    resetShuffleState({ clearStorage: false });
+    return;
+  }
+
+  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (isVideoPage && !document.querySelector('video')) {
+    console.log('[Shufflr] Watchdog: active on video page with no video — resetting');
+    resetShuffleState({ clearStorage: false });
+  }
+}
+
+function startShuffleWatchdog() {
+  if (shuffleWatchdogTimer) return;
+  shuffleWatchdogTimer = setInterval(runShuffleWatchdog, 2000);
+}
+
+function removeShufflrUI() {
+  document.getElementById('shufflr-wrap')?.remove();
+  document.getElementById('shufflr-toast')?.remove();
+  hasInjectedButton = false;
+}
+
+function onShuffleBtnClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  toggleShuffle();
+}
+
+function onPlaylistDropdownClick(event) {
+  event.stopPropagation();
+
+  const createBtn = event.target.closest('[data-pl-action="create"]');
+  if (createBtn) {
+    event.preventDefault();
+    openCreatePlaylistForm();
+    return;
+  }
+
+  const confirmBtn = event.target.closest('.shufflr-pl-create-confirm');
+  if (confirmBtn) {
+    event.preventDefault();
+    submitCreatePlaylistForm();
+    return;
+  }
+
+  const addBtn = event.target.closest('.shufflr-pl-add-btn');
+  if (addBtn) {
+    event.preventDefault();
+    addCurrentShowToPlaylist(Number(addBtn.dataset.plIndex));
+    return;
+  }
+
+  const shuffleRow = event.target.closest('.shufflr-pl-row[data-pl-action="shuffle"]');
+  if (!shuffleRow || shuffleRow.disabled || shuffleRow.classList.contains('shufflr-pl-empty')) return;
+  const index = Number(shuffleRow.dataset.plIndex);
+  const playlist = dropdownPlaylists[index];
+  if (playlist) playPlaylistFromDropdown(index);
+}
+
+function onPlaylistDropdownKeydown(event) {
+  if (event.key !== 'Enter') return;
+  const input = event.target.closest('#shufflr-pl-create-input');
+  if (!input) return;
+  event.preventDefault();
+  event.stopPropagation();
+  submitCreatePlaylistForm();
+}
+
+function bindShufflrButtonHandlers() {
+  const shuffleBtn = document.getElementById('shufflr-btn');
+  const playlistToggle = document.getElementById('shufflr-playlist-toggle');
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
+
+  if (shuffleBtn) {
+    shuffleBtn.removeEventListener('click', onShuffleBtnClick);
+    shuffleBtn.addEventListener('click', onShuffleBtnClick);
+  }
+
+  if (playlistToggle) {
+    playlistToggle.removeEventListener('click', togglePlaylistDropdown);
+    playlistToggle.addEventListener('click', togglePlaylistDropdown);
+  }
+
+  if (dropdown) {
+    dropdown.removeEventListener('click', onPlaylistDropdownClick);
+    dropdown.addEventListener('click', onPlaylistDropdownClick);
+    dropdown.removeEventListener('keydown', onPlaylistDropdownKeydown);
+    dropdown.addEventListener('keydown', onPlaylistDropdownKeydown);
+  }
+
+  if (!documentClickBound) {
+    document.addEventListener('click', closePlaylistDropdown);
+    documentClickBound = true;
+  }
+}
+
+function injectShufflrStyles() {
+  if (document.getElementById('shufflr-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'shufflr-styles';
+  style.textContent = `
+    #shufflr-wrap {
+      position: fixed;
+      bottom: 90px;
+      right: 24px;
+      z-index: 999999;
+      user-select: none;
+    }
+    #shufflr-split {
+      display: flex;
+      align-items: stretch;
+    }
+    #shufflr-btn {
+      cursor: pointer;
+      flex: 1;
+    }
+    #shufflr-inner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 100%;
+      box-sizing: border-box;
+      background: rgba(0,0,0,0.85);
+      border: 2px solid #1a6bff;
+      border-right: 1px solid rgba(26,107,255,0.35);
+      border-radius: 12px 0 0 12px;
+      padding: 10px 16px;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      box-shadow: 0 0 20px rgba(26,107,255,0.4);
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+    }
+    #shufflr-btn:hover #shufflr-inner {
+      background: #1a6bff;
+      color: #000;
+      box-shadow: 0 0 30px rgba(26,107,255,0.7);
+      transform: scale(1.04);
+      transform-origin: center right;
+    }
+    #shufflr-btn.active #shufflr-inner {
+      background: #1a6bff;
+      color: #000;
+      box-shadow: 0 0 30px rgba(26,107,255,0.8);
+      animation: shufflr-pulse 2s infinite;
+    }
+    #shufflr-btn.active #shufflr-icon {
+      animation: shufflr-spin 1.5s linear infinite;
+    }
+    #shufflr-playlist-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 34px;
+      padding: 0 10px;
+      background: rgba(0,0,0,0.85);
+      border: 2px solid #1a6bff;
+      border-left: none;
+      border-radius: 0 12px 12px 0;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 0 20px rgba(26,107,255,0.4);
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+    }
+    #shufflr-playlist-toggle:hover,
+    #shufflr-playlist-toggle.open {
+      background: #1a6bff;
+      color: #000;
+      box-shadow: 0 0 30px rgba(26,107,255,0.7);
+    }
+    #shufflr-playlist-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 8px);
+      min-width: 230px;
+      max-width: 280px;
+      max-height: 320px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.92);
+      border: 2px solid #1a6bff;
+      border-radius: 10px;
+      padding: 6px;
+      box-shadow: 0 0 24px rgba(26,107,255,0.35);
+      backdrop-filter: blur(10px);
+    }
+    #shufflr-playlist-dropdown.open {
+      display: block;
+    }
+    .shufflr-pl-section {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .shufflr-pl-section-header {
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 8px;
+      letter-spacing: 1.5px;
+      padding: 6px 10px 4px;
+      opacity: 0.9;
+    }
+    .shufflr-pl-divider {
+      height: 1px;
+      margin: 6px 4px;
+      background: rgba(26,107,255,0.25);
+    }
+    .shufflr-pl-row {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 3px;
+      width: 100%;
+      padding: 10px 12px;
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s ease;
+    }
+    .shufflr-pl-row:hover {
+      background: rgba(26,107,255,0.18);
+    }
+    .shufflr-pl-row:disabled,
+    .shufflr-pl-row.shufflr-pl-empty {
+      cursor: default;
+      opacity: 0.65;
+    }
+    .shufflr-pl-row:disabled:hover,
+    .shufflr-pl-row.shufflr-pl-empty:hover {
+      background: transparent;
+    }
+    .shufflr-pl-name {
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+    .shufflr-pl-count {
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 9px;
+      letter-spacing: 1px;
+      opacity: 0.85;
+    }
+    .shufflr-pl-add-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 7px;
+      transition: background 0.15s ease;
+    }
+    .shufflr-pl-add-row:hover {
+      background: rgba(26,107,255,0.12);
+    }
+    .shufflr-pl-add-name {
+      flex: 1;
+      min-width: 0;
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .shufflr-pl-add-btn {
+      flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid #1a6bff;
+      border-radius: 6px;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .shufflr-pl-add-btn:hover {
+      background: #1a6bff;
+      color: #000;
+    }
+    .shufflr-pl-create-btn {
+      width: 100%;
+      margin-top: 4px;
+      padding: 10px 12px;
+      background: transparent;
+      border: 1px dashed rgba(26,107,255,0.45);
+      border-radius: 7px;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+    .shufflr-pl-create-btn:hover {
+      background: rgba(26,107,255,0.18);
+    }
+    .shufflr-pl-create-form {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .shufflr-pl-create-form[hidden] {
+      display: none !important;
+    }
+    .shufflr-pl-create-input {
+      flex: 1;
+      min-width: 0;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(26,107,255,0.45);
+      border-radius: 6px;
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      outline: none;
+    }
+    .shufflr-pl-create-input:focus {
+      border-color: #1a6bff;
+      box-shadow: 0 0 0 2px rgba(26,107,255,0.2);
+    }
+    .shufflr-pl-create-input::placeholder {
+      color: rgba(255,255,255,0.35);
+    }
+    .shufflr-pl-create-confirm {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1a6bff;
+      border: none;
+      border-radius: 6px;
+      color: #000;
+      font-family: monospace;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .shufflr-pl-create-confirm:hover {
+      box-shadow: 0 0 12px rgba(26,107,255,0.6);
+    }
+    #shufflr-status {
+      font-size: 8px;
+      color: #1a6bff;
+      text-align: center;
+      margin-top: 5px;
+      letter-spacing: 1px;
+      min-height: 10px;
+      font-family: monospace;
+      opacity: 0.8;
+    }
+    @keyframes shufflr-pulse {
+      0%, 100% { box-shadow: 0 0 30px rgba(26,107,255,0.8); }
+      50% { box-shadow: 0 0 50px rgba(26,107,255,1); }
+    }
+    @keyframes shufflr-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    #shufflr-toast {
+      position: fixed;
+      bottom: 170px;
+      right: 24px;
+      z-index: 999999;
+      background: rgba(0,0,0,0.9);
+      border: 1px solid #1a6bff;
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.3s ease;
+      pointer-events: none;
+      max-width: 240px;
+      line-height: 1.6;
+    }
+    #shufflr-toast.show { opacity: 1; transform: translateY(0); }
+  `;
+  document.head.appendChild(style);
+}
+
+function injectShufflrButton(video) {
+  if (hasInjectedButton && document.getElementById('shufflr-wrap')) return;
+
+  removeShufflrUI();
+  hasInjectedButton = true;
+
+  injectShufflrStyles();
+
+  const wrap = document.createElement('div');
+  wrap.id = 'shufflr-wrap';
+  wrap.innerHTML = `
+    <div id="shufflr-playlist-dropdown">
+      ${renderPlaylistDropdownContent([])}
+    </div>
+    <div id="shufflr-split">
+      <div id="shufflr-btn">
+        <div id="shufflr-inner">
+          <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <line x1="4" y1="20" x2="21" y2="3"></line>
+            <polyline points="21 16 21 21 16 21"></polyline>
+            <line x1="15" y1="15" x2="21" y2="21"></line>
+          </svg>
+          <span id="shufflr-label">SHUFFLR</span>
+        </div>
+      </div>
+      <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▾</button>
+    </div>
+    <div id="shufflr-status"></div>
+  `;
+  document.body.appendChild(wrap);
+
+  if (!document.getElementById('shufflr-toast')) {
+    const toast = document.createElement('div');
+    toast.id = 'shufflr-toast';
+    document.body.appendChild(toast);
+  }
+
+  bindShufflrButtonHandlers();
+  startShuffleWatchdog();
+
+  if (video) {
+    attachVideoListeners(video);
+
+    // Re-attach if video element is swapped out
+    new MutationObserver(() => {
+      const v = document.querySelector('video');
+      if (v) attachVideoListeners(v);
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+
+  syncShuffleUIFromStorage();
+}
+
+function attachVideoListeners(video) {
+  if (!video) return;
+  video.removeEventListener('ended', onEpisodeEnded);
+  video.addEventListener('ended', onEpisodeEnded);
+  video.removeEventListener('timeupdate', onTimeUpdate);
+  video.addEventListener('timeupdate', onTimeUpdate);
+  video.removeEventListener('playing', onVideoPlaying);
+  video.addEventListener('playing', onVideoPlaying);
+}
+
+function onVideoPlaying() {
+  prefetchEpisodeList();
+}
+
+// ── TOGGLE ─────────────────────────────────────────────────────────────────
+async function toggleShuffle() {
+  if (toggleShuffleInProgress) return;
+
+  const btn = document.getElementById('shufflr-btn');
+  const label = document.getElementById('shufflr-label');
+  if (!btn || !label) {
+    await resetShuffleState();
+    return;
+  }
+
+  toggleShuffleInProgress = true;
+  const turningOn = !shufflrActive;
+
+  try {
+    shufflrActive = turningOn;
+
+    if (turningOn) {
+      btn.classList.add('active');
+      label.textContent = 'ON';
+      const active = await getActivePlaylistFromStorage();
+      if (active?.armed && active.playlistName) {
+        updateShuffleUI(active.playlistName);
+        showToast(`Playlist: ${active.playlistName} — will shuffle when episode ends`);
+      } else {
+        updateShuffleUI('');
+        showToast('Shufflr ON — will shuffle when episode ends');
+      }
+    } else {
+      await clearActivePlaylist();
+      updateShuffleUI('');
+      showToast('Shufflr OFF');
+    }
+  } catch (err) {
+    console.error('[Shufflr] toggleShuffle error:', err);
+    await resetShuffleState();
+    showToast('Shufflr reset — tap again');
+  } finally {
+    toggleShuffleInProgress = false;
+  }
+}
+
+// ── VIDEO EVENTS ────────────────────────────────────────────────────────────
+function onTimeUpdate() {
+  if (!shufflrActive) return;
+  const video = document.querySelector('video');
+  if (!video || !video.duration) return;
+  const remaining = video.duration - video.currentTime;
+  const status = document.getElementById('shufflr-status');
+  if (status && remaining < 30 && remaining > 3) {
+    status.textContent = `SHUFFLING IN ${Math.floor(remaining)}s...`;
+  }
+}
+
+async function onEpisodeEnded() {
+  if (!shufflrActive) return;
+  const active = await getActivePlaylistFromStorage();
+  if (active?.armed) {
+    await shuffleFromActivePlaylist(active);
+    return;
+  }
+  shuffleToRandomEpisode();
+}
+
+// ── BOLT CMS API (default.*.prd.api.hbomax.com) ─────────────────────────────
+const CMS_HEADER_KEYS = [
+  'x-device-info',
+  'x-disco-client',
+  'x-disco-params',
+  'x-wbd-device-consent',
+  'x-wbd-preferred-language',
+  'x-wbd-session-state',
+  'x-wbd-time-zone',
+];
+
+function installCmsRequestCapture() {
+  if (window.__shufflrCmsCapture) return;
+  window.__shufflrCmsCapture = true;
+
+  const saveFromUrl = (url, headers) => {
+    const match = url.match(/^(https:\/\/default\.[^/]+\.api\.hbomax\.com)\/cms\/collections\/(\d+)\?(.+)/);
+    if (!match) return;
+
+    const params = new URLSearchParams(match[3]);
+    params.delete('pf[show.id]');
+    params.delete('pf[seasonNumber]');
+
+    const captured = {
+      apiOrigin: match[1],
+      collectionId: match[2],
+      baseQuery: params.toString(),
+      showId: new URL(url).searchParams.get('pf[show.id]') || undefined,
+    };
+
+    if (headers) {
+      captured.headers = normalizeCapturedHeaders(headers);
+    } else {
+      const existing = getCmsConfig();
+      if (existing?.headers) captured.headers = existing.headers;
+    }
+
+    sessionStorage.setItem(CMS_CAPTURE_KEY, JSON.stringify(captured));
+    console.log('[Shufflr] Captured CMS template:', captured.apiOrigin, captured.collectionId);
+  };
+
+  const origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : input?.url;
+    if (url?.includes('/cms/collections/') && url.includes('pf[show.id]')) {
+      const headers = init?.headers || (input instanceof Request ? input.headers : null);
+      saveFromUrl(url, headers);
+    }
+    return origFetch.call(this, input, init);
+  };
+
+  const origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    if (typeof url === 'string' && url.includes('/cms/collections/') && url.includes('pf[show.id]')) {
+      saveFromUrl(url, null);
+    }
+    return origOpen.call(this, method, url, ...rest);
+  };
+}
+
+function normalizeCapturedHeaders(headers) {
+  const out = {};
+  if (!headers) return out;
+
+  if (headers instanceof Headers) {
+    for (const key of CMS_HEADER_KEYS) {
+      const val = headers.get(key);
+      if (val) out[key] = val;
+    }
+    return out;
+  }
+
+  if (Array.isArray(headers)) {
+    for (const [key, val] of headers) {
+      if (CMS_HEADER_KEYS.includes(key.toLowerCase())) out[key.toLowerCase()] = val;
+    }
+    return out;
+  }
+
+  for (const key of CMS_HEADER_KEYS) {
+    const val = headers[key] || headers[key.toLowerCase()];
+    if (val) out[key] = val;
+  }
+  return out;
+}
+
+function getCmsConfig() {
+  const raw = sessionStorage.getItem(CMS_CAPTURE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function guessCmsApiOrigin() {
+  const country = document.cookie.match(/(?:^|;\s*)countryCode=([^;]+)/i)?.[1]?.toUpperCase() || 'US';
+  const emea = new Set(['GB', 'DE', 'FR', 'NL', 'SE', 'NO', 'DK', 'FI', 'ES', 'IT', 'PL', 'BE', 'AT', 'CH', 'IE', 'PT']);
+  const latam = new Set(['BR', 'MX', 'AR', 'CL', 'CO']);
+  if (emea.has(country)) return 'https://default.any-emea.prd.api.hbomax.com';
+  if (latam.has(country)) return 'https://default.any-latam.prd.api.hbomax.com';
+  return 'https://default.any-amer.prd.api.hbomax.com';
+}
+
+function getCmsHeaders() {
+  const config = getCmsConfig();
+  return {
+    accept: '*/*',
+    'content-type': 'application/json',
+    ...(config?.headers || {}),
+  };
+}
+
+function extractShowId(showPageUrl) {
+  const config = getCmsConfig();
+  if (config?.showId) return config.showId;
+
+  try {
+    const path = decodeURIComponent(new URL(showPageUrl).pathname);
+    const uuidMatch = path.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (uuidMatch) return uuidMatch[1];
+
+    const segments = path.split('/').filter(Boolean);
+    const showIdx = segments.indexOf('show');
+    if (showIdx >= 0 && segments[showIdx + 1]) return segments[showIdx + 1];
+  } catch { /* ignore */ }
+  return null;
+}
+
+function buildSeasonCollectionUrl(showId, seasonNumber) {
+  const config = getCmsConfig();
+  const apiOrigin = config?.apiOrigin || guessCmsApiOrigin();
+  const collectionId = config?.collectionId || '227084608563650952176059252419027445293';
+  const params = new URLSearchParams(config?.baseQuery || 'include=default&decorators=viewingHistory,isFavorite,contentAction,badges');
+  params.set('pf[show.id]', showId);
+  params.set('pf[seasonNumber]', String(seasonNumber));
+  return `${apiOrigin}/cms/collections/${collectionId}?${params}`;
+}
+
+async function fetchExpressContent(showId, seasonNumber) {
+  const url = buildSeasonCollectionUrl(showId, seasonNumber);
+  console.log(`[Shufflr] CMS fetch S${seasonNumber}: ${url}`);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: getCmsHeaders(),
+  });
+
+  if (!response.ok) {
+    console.log(`[Shufflr] CMS API ${response.status} for show=${showId} season=${seasonNumber}`);
+    return null;
+  }
+  return response.json();
+}
+
+function cmsItemToWatchUrl(item) {
+  if (!item) return null;
+
+  const attrs = item.attributes || {};
+  const alternateId = attrs.alternateId || attrs.editId;
+  if (alternateId) {
+    return normalizeEpisodeUrl(`${location.origin}/video/watch/${alternateId}`);
+  }
+
+  const route = attrs.route || attrs.clickableUri || attrs.href;
+  if (route && String(route).includes('/video/')) {
+    const href = route.startsWith('http') ? route : `${location.origin}${route}`;
+    return normalizeEpisodeUrl(href);
+  }
+
+  return null;
+}
+
+function parseEpisodesFromCmsResponse(json) {
+  if (!json) return [];
+
+  const episodes = [];
+  const seen = new Set();
+  const items = [...(json.included || [])];
+
+  if (Array.isArray(json.data)) {
+    items.push(...json.data);
+  } else if (json.data) {
+    items.push(json.data);
+  }
+
+  for (const item of items) {
+    const type = (item.type || '').toLowerCase();
+    const attrs = item.attributes || {};
+    const isEpisode = attrs.episodeNumber != null
+      || attrs.videoType === 'EPISODE'
+      || type.includes('episode')
+      || (type.includes('video') && attrs.videoType !== 'MOVIE');
+
+    if (!isEpisode) continue;
+
+    const url = cmsItemToWatchUrl(item);
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      episodes.push(url);
+    }
+  }
+
+  return episodes;
+}
+
+function parseMaxCmsEpisodesDetailed(json, seasonNumber) {
+  if (!json) return [];
+
+  const episodes = [];
+  const seen = new Set();
+  const items = [...(json.included || [])];
+
+  if (Array.isArray(json.data)) {
+    items.push(...json.data);
+  } else if (json.data) {
+    items.push(json.data);
+  }
+
+  for (const item of items) {
+    const type = (item.type || '').toLowerCase();
+    const attrs = item.attributes || {};
+    const isEpisode = attrs.episodeNumber != null
+      || attrs.videoType === 'EPISODE'
+      || type.includes('episode')
+      || (type.includes('video') && attrs.videoType !== 'MOVIE');
+
+    if (!isEpisode) continue;
+
+    const alternateId = attrs.alternateId || attrs.editId;
+    const episode_number = attrs.episodeNumber ?? attrs.number;
+    const seasonNum = attrs.seasonNumber ?? seasonNumber;
+    if (!alternateId || episode_number == null || seasonNum == null) continue;
+
+    const key = `${seasonNum}-${episode_number}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    episodes.push({
+      seasonNum: Number(seasonNum),
+      episode_number: Number(episode_number),
+      alternateId: String(alternateId),
+      watchUrl: `https://play.max.com/video/watch/${alternateId}`,
+      name: attrs.name || attrs.title || '',
+    });
+  }
+
+  return episodes;
+}
+
+async function collectEpisodeDetailsViaApi(showPageUrl) {
+  const showId = extractShowId(showPageUrl);
+  if (!showId) return [];
+
+  const cachedPayloads = new Map();
+  const seasonNumbers = await discoverSeasonNumbers(showId, cachedPayloads);
+  const payloads = await Promise.all(
+    seasonNumbers.map(season => (
+      cachedPayloads.has(season)
+        ? Promise.resolve(cachedPayloads.get(season))
+        : fetchExpressContent(showId, season)
+    ))
+  );
+
+  const all = [];
+  payloads.forEach((json, i) => {
+    all.push(...parseMaxCmsEpisodesDetailed(json, seasonNumbers[i]));
+  });
+  return all;
+}
+
+function getSeasonNumbersFromRoute(json) {
+  if (!json) return null;
+
+  const seasons = new Set();
+  const items = [...(json.included || [])];
+  if (json.data) items.push(json.data);
+
+  for (const item of items) {
+    const type = (item.type || '').toLowerCase();
+    const attrs = item.attributes || {};
+
+    if (type.includes('season') && attrs.seasonNumber != null) {
+      seasons.add(Number(attrs.seasonNumber));
+    }
+
+    const count = attrs.seasonCount ?? attrs.numberOfSeasons ?? attrs.totalSeasons;
+    if (count != null && Number(count) > 0) {
+      return Array.from({ length: Number(count) }, (_, i) => i + 1);
+    }
+  }
+
+  if (!seasons.size) return null;
+  return Array.from(seasons).sort((a, b) => a - b);
+}
+
+async function fetchShowRoute(showId) {
+  const config = getCmsConfig();
+  const apiOrigin = config?.apiOrigin || guessCmsApiOrigin();
+  const url = `${apiOrigin}/cms/routes/show/${showId}?include=default`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: getCmsHeaders(),
+  });
+
+  if (!response.ok) {
+    console.log(`[Shufflr] CMS routes ${response.status} for show=${showId}`);
+    return null;
+  }
+  return response.json();
+}
+
+async function discoverSeasonNumbers(showId, cachedPayloads) {
+  const routeJson = await fetchShowRoute(showId);
+  const fromRoute = getSeasonNumbersFromRoute(routeJson);
+  if (fromRoute?.length) {
+    console.log(`[Shufflr] Found ${fromRoute.length} season(s) from show route`);
+    return fromRoute;
+  }
+
+  const found = [];
+  for (let season = 1; season <= 40; season++) {
+    const json = await fetchExpressContent(showId, season);
+    const episodes = parseEpisodesFromCmsResponse(json);
+    if (!episodes.length) break;
+    found.push(season);
+    cachedPayloads.set(season, json);
+  }
+
+  console.log(`[Shufflr] Probed ${found.length} season(s)`);
+  return found.length ? found : [1];
+}
+
+// ── EPISODE CACHE (chrome.storage.local, 24h TTL) ─────────────────────────
+function episodeCacheKey(showId) {
+  return `${EPISODE_CACHE_PREFIX}${showId}`;
+}
+
+function storageLocalGet(key) {
+  return new Promise(resolve => {
+    chrome.storage.local.get(key, result => resolve(result[key]));
+  });
+}
+
+function storageLocalSet(key, value) {
+  return new Promise(resolve => {
+    chrome.storage.local.set({ [key]: value }, resolve);
+  });
+}
+
+async function getCachedEpisodeEntry(showId) {
+  const entry = await storageLocalGet(episodeCacheKey(showId));
+  if (!entry?.cachedAt) return null;
+  if (!entry.episodeDetails?.length && !entry.episodes?.length) return null;
+
+  const ageMs = Date.now() - entry.cachedAt;
+  if (ageMs > EPISODE_CACHE_TTL_MS) {
+    console.log(`[Shufflr] Cache expired for ${showId} (${Math.round(ageMs / 3600000)}h old)`);
+    return null;
+  }
+
+  console.log(
+    `[Shufflr] Cache hit for ${showId} — ${entry.episodes.length} episodes ` +
+    `(${Math.round(ageMs / 1000)}s old)`
+  );
+  return entry;
+}
+
+async function getCachedEpisodes(showId) {
+  const entry = await getCachedEpisodeEntry(showId);
+  return entry?.episodes || null;
+}
+
+function getShowNameFromRouteJson(json) {
+  if (!json) return null;
+  const attrs = json.data?.attributes || {};
+  return attrs.name || attrs.title || attrs.displayName || null;
+}
+
+async function setCachedEpisodes(showId, episodes, episodeDetails, showName, tmdbId) {
+  await storageLocalSet(episodeCacheKey(showId), {
+    showId,
+    showName: showName || null,
+    tmdbId: tmdbId || null,
+    episodes,
+    episodeDetails: episodeDetails || [],
+    cachedAt: Date.now(),
+  });
+  console.log(`[Shufflr] Cached ${episodes.length} episodes for ${showId}`);
+}
+
+async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
+  if (!maxShowId) return null;
+
+  console.log(`[Shufflr] === collectEpisodesViaMaxShowId: ${maxShowId} ===`);
+
+  const cached = await getCachedEpisodes(maxShowId);
+  if (cached) return cached;
+
+  const started = performance.now();
+  const cachedPayloads = new Map();
+
+  const seasonNumbers = await discoverSeasonNumbers(maxShowId, cachedPayloads);
+  const payloads = await Promise.all(
+    seasonNumbers.map(season => (
+      cachedPayloads.has(season)
+        ? Promise.resolve(cachedPayloads.get(season))
+        : fetchExpressContent(maxShowId, season)
+    ))
+  );
+
+  const episodeDetails = [];
+  const episodeSet = new Set();
+  payloads.forEach((payload, i) => {
+    parseMaxCmsEpisodesDetailed(payload, seasonNumbers[i]).forEach(ep => {
+      const key = `${ep.seasonNum}-${ep.episode_number}`;
+      if (episodeDetails.some(e => `${e.seasonNum}-${e.episode_number}` === key)) return;
+      episodeDetails.push(ep);
+      episodeSet.add(ep.watchUrl);
+    });
+    parseEpisodesFromCmsResponse(payload).forEach(url => episodeSet.add(url));
+  });
+
+  const episodes = Array.from(episodeSet);
+  console.log(
+    `[Shufflr] API collection done in ${Math.round(performance.now() - started)}ms — ` +
+    `${episodes.length} episodes across ${seasonNumbers.length} season(s)`
+  );
+
+  if (episodes.length) {
+    const routeJson = await fetchShowRoute(maxShowId);
+    const resolvedName = getShowNameFromRouteJson(routeJson) || showName || null;
+    await setCachedEpisodes(maxShowId, episodes, episodeDetails, resolvedName, tmdbId);
+  }
+  return episodes.length ? episodes : null;
+}
+
+async function collectEpisodesViaApi(showPageUrl) {
+  const showId = extractShowId(showPageUrl);
+  if (!showId) {
+    console.log(`[Shufflr] Could not extract show ID from: ${showPageUrl}`);
+    return null;
+  }
+
+  return collectEpisodesViaMaxShowId(showId);
+}
+
+async function prefetchEpisodeList() {
+  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (!isVideoPage) return;
+
+  const episodeUrl = location.href.split('?')[0];
+  if (episodeUrl === lastPrefetchedEpisodeUrl) return;
+
+  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
+  if (!showPage) {
+    console.log('[Shufflr] Prefetch skipped — no show page URL');
+    return;
+  }
+
+  const showId = extractShowId(showPage);
+  if (!showId) return;
+
+  const cached = await getCachedEpisodes(showId);
+  if (cached) {
+    lastPrefetchedEpisodeUrl = episodeUrl;
+    console.log(`[Shufflr] Prefetch skipped — cache warm (${cached.length} episodes)`);
+    return;
+  }
+
+  if (prefetchInFlightShowId === showId) return;
+
+  lastPrefetchedEpisodeUrl = episodeUrl;
+  prefetchInFlightShowId = showId;
+  console.log('[Shufflr] Prefetching episode list in background...');
+
+  try {
+    const episodes = await collectEpisodesViaApi(showPage);
+    if (episodes?.length) {
+      console.log(`[Shufflr] Prefetch complete — ${episodes.length} episodes ready`);
+    } else {
+      console.log('[Shufflr] Prefetch returned no episodes');
+      lastPrefetchedEpisodeUrl = null;
+    }
+  } catch (err) {
+    console.log('[Shufflr] Prefetch error:', err);
+    lastPrefetchedEpisodeUrl = null;
+  } finally {
+    if (prefetchInFlightShowId === showId) prefetchInFlightShowId = null;
+  }
+}
+
+// ── SHUFFLE LOGIC ───────────────────────────────────────────────────────────
+async function shuffleToRandomEpisode() {
+  const status = document.getElementById('shufflr-status');
+  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
+  const lastEpisodeUrl = location.href;
+
+  if (!showPage) {
+    showToast('Visit the show page first so Shufflr can find all episodes.');
+    if (status) status.textContent = 'NO SHOW PAGE';
+    console.log('[Shufflr] Aborting — no knownShowPageUrl');
+    return;
+  }
+
+  console.log(`[Shufflr] Shuffle triggered from: ${lastEpisodeUrl}`);
+  if (status) status.textContent = 'FETCHING EPISODES...';
+  showToast('Fetching episode list via API...');
+
+  let episodes = null;
+  try {
+    episodes = await collectEpisodesViaApi(showPage);
+  } catch (err) {
+    console.log('[Shufflr] API fetch error:', err);
+  }
+
+  if (!episodes?.length) {
+    console.log('[Shufflr] API empty/failed — falling back to show-page DOM scrape');
+    sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage }));
+    if (status) status.textContent = 'LOADING SHOW PAGE...';
+    showToast('API unavailable — loading show page...');
+    location.href = showPage;
+    return;
+  }
+
+  await navigateToRandomEpisode(episodes, lastEpisodeUrl, status);
+}
+
+async function handleShowPageShuffle() {
+  if (shuffleInProgress) return;
+
+  const raw = sessionStorage.getItem(SHUFFLR_PENDING_KEY);
+  if (!raw) return;
+
+  shuffleInProgress = true;
+  let pending;
+  try {
+    pending = JSON.parse(raw);
+  } catch {
+    sessionStorage.removeItem(SHUFFLR_PENDING_KEY);
+    shuffleInProgress = false;
+    return;
+  }
+
+  sessionStorage.removeItem(SHUFFLR_PENDING_KEY);
+  console.log('[Shufflr] === handleShowPageShuffle: START (DOM fallback) ===');
+
+  let episodes = null;
+  try {
+    episodes = await collectEpisodesViaApi(pending.showPageUrl);
+  } catch (err) {
+    console.log('[Shufflr] API retry on show page failed:', err);
+  }
+
+  if (!episodes?.length) {
+    console.log('[Shufflr] Waiting 2000ms then scraping DOM...');
+    await wait(2000);
+    episodes = await collectEpisodesFromAllSeasons();
+  }
+
+  if (!episodes?.length) {
+    showToast('Could not find episodes on show page.');
+    shuffleInProgress = false;
+    return;
+  }
+
+  await navigateToRandomEpisode(episodes, pending.lastEpisodeUrl, document.getElementById('shufflr-status'));
+  shuffleInProgress = false;
+}
+
+async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
+  const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl);
+  const pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys));
+
+  if (!pool.length) {
+    showToast('No other episodes to shuffle to.');
+    if (status) status.textContent = 'NO OTHER EPISODES';
+    return;
+  }
+
+  const pickIndex = Math.floor(Math.random() * pool.length);
+  const pick = pool[pickIndex];
+  console.log(`[Shufflr] Picked ${pickIndex + 1}/${pool.length}: ${pick}`);
+
+  if (status) status.textContent = 'SHUFFLING...';
+  showToast(`Shuffling to episode ${pickIndex + 1} of ${pool.length}!`);
+  location.href = pick;
+}
+
+function normalizeEpisodeUrl(url) {
+  try {
+    const u = new URL(url);
+    u.search = '';
+    u.hash = '';
+    return u.href.replace(/\/$/, '');
+  } catch {
+    return url.split('?')[0].split('#')[0].replace(/\/$/, '');
+  }
+}
+
+function extractVideoSlug(url) {
+  try {
+    const segments = new URL(url).pathname.split('/').filter(Boolean);
+    if (segments[0] === 'video' && segments[1] === 'watch' && segments[2]) {
+      return segments[2].toLowerCase();
+    }
+    if (segments[0] === 'video' && segments[1] && segments[1] !== 'watch') {
+      return segments[1].toLowerCase();
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function extractPlayerEpisodeUrn(url) {
+  try {
+    const match = new URL(url).pathname.match(/urn:hbo:episode:([a-z0-9-]+)/i);
+    return match ? match[1].toLowerCase() : null;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function buildCurrentEpisodeKeys(pageUrl) {
+  const keys = new Set();
+  keys.add(normalizeEpisodeUrl(pageUrl).toLowerCase());
+
+  const videoSlug = extractVideoSlug(pageUrl);
+  if (videoSlug) keys.add(videoSlug);
+
+  const urnId = extractPlayerEpisodeUrn(pageUrl);
+  if (urnId) keys.add(urnId);
+
+  return keys;
+}
+
+function isCurrentEpisode(episodeUrl, currentKeys) {
+  const normalized = normalizeEpisodeUrl(episodeUrl).toLowerCase();
+  if (currentKeys.has(normalized)) return true;
+
+  const slug = extractVideoSlug(episodeUrl);
+  if (slug && currentKeys.has(slug)) return true;
+
+  return false;
+}
+
+function clickElement(el) {
+  const target = el.closest('button, [role="tab"], [role="button"]') || el;
+  target.scrollIntoView({ block: 'center', inline: 'center' });
+  target.focus({ preventScroll: true });
+  target.click();
+  target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+  target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+}
+
+function seasonNumberFromLabel(label) {
+  const match = (label || '').match(/Season\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function getSeasonLabel(el) {
+  if (!el) return null;
+  const blob = `${el.textContent || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ');
+  const match = blob.match(/Season\s+\d+/i);
+  return match ? match[0].replace(/\s+/g, ' ') : null;
+}
+
+function isInsideDropdownList(el) {
+  return !!el.closest('[role="listbox"], [role="menu"], [data-radix-popper-content-wrapper]');
+}
+
+function findSeasonDropdownButton() {
+  const prioritySelectors = [
+    '[role="combobox"]',
+    'button[aria-haspopup="listbox"]',
+    'button[aria-haspopup="true"]',
+    'button[aria-expanded]',
+  ];
+
+  for (const selector of prioritySelectors) {
+    for (const el of document.querySelectorAll(selector)) {
+      const label = getSeasonLabel(el);
+      if (label && !isInsideDropdownList(el)) {
+        const btn = el.closest('button') || el;
+        console.log(
+          `[Shufflr] findSeasonDropdownButton: found via "${selector}" — ` +
+          `"${label}" <${btn.tagName.toLowerCase()}>`
+        );
+        return { label, el: btn };
+      }
+    }
+  }
+
+  for (const el of document.querySelectorAll('button')) {
+    const label = getSeasonLabel(el);
+    if (label && !isInsideDropdownList(el)) {
+      console.log(
+        `[Shufflr] findSeasonDropdownButton: found via button text — ` +
+        `"${label}" <${el.tagName.toLowerCase()}>`
+      );
+      return { label, el };
+    }
+  }
+
+  console.log('[Shufflr] findSeasonDropdownButton: FAIL — no dropdown button found');
+  return null;
+}
+
+function findSeasonDropdownOptions() {
+  const byLabel = new Map();
+  const optionSelectors = [
+    '[role="listbox"] [role="option"]',
+    '[role="menu"] [role="menuitem"]',
+    '[role="listbox"] button',
+    '[role="menu"] button',
+    '[role="listbox"] li',
+  ];
+
+  const tryAdd = (el, source) => {
+    const clickable = el.closest('button, [role="option"], [role="menuitem"], li') || el;
+    const label = getSeasonLabel(clickable);
+    if (!label || byLabel.has(label)) return;
+    byLabel.set(label, { label, el: clickable, source });
+  };
+
+  for (const selector of optionSelectors) {
+    document.querySelectorAll(selector).forEach(el => tryAdd(el, selector));
+  }
+
+  if (!byLabel.size) {
+    document.querySelectorAll('button, [role="option"], [role="menuitem"], li').forEach(el => {
+      if (!isInsideDropdownList(el)) return;
+      tryAdd(el, 'fallback-inside-list');
+    });
+  }
+
+  const options = Array.from(byLabel.values())
+    .sort((a, b) => seasonNumberFromLabel(a.label) - seasonNumberFromLabel(b.label));
+
+  console.log(`[Shufflr] findSeasonDropdownOptions: ${options.length} options in open dropdown`);
+  options.forEach((opt, i) => {
+    console.log(
+      `[Shufflr] findSeasonDropdownOptions: [${i + 1}/${options.length}] ` +
+      `"${opt.label}" via ${opt.source} <${opt.el.tagName.toLowerCase()}>`
+    );
+  });
+
+  return options;
+}
+
+async function openSeasonDropdown(stepLabel) {
+  console.log(`[Shufflr] ${stepLabel}: finding season dropdown button...`);
+  const dropdown = findSeasonDropdownButton();
+  if (!dropdown) return false;
+
+  console.log(`[Shufflr] ${stepLabel}: clicking dropdown button "${dropdown.label}"...`);
+  clickElement(dropdown.el);
+  console.log(`[Shufflr] ${stepLabel}: click dispatched`);
+
+  console.log(`[Shufflr] ${stepLabel}: waiting 500ms for dropdown to open...`);
+  await wait(500);
+  console.log(`[Shufflr] ${stepLabel}: dropdown open wait complete`);
+  return true;
+}
+
+async function collectEpisodesFromAllSeasons() {
+  const allEpisodes = new Set();
+  console.log('[Shufflr] === collectEpisodesFromAllSeasons: START ===');
+
+  const addLinks = (links, stepLabel) => {
+    console.log(`[Shufflr] ${stepLabel}: scanning DOM for episode links...`);
+    const before = allEpisodes.size;
+    links.forEach((link, j) => {
+      const isNew = !allEpisodes.has(link);
+      allEpisodes.add(link);
+      console.log(`[Shufflr] ${stepLabel}: link ${j + 1} ${isNew ? '(new)' : '(dup)'} → ${link}`);
+    });
+    console.log(
+      `[Shufflr] ${stepLabel}: ${links.length} on page, +${allEpisodes.size - before} new, master total ${allEpisodes.size}`
+    );
+  };
+
+  console.log('[Shufflr] Step 1: collecting episodes from default visible season...');
+  addLinks(extractEpisodeLinksFromPage(), 'Step 1 default season');
+
+  let dropdownReady = false;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    console.log(`[Shufflr] Step 2.${attempt}: trying to open season dropdown...`);
+    dropdownReady = await openSeasonDropdown(`Step 2.${attempt}`);
+    if (dropdownReady) break;
+    console.log(`[Shufflr] Step 2.${attempt}: retrying in 500ms...`);
+    await wait(500);
+  }
+
+  if (!dropdownReady) {
+    console.log('[Shufflr] Step 3: SKIPPED — could not open season dropdown');
+    console.log(`[Shufflr] Step 4: total unique episode count = ${allEpisodes.size}`);
+    console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
+    return Array.from(allEpisodes);
+  }
+
+  console.log('[Shufflr] Step 3: reading season options from open dropdown...');
+  const seasonOptions = findSeasonDropdownOptions();
+
+  if (!seasonOptions.length) {
+    console.log('[Shufflr] Step 4: FAIL — dropdown open but no season options found');
+    console.log(`[Shufflr] Step 5: total unique episode count = ${allEpisodes.size}`);
+    console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
+    return Array.from(allEpisodes);
+  }
+
+  console.log(`[Shufflr] Step 4: will click ${seasonOptions.length} season options`);
+
+  for (let i = 0; i < seasonOptions.length; i++) {
+    const sub = `5.${i + 1}`;
+    const { label } = seasonOptions[i];
+
+    if (i > 0) {
+      console.log(`[Shufflr] Step ${sub}a: reopening dropdown before next season...`);
+      const reopened = await openSeasonDropdown(`Step ${sub}a`);
+      if (!reopened) {
+        console.log(`[Shufflr] Step ${sub}a: FAIL — could not reopen dropdown, skipping "${label}"`);
+        continue;
+      }
+    }
+
+    console.log(`[Shufflr] Step ${sub}b: finding option "${label}" in dropdown...`);
+    const freshOptions = findSeasonDropdownOptions();
+    const option = freshOptions.find(opt => opt.label === label);
+    if (!option) {
+      console.log(`[Shufflr] Step ${sub}b: FAIL — "${label}" not found in dropdown, skipping`);
+      continue;
+    }
+    console.log(
+      `[Shufflr] Step ${sub}b: found option <${option.el.tagName.toLowerCase()}> "${label}"`
+    );
+
+    console.log(`[Shufflr] Step ${sub}c: clicking season option ${i + 1}/${seasonOptions.length} "${label}"...`);
+    clickElement(option.el);
+    console.log(`[Shufflr] Step ${sub}c: click dispatched`);
+
+    console.log(`[Shufflr] Step ${sub}d: waiting 2000ms for episodes to load...`);
+    await wait(2000);
+    console.log(`[Shufflr] Step ${sub}d: wait complete`);
+
+    console.log(`[Shufflr] Step ${sub}e: collecting episode links for "${label}"...`);
+    addLinks(extractEpisodeLinksFromPage(), `Step ${sub}e "${label}"`);
+  }
+
+  const deduped = Array.from(allEpisodes);
+  console.log(`[Shufflr] Step 6: all seasons done — total unique episode count = ${deduped.length}`);
+  deduped.forEach((url, i) => console.log(`[Shufflr] Step 6: master[${i + 1}] ${url}`));
+  console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
+  return deduped;
+}
+
+function extractEpisodeLinksFromPage() {
+  const seen = new Set();
+  const links = [];
+  const anchors = document.querySelectorAll('a[href*="/video/watch/"]');
+
+  console.log(`[Shufflr] extractEpisodeLinksFromPage: ${anchors.length} anchors matching a[href*="/video/watch/"]`);
+
+  anchors.forEach((a, i) => {
+    const href = a.href;
+    if (!href || href.includes('javascript')) return;
+
+    const normalized = normalizeEpisodeUrl(href);
+    const isNew = !seen.has(normalized);
+    if (isNew) {
+      seen.add(normalized);
+      links.push(normalized);
+    }
+    console.log(`[Shufflr] extractEpisodeLinksFromPage: [${i + 1}] ${isNew ? '(new)' : '(dup)'} → ${normalized}`);
+  });
+
+  console.log(`[Shufflr] extractEpisodeLinksFromPage: ${links.length} unique /video/watch/ links`);
+  return links;
+}
+
+function logCollectedEpisodeLinks(episodes) {
+  if (!episodes || episodes.length === 0) return;
+  console.log(`[Shufflr] Collected episode URLs (${episodes.length}):`);
+  episodes.forEach((href, i) => {
+    console.log(`[Shufflr] ${i + 1}. ${href}`);
+  });
+}
+
+function extractVideoLinks() {
+  return extractEpisodeLinksFromPage();
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function showToast(message) {
+  const toast = document.getElementById('shufflr-toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(window._shufflrToastTimer);
+  window._shufflrToastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+}
+
+// ── INIT ────────────────────────────────────────────────────────────────────
+if (!IS_SHUFFLR_WEB_APP) {
+setTimeout(() => {
+  handleShowPageShuffle();
+  tryInjectButton();
+  startShuffleWatchdog();
+}, 2500);
+}

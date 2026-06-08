@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Shufflr",
+  "version": "1.1",
+  "description": "Shuffle random episodes on Max. Press the button and Shufflr picks a random episode when your current one ends.",
+  "permissions": ["activeTab", "storage", "tabs"],
+  "host_permissions": [
+    "https://play.max.com/*",
+    "https://www.max.com/*",
+    "https://play.hbomax.com/*",
+    "https://www.hbomax.com/*",
+    "https://shufflr-app.netlify.app/*",
+    "https://*.api.hbomax.com/*",
+    "https://*.api.max.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://play.max.com/*",
+        "https://www.max.com/*",
+        "https://play.hbomax.com/*",
+        "https://www.hbomax.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://shufflr-app.netlify.app/*"],
+      "js": ["content.js", "bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Shufflr"
+  },
+  "icons": {
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

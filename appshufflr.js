@@ -21,13 +21,34 @@ let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
-window.addEventListener('message',(event)=>{
-  if(event.source!==window)return;
-  if(event.data?.type!=='SHUFFLR_PLAYLISTS_FROM_EXTENSION'||event.data?.source!=='shufflr-extension')return;
-  playlists=Array.isArray(event.data.playlists)?event.data.playlists:[];
+
+function handleExtensionPlaylistSync(payload){
+  playlists=Array.isArray(payload)?payload:[];
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
   if(currentNav==='playlist')renderPlaylistPage();
-});
+  const modal=document.getElementById('playlist-modal');
+  if(modal?.classList.contains('open'))renderPlaylistModal();
+}
+
+function installExtensionPlaylistSync(){
+  if(typeof chrome!=='undefined'&&chrome.runtime&&chrome.runtime.onMessage){
+    chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
+      if(message?.type!=='SHUFFLR_SYNC_PLAYLISTS')return;
+      handleExtensionPlaylistSync(message.payload);
+      sendResponse({ok:true});
+      return true;
+    });
+  }
+
+  window.addEventListener('message',(event)=>{
+    if(event.source!==window)return;
+    if(event.data?.source!=='shufflr-extension')return;
+    if(event.data?.type!=='SHUFFLR_SYNC_PLAYLISTS')return;
+    handleExtensionPlaylistSync(event.data.payload);
+  });
+}
+
+installExtensionPlaylistSync();
 function savePlaylists(){
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
   window.dispatchEvent(new CustomEvent('shufflr-playlists-sync',{detail:playlists}));
