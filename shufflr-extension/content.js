@@ -356,44 +356,28 @@ function installArmedUrlGuard() {
   console.log('[Shufflr] Armed URL guard ready');
 }
 
+async function navigateToNextShow() {
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  await handleShufflrNextEpisode('timeupdate-watcher');
+}
+
 function installTimeupdateWatcher() {
   const video = document.querySelector('video');
   if (!video) {
     setTimeout(installTimeupdateWatcher, 1000);
     return;
   }
-
-  if (timeupdateWatcherVideo === video && timeupdateWatcherHandler) {
-    return;
-  }
-
-  if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
-    timeupdateWatcherVideo.removeEventListener('timeupdate', timeupdateWatcherHandler);
-  }
-
-  timeupdateWatcherVideo = video;
-
-  timeupdateWatcherHandler = () => {
-    if (video.paused || !(video.duration > 0)) return;
-    if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
-
-    getActivePlaylistFromStorage().then(active => {
-      if (!active?.armed) return;
-
-      video.removeEventListener('timeupdate', timeupdateWatcherHandler);
-      timeupdateWatcherHandler = null;
-      timeupdateWatcherVideo = null;
-
-      shufflrActive = true;
-      armedPlaylistCached = true;
-      handleShufflrNextEpisode('timeupdate-watcher').catch(err => {
-        console.error('[Shufflr] timeupdate watcher error:', err);
-        installTimeupdateWatcher();
-      });
-    });
-  };
-
-  video.addEventListener('timeupdate', timeupdateWatcherHandler);
+  video.addEventListener('timeupdate', async function handler() {
+    if (video.duration <= 0 || video.paused) return;
+    if (video.duration - video.currentTime > 4) return;
+    const result = await chrome.storage.local.get([SHUFFLR_ACTIVE_PLAYLIST_KEY]);
+    if (!result[SHUFFLR_ACTIVE_PLAYLIST_KEY]?.armed) return;
+    video.removeEventListener('timeupdate', handler);
+    navigateToNextShow();
+  });
 }
 
 function saveShowPageUrl(url) {
