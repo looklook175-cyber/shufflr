@@ -441,13 +441,13 @@ let shuffleCopTimer = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
-const ARMED_URL_POLL_MS = 400;
+const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
 const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
 const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
-const SHUFFLE_COP_DELAY_MS = 1500;
+const SHUFFLE_COP_DELAY_MS = 400;
 const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
 
 function isSingleUuidWatchUrl(url) {
@@ -541,6 +541,16 @@ function scheduleShuffleCopCheck(prevUrl) {
   }, SHUFFLE_COP_DELAY_MS);
 }
 
+function triggerShuffleCopOnUrlChange(prevUrl) {
+  if (!isChromeContextValid()) return;
+  if (prevUrl === location.href) return;
+
+  runShuffleCopCheck(prevUrl).catch(err => {
+    console.error('[Shufflr] shuffle cop error:', err);
+  });
+  scheduleShuffleCopCheck(prevUrl);
+}
+
 async function runShuffleCopCheck(prevUrl) {
   if (!isChromeContextValid()) return;
   if (prevUrl === location.href) return;
@@ -576,6 +586,7 @@ async function runShuffleCopCheck(prevUrl) {
   if (shufflrIsNavigating) return;
 
   console.log('[Shufflr] Shuffle cop: Max hijacked navigation, correcting...');
+  showToast('Shufflr correcting...');
   await clearPendingEpisodeIdInStorage();
   await handleShufflrNextEpisode('shuffle-cop');
 }
@@ -604,7 +615,7 @@ function notifyArmedUrlChange(prevUrl) {
     setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
   }
 
-  scheduleShuffleCopCheck(prevUrl);
+  triggerShuffleCopOnUrlChange(prevUrl);
   handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
     console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
   });
@@ -709,7 +720,7 @@ const urlObserver = new MutationObserver(() => {
     timeupdateWatcherHandler = null;
     removeShufflrUI();
     cancelUiRecoveryGraceTimer();
-    scheduleShuffleCopCheck(prevUrl);
+    triggerShuffleCopOnUrlChange(prevUrl);
     handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
       console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
     });
