@@ -2312,7 +2312,7 @@ function parseMaxCmsEpisodesDetailed(json, seasonNumber, showMaxId = null) {
       seasonNum: Number(seasonNum),
       episode_number: Number(episode_number),
       alternateId: String(alternateId),
-      watchUrl: buildMaxEpisodeWatchUrl(alternateId, showId),
+      watchUrl: buildMaxEpisodeWatchUrl(alternateId, showMaxId),
       name: attrs.name || attrs.title || '',
     });
   }
