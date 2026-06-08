@@ -171,7 +171,25 @@ let lastPrefetchedEpisodeUrl = null;
 let prefetchInFlightShowId = null;
 let uiRecoveryInProgress = false;
 let lastUiRecoveryAt = 0;
+let uiRecoveryGraceTimer = null;
+let uiMissingSince = null;
+let shufflrNavigating = false;
+let shufflrEpisodeTransitionLock = false;
+let armedPlaylistCached = false;
+let maxNextEpisodeScanTimer = null;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
+const UI_RECOVERY_GRACE_MS = 4000;
+const EPISODE_TRANSITION_LOCK_MS = 8000;
+const MAX_NEXT_EP_TEXT_RE = /next\s+episode|up\s+next|watch\s+next|play\s+next|next\s+up/i;
+const MAX_NEXT_EP_SELECTORS = [
+  '[data-testid*="next-episode" i]',
+  '[data-testid*="nextEpisode" i]',
+  '[data-testid*="up-next" i]',
+  '[data-testid*="upNext" i]',
+  '[aria-label*="Next Episode" i]',
+  '[aria-label*="next episode" i]',
+  '[aria-label*="Up Next" i]',
+];
 
 function saveShowPageUrl(url) {
   knownShowPageUrl = url.split('?')[0];
@@ -185,9 +203,13 @@ if (!IS_SHUFFLR_WEB_APP && location.href.includes('/show/')) {
 // ── URL CHANGE WATCHER ─────────────────────────────────────────────────────
 const urlObserver = new MutationObserver(() => {
   if (location.href !== lastUrl) {
+    const prevUrl = lastUrl;
     lastUrl = location.href;
     removeShufflrUI();
-    runShuffleWatchdog();
+    cancelUiRecoveryGraceTimer();
+    handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
+      console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
+    });
     // Save show page URL whenever we visit one
     if (location.href.includes('/show/')) {
       saveShowPageUrl(location.href);
@@ -197,6 +219,7 @@ const urlObserver = new MutationObserver(() => {
       }
     }
     setTimeout(tryInjectButton, 2500);
+    setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
   }
 });
 if (!IS_SHUFFLR_WEB_APP) {
@@ -876,9 +899,167 @@ function updateShuffleUI(playlistName) {
 
 async function syncShuffleUIFromStorage() {
   const active = await getActivePlaylistFromStorage();
+  armedPlaylistCached = !!active?.armed;
   if (!active?.armed) return;
   shufflrActive = true;
   updateShuffleUI(active.playlistName || '');
+}
+
+function hasShufflrButtonInDom() {
+  return !!(document.getElementById('shufflr-wrap') && document.getElementById('shufflr-btn'));
+}
+
+function cancelUiRecoveryGraceTimer() {
+  if (uiRecoveryGraceTimer) {
+    clearTimeout(uiRecoveryGraceTimer);
+    uiRecoveryGraceTimer = null;
+  }
+  uiMissingSince = null;
+}
+
+function scheduleUiRecoveryAfterGrace(reason) {
+  if (hasShufflrButtonInDom()) {
+    cancelUiRecoveryGraceTimer();
+    return;
+  }
+  if (uiRecoveryGraceTimer) return;
+
+  if (!uiMissingSince) {
+    uiMissingSince = Date.now();
+    console.log(`[Shufflr] Watchdog: button missing — waiting ${UI_RECOVERY_GRACE_MS / 1000}s before recovery`);
+  }
+
+  uiRecoveryGraceTimer = setTimeout(() => {
+    uiRecoveryGraceTimer = null;
+    runUiRecoveryAfterGrace(reason).catch(err => {
+      console.error('[Shufflr] runUiRecoveryAfterGrace error:', err);
+    });
+  }, UI_RECOVERY_GRACE_MS);
+}
+
+async function runUiRecoveryAfterGrace(reason) {
+  const active = await getActivePlaylistFromStorage();
+  const maintainSession = shufflrActive || active?.armed;
+  if (!maintainSession) {
+    cancelUiRecoveryGraceTimer();
+    return;
+  }
+
+  if (hasShufflrButtonInDom()) {
+    console.log('[Shufflr] Watchdog: button returned during grace period — no recovery needed');
+    cancelUiRecoveryGraceTimer();
+    if (active?.armed) {
+      shufflrActive = true;
+      updateShuffleUI(active.playlistName || '');
+    }
+    return;
+  }
+
+  cancelUiRecoveryGraceTimer();
+  await recoverShufflrUI(reason);
+}
+
+async function handleShufflrNextEpisode(source) {
+  if (shufflrEpisodeTransitionLock) {
+    console.log(`[Shufflr] Episode transition already in progress (${source})`);
+    return;
+  }
+
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+
+  shufflrEpisodeTransitionLock = true;
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  console.log(`[Shufflr] Playlist next episode via ${source}`);
+
+  try {
+    await shuffleFromActivePlaylist(active);
+  } catch (err) {
+    console.error('[Shufflr] handleShufflrNextEpisode error:', err);
+    shufflrEpisodeTransitionLock = false;
+    return;
+  }
+
+  setTimeout(() => {
+    shufflrEpisodeTransitionLock = false;
+  }, EPISODE_TRANSITION_LOCK_MS);
+}
+
+async function handlePossibleMaxAutoAdvance(prevUrl) {
+  if (shufflrNavigating) {
+    shufflrNavigating = false;
+    return;
+  }
+  if (shufflrEpisodeTransitionLock) return;
+
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+
+  shufflrActive = true;
+  armedPlaylistCached = true;
+
+  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (!onVideoPage || prevUrl === location.href) return;
+
+  console.log('[Shufflr] Max auto-advanced during armed playlist — shuffling instead');
+  await handleShufflrNextEpisode('max-auto-advance');
+}
+
+function bindMaxNextEpisodeControl(el) {
+  if (!el || el.closest('#shufflr-wrap') || el.dataset.shufflrNextIntercept === '1') return;
+  el.dataset.shufflrNextIntercept = '1';
+
+  const intercept = (event) => {
+    if (!shufflrActive && !armedPlaylistCached) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    handleShufflrNextEpisode('max-next-ui').catch(err => {
+      console.error('[Shufflr] max-next-ui intercept error:', err);
+    });
+  };
+
+  el.addEventListener('click', intercept, true);
+  el.addEventListener('pointerup', intercept, true);
+}
+
+function scanMaxNextEpisodeControls(root = document) {
+  if (!shufflrActive && !armedPlaylistCached) return;
+
+  const seen = new Set();
+  MAX_NEXT_EP_SELECTORS.forEach(selector => {
+    root.querySelectorAll(selector).forEach(el => {
+      if (seen.has(el)) return;
+      seen.add(el);
+      bindMaxNextEpisodeControl(el);
+    });
+  });
+
+  root.querySelectorAll('button, a[href], [role="button"]').forEach(el => {
+    if (el.closest('#shufflr-wrap') || seen.has(el)) return;
+    const label = `${el.textContent || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
+    if (!MAX_NEXT_EP_TEXT_RE.test(label)) return;
+    seen.add(el);
+    bindMaxNextEpisodeControl(el);
+  });
+}
+
+function installMaxNextEpisodeInterceptor() {
+  if (window.__shufflrMaxNextEpisodeInterceptor) return;
+  window.__shufflrMaxNextEpisodeInterceptor = true;
+
+  const observer = new MutationObserver(() => {
+    if (maxNextEpisodeScanTimer) return;
+    maxNextEpisodeScanTimer = setTimeout(() => {
+      maxNextEpisodeScanTimer = null;
+      scanMaxNextEpisodeControls();
+    }, 250);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  scanMaxNextEpisodeControls();
+  console.log('[Shufflr] Max next-episode interceptor ready');
 }
 
 async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex, extraState = {}) {
@@ -995,6 +1176,7 @@ async function shuffleFromActivePlaylist(activePayload) {
   const label = (pick.showName || 'Show').slice(0, 24);
   showToast(`Playing: ${label}`);
   if (status) status.textContent = label.toUpperCase().slice(0, 24);
+  shufflrNavigating = true;
   location.href = `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
 }
 
@@ -1022,6 +1204,7 @@ async function armPlaylistFromDropdown(playlistIndex) {
   await saveArmedActivePlaylist(preparedPlaylist, playlistIndex);
 
   shufflrActive = true;
+  armedPlaylistCached = true;
   const playlistName = preparedPlaylist.name || 'Untitled';
   updateShuffleUI(playlistName);
   showToast(`Playlist: ${playlistName} — will shuffle when episode ends`);
@@ -1107,7 +1290,9 @@ async function recoverShufflrUI(reason) {
 async function resetShuffleState(options = {}) {
   const { clearStorage = true } = options;
   shufflrActive = false;
+  armedPlaylistCached = false;
   toggleShuffleInProgress = false;
+  cancelUiRecoveryGraceTimer();
   try {
     if (clearStorage) await clearActivePlaylist();
   } catch (err) {
@@ -1125,8 +1310,12 @@ function runShuffleWatchdog() {
 
 async function runShuffleWatchdogAsync() {
   const active = await getActivePlaylistFromStorage();
+  armedPlaylistCached = !!active?.armed;
   const maintainSession = shufflrActive || active?.armed;
-  if (!maintainSession) return;
+  if (!maintainSession) {
+    cancelUiRecoveryGraceTimer();
+    return;
+  }
 
   if (active?.armed && !shufflrActive) {
     shufflrActive = true;
@@ -1134,22 +1323,24 @@ async function runShuffleWatchdogAsync() {
 
   if (!isShufflrPlayerPage()) return;
 
-  const wrap = document.getElementById('shufflr-wrap');
-  const btn = document.getElementById('shufflr-btn');
-  if (!wrap || !btn) {
-    await recoverShufflrUI('button missing');
+  scanMaxNextEpisodeControls();
+
+  if (hasShufflrButtonInDom()) {
+    cancelUiRecoveryGraceTimer();
+
+    const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+    if (isVideoPage) {
+      const video = document.querySelector('video');
+      if (video) attachVideoListeners(video);
+    }
+
+    if (shufflrActive && active?.armed) {
+      updateShuffleUI(active.playlistName || '');
+    }
     return;
   }
 
-  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (isVideoPage) {
-    const video = document.querySelector('video');
-    if (video) attachVideoListeners(video);
-  }
-
-  if (shufflrActive && active?.armed) {
-    updateShuffleUI(active.playlistName || '');
-  }
+  scheduleUiRecoveryAfterGrace('button still missing after grace period');
 }
 
 function startShuffleWatchdog() {
@@ -1717,6 +1908,7 @@ async function toggleShuffle() {
       }
     } else {
       await clearActivePlaylist();
+      armedPlaylistCached = false;
       updateShuffleUI('');
       showToast('Shufflr OFF');
     }
@@ -1745,10 +1937,11 @@ async function onEpisodeEnded() {
   const active = await getActivePlaylistFromStorage();
   if (active?.armed) {
     shufflrActive = true;
+    armedPlaylistCached = true;
   }
   if (!shufflrActive) return;
   if (active?.armed) {
-    await shuffleFromActivePlaylist(active);
+    await handleShufflrNextEpisode('video-ended');
     return;
   }
   shuffleToRandomEpisode();
@@ -2668,5 +2861,7 @@ setTimeout(() => {
   handleShowPageShuffle();
   tryInjectButton();
   startShuffleWatchdog();
+  installMaxNextEpisodeInterceptor();
+  syncShuffleUIFromStorage();
 }, 2500);
 }
