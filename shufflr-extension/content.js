@@ -106,6 +106,10 @@ let maxAutoNextObserver = null;
 let maxAutoNextVisibilityHandler = null;
 let maxAutoNextBeforeUnloadHandler = null;
 let maxAutoNextArmedCache = false;
+let maxAutoNextPollTimer = null;
+let shufflrTargetWatchUrl = null;
+let shufflrTargetEpisodeId = null;
+let shufflrTargetShowHint = null;
 
 function isChromeContextValid() {
   if (extensionContextInvalidated) return false;
@@ -425,7 +429,7 @@ const ARMED_URL_POLL_MS = 400;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
-const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 4;
+const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
 
 function isSingleUuidWatchUrl(url) {
   try {
@@ -552,7 +556,7 @@ function installTimeupdateWatcher() {
       return;
     }
     if (video.duration <= 0 || video.paused) return;
-    if (video.duration - video.currentTime > 4) return;
+    if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
     let result;
     try {
       result = await chrome.storage.local.get([SHUFFLR_ACTIVE_PLAYLIST_KEY]);
@@ -1694,6 +1698,9 @@ async function shuffleFromActivePlaylist(activePayload) {
   if (status) status.textContent = label.toUpperCase().slice(0, 24);
   shufflrPendingEpisodeId = normalizeMaxId(pick.alternateId);
   shufflrNavigating = true;
+  shufflrTargetWatchUrl = watchUrl.split('?')[0];
+  shufflrTargetEpisodeId = shufflrPendingEpisodeId;
+  void refreshMaxAutoNextArmedCache();
   location.href = watchUrl;
 }
 
@@ -2421,7 +2428,96 @@ const MAX_AUTO_NEXT_OVERLAY_SELECTORS = [
   '[class*="next-episode"]',
   '[class*="autoplay"]',
   '[data-testid*="next"]',
+  'button[class*="next"]',
 ].join(', ');
+
+function getShufflrTargetFromActive(active) {
+  if (!active?.armed) {
+    return { watchUrl: null, episodeId: null, showHint: null };
+  }
+
+  const showHint = getShowMaxIdHintFromActive(active);
+  let watchUrl = active.currentEpisodeUrl || null;
+  if (!watchUrl && active.currentEpisode?.alternateId) {
+    watchUrl = buildMaxEpisodeWatchUrl(active.currentEpisode.alternateId, active.currentEpisode.showId);
+  }
+
+  return {
+    watchUrl: watchUrl ? watchUrl.split('?')[0] : null,
+    episodeId: active.currentEpisode?.alternateId
+      ? normalizeMaxId(active.currentEpisode.alternateId)
+      : null,
+    showHint,
+  };
+}
+
+function resolveHistoryTargetUrl(args) {
+  const urlArg = args[2];
+  if (urlArg == null || urlArg === '') return location.href.split('?')[0];
+  try {
+    return new URL(String(urlArg), location.origin).href.split('?')[0];
+  } catch {
+    return null;
+  }
+}
+
+function shouldBlockMaxHistoryNavigation(targetUrl) {
+  if (!maxAutoNextArmedCache && !armedPlaylistCached) return false;
+  if (!targetUrl) return false;
+
+  const isVideoNav = targetUrl.includes('/video/') || targetUrl.includes('/play/');
+  if (!isVideoNav) return false;
+
+  const targetEp = getMaxEpisodeIdFromUrl(targetUrl, shufflrTargetShowHint);
+  if (!targetEp) return false;
+  const targetNorm = normalizeMaxId(targetEp);
+
+  if (shufflrPendingEpisodeId && targetNorm === shufflrPendingEpisodeId) return false;
+  if (shufflrTargetWatchUrl && maxWatchUrlsRepresentSameEpisode(shufflrTargetWatchUrl, targetUrl, shufflrTargetShowHint)) {
+    return false;
+  }
+  if (maxWatchUrlsRepresentSameEpisode(location.href, targetUrl, shufflrTargetShowHint)) return false;
+  if (shufflrTargetEpisodeId && targetNorm === shufflrTargetEpisodeId && !shufflrPendingEpisodeId) {
+    return false;
+  }
+
+  return true;
+}
+
+function redirectBlockedMaxHistoryNavigation() {
+  if (shufflrTargetWatchUrl && (shufflrPendingEpisodeId || shufflrNavigating)) {
+    console.log('[Shufflr] Blocked Max history navigation — redirecting to Shufflr pick');
+    location.href = shufflrTargetWatchUrl;
+    return;
+  }
+
+  console.log('[Shufflr] Blocked Max history navigation — triggering Shufflr shuffle');
+  handleShufflrNextEpisode('history-intercept').catch(err => {
+    console.error('[Shufflr] history-intercept shuffle error:', err);
+  });
+}
+
+function installMaxAutoNextHistoryIntercept() {
+  if (window.__shufflrMaxAutoNextHistoryIntercept) return;
+  window.__shufflrMaxAutoNextHistoryIntercept = true;
+
+  ['pushState', 'replaceState'].forEach(method => {
+    const original = history[method];
+    history[method] = function (...args) {
+      if (!isChromeContextValid()) {
+        return original.apply(this, args);
+      }
+
+      const targetUrl = resolveHistoryTargetUrl(args);
+      if (shouldBlockMaxHistoryNavigation(targetUrl)) {
+        redirectBlockedMaxHistoryNavigation();
+        return undefined;
+      }
+
+      return original.apply(this, args);
+    };
+  });
+}
 
 function findMaxAutoNextDismissButton(container) {
   const selectorMatches = [
@@ -2429,10 +2525,14 @@ function findMaxAutoNextDismissButton(container) {
     'button[class*="Cancel"]',
     'button[class*="dismiss"]',
     'button[class*="Dismiss"]',
+    'button[class*="close"]',
+    'button[class*="Close"]',
     'button[data-testid*="cancel"]',
     'button[data-testid*="dismiss"]',
+    'button[data-testid*="close"]',
     '[role="button"][class*="cancel"]',
     '[role="button"][class*="dismiss"]',
+    '[role="button"][class*="close"]',
   ];
 
   for (const selector of selectorMatches) {
@@ -2448,8 +2548,11 @@ function findMaxAutoNextDismissButton(container) {
     if (
       text.includes('cancel')
       || text.includes('dismiss')
+      || text.includes('close')
       || text.includes('stay')
       || text.includes('not now')
+      || text.trim() === '×'
+      || text.trim() === 'x'
     ) {
       return btn;
     }
@@ -2465,12 +2568,38 @@ function refreshMaxAutoNextArmedCache() {
   }
   return getActivePlaylistFromStorage().then(active => {
     maxAutoNextArmedCache = !!active?.armed;
+    if (active?.armed) {
+      const target = getShufflrTargetFromActive(active);
+      shufflrTargetWatchUrl = target.watchUrl;
+      shufflrTargetEpisodeId = target.episodeId;
+      shufflrTargetShowHint = target.showHint;
+    } else {
+      shufflrTargetWatchUrl = null;
+      shufflrTargetEpisodeId = null;
+      shufflrTargetShowHint = null;
+    }
     return maxAutoNextArmedCache;
   }).catch(err => {
     if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
     maxAutoNextArmedCache = false;
     return false;
   });
+}
+
+function suppressMaxAutoNextOverlayAggressive(element) {
+  if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
+  if (!maxAutoNextArmedCache) return;
+
+  const dismissBtn = findMaxAutoNextDismissButton(element);
+  if (dismissBtn) {
+    try {
+      dismissBtn.click();
+    } catch {}
+  }
+
+  element.style.display = 'none';
+  if (element.parentElement) element.parentElement.style.display = 'none';
+  element.dataset.shufflrAutoNextSuppressed = '1';
 }
 
 function suppressMaxAutoNextOverlay(element) {
@@ -2480,17 +2609,31 @@ function suppressMaxAutoNextOverlay(element) {
     maxAutoNextArmedCache = !!active?.armed;
     if (!active?.armed) return;
 
-    element.dataset.shufflrAutoNextSuppressed = '1';
-    element.style.display = 'none';
-
-    const dismissBtn = findMaxAutoNextDismissButton(element);
-    if (dismissBtn) {
-      try {
-        dismissBtn.click();
-      } catch {}
+    if (active?.armed) {
+      const target = getShufflrTargetFromActive(active);
+      shufflrTargetWatchUrl = target.watchUrl;
+      shufflrTargetEpisodeId = target.episodeId;
+      shufflrTargetShowHint = target.showHint;
     }
+
+    suppressMaxAutoNextOverlayAggressive(element);
   }).catch(err => {
     if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  });
+}
+
+function pollAndSuppressMaxAutoNextOverlays() {
+  if (!isChromeContextValid()) {
+    teardownMaxAutoNextSuppression();
+    return;
+  }
+
+  refreshMaxAutoNextArmedCache().then(armed => {
+    if (!armed) return;
+
+    try {
+      document.querySelectorAll(MAX_AUTO_NEXT_OVERLAY_SELECTORS).forEach(suppressMaxAutoNextOverlayAggressive);
+    } catch {}
   });
 }
 
@@ -2510,6 +2653,10 @@ function teardownMaxAutoNextSuppression() {
     maxAutoNextObserver.disconnect();
     maxAutoNextObserver = null;
   }
+  if (maxAutoNextPollTimer) {
+    clearInterval(maxAutoNextPollTimer);
+    maxAutoNextPollTimer = null;
+  }
   if (maxAutoNextVisibilityHandler) {
     document.removeEventListener('visibilitychange', maxAutoNextVisibilityHandler, true);
     maxAutoNextVisibilityHandler = null;
@@ -2519,10 +2666,15 @@ function teardownMaxAutoNextSuppression() {
     maxAutoNextBeforeUnloadHandler = null;
   }
   maxAutoNextArmedCache = false;
+  shufflrTargetWatchUrl = null;
+  shufflrTargetEpisodeId = null;
+  shufflrTargetShowHint = null;
 }
 
 function suppressMaxAutoNext() {
   if (!isChromeContextValid()) return;
+
+  installMaxAutoNextHistoryIntercept();
 
   if (!maxAutoNextObserver) {
     maxAutoNextObserver = new MutationObserver(mutations => {
@@ -2555,8 +2707,13 @@ function suppressMaxAutoNext() {
     window.addEventListener('beforeunload', maxAutoNextBeforeUnloadHandler, true);
   }
 
+  if (!maxAutoNextPollTimer) {
+    maxAutoNextPollTimer = setInterval(pollAndSuppressMaxAutoNextOverlays, 500);
+  }
+
   refreshMaxAutoNextArmedCache().then(() => {
     scanForMaxAutoNextOverlays();
+    pollAndSuppressMaxAutoNextOverlays();
   });
 }
 
