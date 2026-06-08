@@ -93,6 +93,7 @@ function maxWatchUrlsRepresentSameEpisode(urlA, urlB, showMaxIdHint = null) {
 const CMS_CAPTURE_KEY = 'shufflr_cms_template';
 const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
 const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
 
 async function syncPlaylistsToWebApp(playlists) {
@@ -911,8 +912,77 @@ async function getEpisodeDetailsForPlaylistShow(show) {
   return [];
 }
 
-async function buildEnrichedPlaylistFromCache(playlist) {
+function getEpisodeDurationSeconds(attrs) {
+  if (!attrs) return 0;
+  const raw = attrs.duration ?? attrs.runTime ?? attrs.runtime ?? attrs.length;
+  if (raw == null) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n > 10000 ? Math.round(n / 1000) : Math.round(n);
+}
+
+function isMovieEpisodeList(episodeDetails) {
+  if (!Array.isArray(episodeDetails) || episodeDetails.length !== 1) return false;
+  const duration = Number(episodeDetails[0]?.duration) || 0;
+  return duration > MOVIE_MIN_DURATION_SEC;
+}
+
+async function ensureShowEpisodesFetched(show) {
+  let details = await getEpisodeDetailsForPlaylistShow(show);
+  if (details.length) return details;
+
+  await fetchAndCachePlaylistShow(show);
+  return getEpisodeDetailsForPlaylistShow(show);
+}
+
+function mapEpisodeDetailsToShuffleEpisodes(show, details) {
+  const maxId = String(getPlaylistShowMaxId(show));
+  return details.map(ep => {
+    const id = episodeCacheId(ep);
+    if (!id || !ep.alternateId) return null;
+    return {
+      id,
+      showId: maxId,
+      showName: getPlaylistShowTitle(show),
+      seasonNum: ep.seasonNum,
+      episode_number: ep.episode_number,
+      alternateId: String(ep.alternateId),
+      watchUrl: ep.watchUrl || buildMaxEpisodeWatchUrl(ep.alternateId, maxId),
+      name: ep.name || '',
+    };
+  }).filter(Boolean);
+}
+
+async function validateShowForShuffle(show) {
+  const showName = getPlaylistShowTitle(show);
+  const details = await ensureShowEpisodesFetched(show);
+
+  if (!details.length) {
+    console.log(`[Shufflr] Skipping show with no episodes: ${showName}`);
+    return null;
+  }
+
+  if (isMovieEpisodeList(details)) {
+    console.log(`[Shufflr] Skipping movie: ${showName}`);
+    return null;
+  }
+
+  const episodes = mapEpisodeDetailsToShuffleEpisodes(show, details);
+  if (!episodes.length) {
+    console.log(`[Shufflr] Skipping show with no episodes: ${showName}`);
+    return null;
+  }
+
+  return {
+    id: String(getPlaylistShowMaxId(show)),
+    name: showName,
+    episodes,
+  };
+}
+
+async function buildEnrichedPlaylistFromCache(playlist, excludedShowIds = null) {
   const allowedMaxIds = getPlaylistMaxIds(playlist);
+  const excluded = excludedShowIds instanceof Set ? excludedShowIds : new Set();
   const shows = (playlist?.shows || []).filter(show => {
     const maxId = getPlaylistShowMaxId(show);
     return maxId && allowedMaxIds.has(normalizeMaxId(maxId));
@@ -920,30 +990,11 @@ async function buildEnrichedPlaylistFromCache(playlist) {
   const enriched = [];
 
   for (const show of shows) {
-    const maxId = String(getPlaylistShowMaxId(show));
-    const details = await getEpisodeDetailsForPlaylistShow(show);
-    const episodes = details.map(ep => {
-      const id = episodeCacheId(ep);
-      if (!id || !ep.alternateId) return null;
-      return {
-        id,
-        showId: maxId,
-        showName: getPlaylistShowTitle(show),
-        seasonNum: ep.seasonNum,
-        episode_number: ep.episode_number,
-        alternateId: String(ep.alternateId),
-        watchUrl: ep.watchUrl || buildMaxEpisodeWatchUrl(ep.alternateId, maxId),
-        name: ep.name || '',
-      };
-    }).filter(Boolean);
+    const maxId = normalizeMaxId(getPlaylistShowMaxId(show));
+    if (excluded.has(maxId)) continue;
 
-    if (episodes.length) {
-      enriched.push({
-        id: maxId,
-        name: getPlaylistShowTitle(show),
-        episodes,
-      });
-    }
+    const enrichedShow = await validateShowForShuffle(show);
+    if (enrichedShow) enriched.push(enrichedShow);
   }
 
   return enriched;
@@ -1344,37 +1395,55 @@ async function shuffleFromActivePlaylist(activePayload) {
 
   await prefetchMissingPlaylistShows(preparedPlaylist.shows);
 
-  const enriched = await buildEnrichedPlaylistFromCache(preparedPlaylist);
-  const playlistShows = filterEnrichedToPlaylist(enriched, preparedPlaylist);
-  console.log(
-    `[Shufflr] Smart Shuffle — playlist "${preparedPlaylist.name || 'Untitled'}": ` +
-    `allowed maxIds [${[...allowedMaxIds].join(', ')}], ` +
-    `picking from [${playlistShows.map(show => show.name).join(', ')}]`
-  );
-
-  if (!playlistShows.length) {
-    showToast('Could not load episodes for this playlist');
-    if (status) status.textContent = 'NO EPISODES';
-    return;
-  }
-
   const { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
     await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
   const settings = await readShuffleSettings();
-  const result = smartShuffle(
-    playlistShows,
-    playedByShow,
-    lastPlayedShow,
-    allowedMaxIds,
-    {
-      roundPlayedShows,
-      orderedEpisodes: settings.orderedEpisodes,
-      nextEpisodeIndexByShow,
+  const excludedShowIds = new Set();
+  let result = null;
+
+  for (let attempt = 0; attempt < preparedPlaylist.shows.length; attempt++) {
+    const enriched = await buildEnrichedPlaylistFromCache(preparedPlaylist, excludedShowIds);
+    const playlistShows = filterEnrichedToPlaylist(enriched, preparedPlaylist);
+    console.log(
+      `[Shufflr] Smart Shuffle attempt ${attempt + 1}/${preparedPlaylist.shows.length} — ` +
+      `playlist "${preparedPlaylist.name || 'Untitled'}": ` +
+      `allowed maxIds [${[...allowedMaxIds].join(', ')}], ` +
+      `picking from [${playlistShows.map(show => show.name).join(', ')}]`
+    );
+
+    if (!playlistShows.length) break;
+
+    result = smartShuffle(
+      playlistShows,
+      playedByShow,
+      lastPlayedShow,
+      allowedMaxIds,
+      {
+        roundPlayedShows,
+        orderedEpisodes: settings.orderedEpisodes,
+        nextEpisodeIndexByShow,
+      }
+    );
+
+    if (!result?.pick?.alternateId) break;
+
+    const pickedShowId = normalizeMaxId(result.pick.showId);
+    const pickedShow = playlistShows.find(show => normalizeMaxId(show.id) === pickedShowId);
+    if (!pickedShow?.episodes?.length) {
+      console.log(`[Shufflr] Skipping show with no episodes: ${result.pick.showName || pickedShowId}`);
+      excludedShowIds.add(pickedShowId);
+      result = null;
+      continue;
     }
-  );
+
+    break;
+  }
+
   if (!result?.pick?.alternateId) {
-    showToast('No episodes found');
-    if (status) status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || 'NO EPISODES';
+    showToast('No playable episodes — playlist still armed');
+    if (status) {
+      status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || 'WAITING FOR EP END...';
+    }
     return;
   }
 
@@ -2435,10 +2504,46 @@ function parseMaxCmsEpisodesDetailed(json, seasonNumber, showMaxId = null) {
       alternateId: String(alternateId),
       watchUrl: buildMaxEpisodeWatchUrl(alternateId, showMaxId),
       name: attrs.name || attrs.title || '',
+      duration: getEpisodeDurationSeconds(attrs),
     });
   }
 
   return episodes;
+}
+
+function parseAllVideosFromCmsResponse(json, showMaxId = null) {
+  if (!json) return [];
+
+  const videos = [];
+  const seen = new Set();
+  const items = [...(json.included || [])];
+
+  if (Array.isArray(json.data)) {
+    items.push(...json.data);
+  } else if (json.data) {
+    items.push(json.data);
+  }
+
+  for (const item of items) {
+    const type = (item.type || '').toLowerCase();
+    if (!type.includes('video') && !type.includes('episode')) continue;
+
+    const attrs = item.attributes || {};
+    const alternateId = attrs.alternateId || attrs.editId;
+    if (!alternateId || seen.has(String(alternateId))) continue;
+    seen.add(String(alternateId));
+
+    videos.push({
+      alternateId: String(alternateId),
+      watchUrl: buildMaxEpisodeWatchUrl(alternateId, showMaxId),
+      name: attrs.name || attrs.title || '',
+      duration: getEpisodeDurationSeconds(attrs),
+      seasonNum: attrs.seasonNumber ?? null,
+      episode_number: attrs.episodeNumber ?? attrs.number ?? null,
+    });
+  }
+
+  return videos;
 }
 
 async function collectEpisodeDetailsViaApi(showPageUrl) {
@@ -2615,6 +2720,16 @@ async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
     });
     parseEpisodesFromCmsResponse(payload).forEach(url => episodeSet.add(url));
   });
+
+  if (!episodeDetails.length) {
+    payloads.forEach(payload => {
+      parseAllVideosFromCmsResponse(payload, maxShowId).forEach(video => {
+        if (episodeDetails.some(ep => ep.alternateId === video.alternateId)) return;
+        episodeDetails.push(video);
+        if (video.watchUrl) episodeSet.add(video.watchUrl);
+      });
+    });
+  }
 
   const episodes = Array.from(episodeSet);
   console.log(
