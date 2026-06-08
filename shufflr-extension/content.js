@@ -445,8 +445,7 @@ let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
 let wasFullscreen = false;
 let fullscreenRestorePromptActive = false;
-let fullscreenRestoreClickHandler = null;
-let fullscreenRestoreKeydownHandler = null;
+let fullscreenRestoreSpaceHandler = null;
 let fullscreenRestoreDismissHandler = null;
 const FULLSCREEN_RESTORE_TOAST_MS = 5000;
 const ARMED_URL_POLL_MS = 150;
@@ -543,13 +542,9 @@ function shouldShowFullscreenRestorePrompt() {
 }
 
 function teardownFullscreenRestoreListeners() {
-  if (fullscreenRestoreClickHandler) {
-    document.removeEventListener('click', fullscreenRestoreClickHandler, true);
-    fullscreenRestoreClickHandler = null;
-  }
-  if (fullscreenRestoreKeydownHandler) {
-    document.removeEventListener('keydown', fullscreenRestoreKeydownHandler, true);
-    fullscreenRestoreKeydownHandler = null;
+  if (fullscreenRestoreSpaceHandler) {
+    document.removeEventListener('keydown', fullscreenRestoreSpaceHandler, true);
+    fullscreenRestoreSpaceHandler = null;
   }
   const dismissBtn = document.getElementById('shufflr-toast-dismiss');
   if (dismissBtn && fullscreenRestoreDismissHandler) {
@@ -582,22 +577,26 @@ function tryRestoreFullscreenSync(source) {
   }
 }
 
-function onFullscreenRestoreClick(event) {
-  if (event.target.closest('#shufflr-toast-dismiss')) return;
-  tryRestoreFullscreenSync('click');
-  dismissFullscreenRestorePrompt();
-}
-
 function onFullscreenRestoreDismissClick(event) {
   event.preventDefault();
   event.stopPropagation();
   dismissFullscreenRestorePrompt();
 }
 
-function onFullscreenRestoreF11(event) {
-  if (event.key !== 'F11') return;
+function onFullscreenRestoreSpace(event) {
+  if (event.key !== ' ' && event.code !== 'Space') return;
+  if (event.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+
   event.preventDefault();
-  tryRestoreFullscreenSync('F11');
+  event.stopPropagation();
+
+  tryRestoreFullscreenSync('space');
+
+  const video = document.querySelector('video');
+  if (video) {
+    video.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  }
+
   dismissFullscreenRestorePrompt();
 }
 
@@ -618,17 +617,15 @@ function showFullscreenRestorePrompt() {
   }
 
   toast.innerHTML = `
-    <span class="shufflr-toast-message">Click to restore fullscreen</span>
+    <span class="shufflr-toast-message">Press Space to restore fullscreen</span>
     <button type="button" id="shufflr-toast-dismiss" class="shufflr-toast-dismiss" aria-label="Dismiss fullscreen restore prompt">✕</button>
   `;
   toast.classList.add('show', 'shufflr-toast-interactive');
   clearTimeout(window._shufflrToastTimer);
 
   teardownFullscreenRestoreListeners();
-  fullscreenRestoreClickHandler = onFullscreenRestoreClick;
-  fullscreenRestoreKeydownHandler = onFullscreenRestoreF11;
-  document.addEventListener('click', fullscreenRestoreClickHandler, true);
-  document.addEventListener('keydown', fullscreenRestoreKeydownHandler, true);
+  fullscreenRestoreSpaceHandler = onFullscreenRestoreSpace;
+  document.addEventListener('keydown', fullscreenRestoreSpaceHandler, true);
 
   const dismissBtn = document.getElementById('shufflr-toast-dismiss');
   if (dismissBtn) {
