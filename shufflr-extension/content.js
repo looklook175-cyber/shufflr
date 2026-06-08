@@ -114,6 +114,14 @@ let shufflrAboutToNavigate = false;
 let shufflrTargetWatchUrl = null;
 let shufflrTargetEpisodeId = null;
 let shufflrTargetShowHint = null;
+const SHUFFLR_AUTO_HIDE_MS = 5000;
+let shufflrAutoHideTimer = null;
+let shufflrButtonHovered = false;
+let shufflrButtonFirstShownAt = 0;
+let shufflrButtonLastActivityAt = 0;
+let shufflrAutoHideMouseMoveHandler = null;
+let shufflrAutoHideEnterHandler = null;
+let shufflrAutoHideLeaveHandler = null;
 
 function isChromeContextValid() {
   try { return !!chrome.runtime?.id; } catch { return false; }
@@ -2297,7 +2305,94 @@ function startShuffleWatchdog() {
   }, 2000);
 }
 
+function teardownShufflrButtonAutoHide() {
+  if (shufflrAutoHideTimer) {
+    clearTimeout(shufflrAutoHideTimer);
+    shufflrAutoHideTimer = null;
+  }
+  const group = document.getElementById('shufflr-button-group');
+  if (group && shufflrAutoHideEnterHandler) {
+    group.removeEventListener('mouseenter', shufflrAutoHideEnterHandler);
+    group.removeEventListener('mouseleave', shufflrAutoHideLeaveHandler);
+  }
+  if (shufflrAutoHideMouseMoveHandler) {
+    document.removeEventListener('mousemove', shufflrAutoHideMouseMoveHandler);
+  }
+  shufflrButtonHovered = false;
+  shufflrAutoHideEnterHandler = null;
+  shufflrAutoHideLeaveHandler = null;
+  shufflrAutoHideMouseMoveHandler = null;
+}
+
+function scheduleShufflrButtonHide() {
+  if (shufflrAutoHideTimer) {
+    clearTimeout(shufflrAutoHideTimer);
+    shufflrAutoHideTimer = null;
+  }
+  if (shufflrButtonHovered) return;
+  if (document.getElementById('shufflr-playlist-dropdown')?.classList.contains('open')) return;
+
+  const hideAt = Math.max(
+    shufflrButtonFirstShownAt + SHUFFLR_AUTO_HIDE_MS,
+    shufflrButtonLastActivityAt + SHUFFLR_AUTO_HIDE_MS
+  );
+  const delayMs = Math.max(0, hideAt - Date.now());
+
+  shufflrAutoHideTimer = setTimeout(() => {
+    shufflrAutoHideTimer = null;
+    if (shufflrButtonHovered) return;
+    if (document.getElementById('shufflr-playlist-dropdown')?.classList.contains('open')) return;
+    const group = document.getElementById('shufflr-button-group');
+    if (!group) return;
+    group.classList.remove('shufflr-visible');
+    group.classList.add('shufflr-hidden');
+  }, delayMs);
+}
+
+// Fades the Shufflr button group after 5s of mouse inactivity and restores it on mousemove or hover.
+function initShufflrButtonAutoHide() {
+  teardownShufflrButtonAutoHide();
+
+  const group = document.getElementById('shufflr-button-group');
+  if (!group) return;
+
+  const now = Date.now();
+  shufflrButtonFirstShownAt = now;
+  shufflrButtonLastActivityAt = now;
+  group.classList.add('shufflr-visible');
+  group.classList.remove('shufflr-hidden');
+
+  shufflrAutoHideEnterHandler = () => {
+    shufflrButtonHovered = true;
+    if (shufflrAutoHideTimer) {
+      clearTimeout(shufflrAutoHideTimer);
+      shufflrAutoHideTimer = null;
+    }
+    group.classList.remove('shufflr-hidden');
+    group.classList.add('shufflr-visible');
+  };
+
+  shufflrAutoHideLeaveHandler = () => {
+    shufflrButtonHovered = false;
+    scheduleShufflrButtonHide();
+  };
+
+  shufflrAutoHideMouseMoveHandler = () => {
+    shufflrButtonLastActivityAt = Date.now();
+    group.classList.remove('shufflr-hidden');
+    group.classList.add('shufflr-visible');
+    scheduleShufflrButtonHide();
+  };
+
+  group.addEventListener('mouseenter', shufflrAutoHideEnterHandler);
+  group.addEventListener('mouseleave', shufflrAutoHideLeaveHandler);
+  document.addEventListener('mousemove', shufflrAutoHideMouseMoveHandler, { passive: true });
+
+  scheduleShufflrButtonHide();
+}
+
 function removeShufflrUI() {
+  teardownShufflrButtonAutoHide();
   document.getElementById('shufflr-wrap')?.remove();
   document.getElementById('shufflr-toast')?.remove();
   hasInjectedButton = false;
@@ -2403,13 +2498,27 @@ function injectShufflrStyles() {
       bottom: 90px;
       right: 96px;
       z-index: 2147483647 !important;
+      padding-bottom: 15px;
+      box-sizing: border-box;
+      user-select: none;
+      pointer-events: none;
+    }
+    #shufflr-button-group {
       display: inline-flex;
       flex-direction: row;
       align-items: flex-end;
       gap: 8px;
-      padding-bottom: 15px;
-      box-sizing: border-box;
-      user-select: none;
+      position: relative;
+      pointer-events: auto;
+      opacity: 1;
+      transition: opacity 0.4s ease;
+    }
+    #shufflr-button-group.shufflr-visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #shufflr-button-group.shufflr-hidden {
+      opacity: 0;
       pointer-events: none;
     }
     #shufflr-split,
@@ -2834,23 +2943,25 @@ function injectShufflrButton(video) {
   const wrap = document.createElement('div');
   wrap.id = 'shufflr-wrap';
   wrap.innerHTML = `
-    <div id="shufflr-playlist-dropdown">
-      ${renderPlaylistDropdownContent([])}
-    </div>
-    <div id="shufflr-status"></div>
-    <div id="shufflr-split">
-      <div id="shufflr-btn">
-        <div id="shufflr-inner">
-          <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 3 21 3 21 8"></polyline>
-            <line x1="4" y1="20" x2="21" y2="3"></line>
-            <polyline points="21 16 21 21 16 21"></polyline>
-            <line x1="15" y1="15" x2="21" y2="21"></line>
-          </svg>
-          <span id="shufflr-label">SHUFFLR</span>
-        </div>
+    <div id="shufflr-button-group" class="shufflr-visible">
+      <div id="shufflr-playlist-dropdown">
+        ${renderPlaylistDropdownContent([])}
       </div>
-      <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
+      <div id="shufflr-status"></div>
+      <div id="shufflr-split">
+        <div id="shufflr-btn">
+          <div id="shufflr-inner">
+            <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 3 21 3 21 8"></polyline>
+              <line x1="4" y1="20" x2="21" y2="3"></line>
+              <polyline points="21 16 21 21 16 21"></polyline>
+              <line x1="15" y1="15" x2="21" y2="21"></line>
+            </svg>
+            <span id="shufflr-label">SHUFFLR</span>
+          </div>
+        </div>
+        <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
+      </div>
     </div>
   `;
   document.body.appendChild(wrap);
@@ -2862,6 +2973,7 @@ function injectShufflrButton(video) {
   }
 
   bindShufflrButtonHandlers();
+  initShufflrButtonAutoHide();
   startShuffleWatchdog();
   populatePlaylistDropdown();
 
