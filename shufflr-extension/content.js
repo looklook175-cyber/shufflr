@@ -11,6 +11,7 @@ const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
+const SHUFFLR_EPISODE_ENDED_KEY = 'shufflr_episode_ended';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -122,6 +123,7 @@ let shufflrTargetWatchUrl = null;
 let shufflrTargetEpisodeId = null;
 let shufflrTargetShowHint = null;
 let orderedEpisodesCached = false;
+let shufflrEpisodeEndedClearTimer = null;
 const SHUFFLR_AUTO_HIDE_MS = 5000;
 let shufflrAutoHideTimer = null;
 let shufflrButtonHovered = false;
@@ -755,6 +757,27 @@ function triggerShuffleCopOnUrlChange(prevUrl) {
   scheduleShuffleCopCheck(prevUrl);
 }
 
+// Episode-end flag: timeupdate sets shufflr_episode_ended in the last 8s of playback so
+// Ordered-mode shuffle cop only reacts to Max's post-episode auto-next, not manual navigation.
+function setShufflrEpisodeEndedFlag() {
+  sessionStorage.setItem(SHUFFLR_EPISODE_ENDED_KEY, 'true');
+  if (shufflrEpisodeEndedClearTimer) {
+    clearTimeout(shufflrEpisodeEndedClearTimer);
+  }
+  shufflrEpisodeEndedClearTimer = setTimeout(() => {
+    sessionStorage.removeItem(SHUFFLR_EPISODE_ENDED_KEY);
+    shufflrEpisodeEndedClearTimer = null;
+  }, 5000);
+}
+
+function clearShufflrEpisodeEndedFlag() {
+  sessionStorage.removeItem(SHUFFLR_EPISODE_ENDED_KEY);
+  if (shufflrEpisodeEndedClearTimer) {
+    clearTimeout(shufflrEpisodeEndedClearTimer);
+    shufflrEpisodeEndedClearTimer = null;
+  }
+}
+
 async function runShuffleCopCheck(prevUrl) {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
@@ -763,23 +786,22 @@ async function runShuffleCopCheck(prevUrl) {
   const active = await getActivePlaylistFromStorage();
   if (!active?.armed) return;
 
-  const showHint = getShowMaxIdHintFromActive(active);
-  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (!onVideoPage) return;
-
   const settings = await readShuffleSettings();
   orderedEpisodesCached = !!settings.orderedEpisodes;
 
-  // Ordered Episodes: Shufflr only controls WHICH show plays — Max handles episode auto-next
-  // within a show. Shuffle cop intervenes only when Max jumps to a different show (e.g. a
-  // recommendation); it then round-robins to the next playlist show page and lets Max Resume.
   if (settings.orderedEpisodes) {
+    if (sessionStorage.getItem(SHUFFLR_EPISODE_ENDED_KEY) !== 'true') return;
     if (shufflrIsNavigating) return;
+
+    const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+    const onShowPage = location.href.includes('/show/');
+    if (!onVideoPage && !onShowPage) return;
 
     const prevShowId = resolveShowIdForCop(prevUrl, active);
     const currShowId = resolveShowIdForCop(location.href, active);
 
     if (prevShowId && currShowId && prevShowId === currShowId) {
+      clearShufflrEpisodeEndedFlag();
       await clearPendingEpisodeIdInStorage();
       shufflrPendingEpisodeId = null;
       shufflrNavigating = false;
@@ -788,12 +810,19 @@ async function runShuffleCopCheck(prevUrl) {
       return;
     }
 
-    console.log('[Shufflr] Shuffle cop (ordered): show changed, redirecting to next playlist show...');
+    if (!prevShowId || !currShowId) return;
+
+    console.log('[Shufflr] Shuffle cop (ordered): episode ended on wrong show, redirecting...');
     showToast('Shufflr: next show...');
+    clearShufflrEpisodeEndedFlag();
     await clearPendingEpisodeIdInStorage();
     await navigateToNextOrderedShow('shuffle-cop');
     return;
   }
+
+  const showHint = getShowMaxIdHintFromActive(active);
+  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (!onVideoPage) return;
 
   if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
     await clearPendingEpisodeIdInStorage();
@@ -931,7 +960,10 @@ function installTimeupdateWatcher() {
       return;
     }
     if (!result[SHUFFLR_ACTIVE_PLAYLIST_KEY]?.armed) return;
-    if (orderedEpisodesCached) return;
+    if (orderedEpisodesCached) {
+      setShufflrEpisodeEndedFlag();
+      return;
+    }
     video.removeEventListener('timeupdate', handler);
     timeupdateWatcherHandler = null;
     timeupdateWatcherVideo = null;
@@ -1461,6 +1493,9 @@ function serializeRoundPlayedShows(roundPlayedShows) {
 }
 
 function resolveShowIdForCop(url, active) {
+  const fromShowPage = extractMaxShowUuidFromUrl(url);
+  if (fromShowPage) return normalizeMaxId(fromShowPage);
+
   const hint = getShowMaxIdHintFromActive(active);
   const resolved = resolveMaxWatchIds(url, hint);
   if (resolved?.showId) return normalizeMaxId(resolved.showId);
