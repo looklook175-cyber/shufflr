@@ -1065,6 +1065,32 @@ function escapePlaylistLabel(text) {
     .replace(/"/g, '&quot;');
 }
 
+// Renders the inline show title rows for a playlist's expandable panel list.
+function renderPlaylistShowListItems(playlist) {
+  const shows = playlist?.shows || [];
+  if (!shows.length) {
+    return '<div class="shufflr-pl-show-item">No shows yet</div>';
+  }
+  return shows.map(show => (
+    `<div class="shufflr-pl-show-item">${escapePlaylistLabel(show.title || 'Untitled')}</div>`
+  )).join('');
+}
+
+// Toggles the inline show list under a playlist name row in the panel dropdown.
+function togglePlaylistShowsList(playlistIndex) {
+  const wrap = document.querySelector(`.shufflr-pl-row-wrap[data-pl-index="${playlistIndex}"]`);
+  if (!wrap) return;
+  const list = wrap.querySelector('.shufflr-pl-shows-list');
+  const toggle = wrap.querySelector('.shufflr-pl-shows-toggle');
+  if (!list || !toggle) return;
+
+  const willOpen = list.hidden;
+  list.hidden = !willOpen;
+  toggle.textContent = willOpen ? '▴' : '▾';
+  toggle.setAttribute('aria-expanded', String(willOpen));
+  wrap.querySelector('.shufflr-pl-row-header')?.classList.toggle('open', willOpen);
+}
+
 function closePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   const toggle = document.getElementById('shufflr-playlist-toggle');
@@ -1155,9 +1181,28 @@ function renderPlaylistDropdownContent(playlists, settings = {}) {
     const showCount = playlistShowCount(playlist);
     const label = `🎬 ${playlist.name || 'Untitled'} (${showCount} show${showCount !== 1 ? 's' : ''})`;
     return `
-      <button type="button" class="shufflr-pl-row" data-pl-action="shuffle" data-pl-index="${index}">
-        <span class="shufflr-pl-name">${escapePlaylistLabel(label)}</span>
-      </button>
+      <div class="shufflr-pl-row-wrap" data-pl-index="${index}">
+        <div
+          class="shufflr-pl-row shufflr-pl-row-header"
+          data-pl-action="toggle-shows"
+          data-pl-index="${index}"
+          role="button"
+          tabindex="0"
+        >
+          <span class="shufflr-pl-name">${escapePlaylistLabel(label)}</span>
+          <button
+            type="button"
+            class="shufflr-pl-shows-toggle"
+            data-pl-action="toggle-shows"
+            data-pl-index="${index}"
+            aria-label="Show shows in ${escapePlaylistLabel(playlist.name || 'playlist')}"
+            aria-expanded="false"
+          >▾</button>
+        </div>
+        <div class="shufflr-pl-shows-list" data-pl-index="${index}" hidden>
+          ${renderPlaylistShowListItems(playlist)}
+        </div>
+      </div>
     `;
   }).join('');
 
@@ -2434,9 +2479,21 @@ function onPlaylistDropdownClick(event) {
     return;
   }
 
-  const shuffleRow = event.target.closest('.shufflr-pl-row[data-pl-action="shuffle"]');
-  if (!shuffleRow || shuffleRow.disabled || shuffleRow.classList.contains('shufflr-pl-empty')) return;
-  const index = Number(shuffleRow.dataset.plIndex);
+  const toggleShows = event.target.closest('[data-pl-action="toggle-shows"]');
+  if (toggleShows) {
+    event.preventDefault();
+    const index = Number(toggleShows.dataset.plIndex);
+    if (Number.isFinite(index)) togglePlaylistShowsList(index);
+    return;
+  }
+}
+
+function onPlaylistRowDoubleClick(event) {
+  const header = event.target.closest('.shufflr-pl-row-header');
+  if (!header) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const index = Number(header.dataset.plIndex);
   const playlist = dropdownPlaylists[index];
   if (playlist) playPlaylistFromDropdown(index);
 }
@@ -2475,6 +2532,8 @@ function bindShufflrButtonHandlers() {
   if (dropdown) {
     dropdown.removeEventListener('click', onPlaylistDropdownClick);
     dropdown.addEventListener('click', onPlaylistDropdownClick);
+    dropdown.removeEventListener('dblclick', onPlaylistRowDoubleClick);
+    dropdown.addEventListener('dblclick', onPlaylistRowDoubleClick);
     dropdown.removeEventListener('change', onPlaylistDropdownChange);
     dropdown.addEventListener('change', onPlaylistDropdownChange);
     dropdown.removeEventListener('keydown', onPlaylistDropdownKeydown);
@@ -2529,6 +2588,7 @@ function injectShufflrStyles() {
     #shufflr-playlist-toggle,
     #shufflr-playlist-dropdown,
     .shufflr-pl-row,
+    .shufflr-pl-shows-toggle,
     .shufflr-pl-add-btn,
     .shufflr-pl-create-btn,
     .shufflr-pl-create-confirm,
@@ -2685,6 +2745,11 @@ function injectShufflrStyles() {
       margin: 6px 4px;
       background: rgba(26,107,255,0.25);
     }
+    .shufflr-pl-row-wrap {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+    }
     .shufflr-pl-row {
       display: flex;
       flex-direction: column;
@@ -2698,9 +2763,48 @@ function injectShufflrStyles() {
       cursor: pointer;
       text-align: left;
       transition: background 0.15s ease;
+      box-sizing: border-box;
     }
-    .shufflr-pl-row:hover {
+    .shufflr-pl-row.shufflr-pl-row-header {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .shufflr-pl-row:hover,
+    .shufflr-pl-row-header.open {
       background: rgba(26,107,255,0.18);
+    }
+    .shufflr-pl-shows-toggle {
+      background: none;
+      border: none;
+      color: #ffffff;
+      cursor: pointer;
+      padding: 0 2px;
+      font-family: monospace;
+      font-size: 10px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .shufflr-pl-shows-list {
+      max-height: 120px;
+      overflow-y: auto;
+      margin: 0 4px 6px;
+      padding: 2px 0 4px 8px;
+    }
+    .shufflr-pl-shows-list[hidden] {
+      display: none !important;
+    }
+    .shufflr-pl-show-item {
+      padding: 4px 8px;
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 10px;
+      letter-spacing: 0.3px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .shufflr-pl-show-item:last-child {
+      border-bottom: none;
     }
     .shufflr-pl-row:disabled,
     .shufflr-pl-row.shufflr-pl-empty {
