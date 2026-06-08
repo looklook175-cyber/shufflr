@@ -9,6 +9,7 @@ const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
+const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -442,6 +443,7 @@ let shuffleCopTimer = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
+let wasFullscreen = false;
 const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
@@ -450,47 +452,12 @@ const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
 const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
 const SHUFFLE_COP_DELAY_MS = 400;
 const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
-const AD_MAX_DURATION_SEC = 180;
-
-function hasVisibleAdDomMarkers() {
-  try {
-    const markers = document.querySelectorAll('[data-testid*="ad"], [class*="Ad"], [class*="-ad-"]');
-    for (const el of markers) {
-      const rect = el.getBoundingClientRect?.();
-      if (!rect || (rect.width > 0 && rect.height > 0)) return true;
-    }
-  } catch {}
-  return false;
-}
-
-function hasAdCountdownOrSkipLabel() {
-  try {
-    const candidates = document.querySelectorAll(
-      'button, [role="button"], span, div, p, [data-testid*="ad"]'
-    );
-    for (const el of candidates) {
-      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length > 48) continue;
-      if (/\bad\s+\d+\s+of\s+\d+\b/i.test(text)) return true;
-      if (/skip\s+ad/i.test(text)) return true;
-    }
-  } catch {}
-  return false;
-}
-
-function hasShortVideoWithAdContainer() {
-  const video = document.querySelector('video');
-  if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return false;
-  if (video.duration >= AD_MAX_DURATION_SEC) return false;
-  return hasVisibleAdDomMarkers();
-}
-
 function isAdPlaying() {
   try {
-    if (document.querySelector('[data-testid="player-ux-ad-skip-button"]')) return true;
-    if (hasVisibleAdDomMarkers()) return true;
-    if (hasAdCountdownOrSkipLabel()) return true;
-    if (hasShortVideoWithAdContainer()) return true;
+    if (document.querySelector('[data-testid="player-ux-ad-skip-button"]')) {
+      console.log('[Shufflr] ad detection reason: player-ux-ad-skip-button');
+      return true;
+    }
   } catch {}
   return false;
 }
@@ -548,9 +515,101 @@ async function getPendingEpisodeIdFromStorage() {
   return value ? normalizeMaxId(value) : null;
 }
 
+function captureFullscreenBeforeShufflrNavigation() {
+  if (document.fullscreenElement !== null) {
+    wasFullscreen = true;
+    try {
+      sessionStorage.setItem(SHUFFLR_WAS_FULLSCREEN_KEY, '1');
+    } catch {}
+    return;
+  }
+  wasFullscreen = false;
+  try {
+    sessionStorage.removeItem(SHUFFLR_WAS_FULLSCREEN_KEY);
+  } catch {}
+}
+
+function shouldRestoreFullscreenAfterNavigation() {
+  if (wasFullscreen) return true;
+  try {
+    return sessionStorage.getItem(SHUFFLR_WAS_FULLSCREEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function clearFullscreenRestoreFlag() {
+  wasFullscreen = false;
+  try {
+    sessionStorage.removeItem(SHUFFLR_WAS_FULLSCREEN_KEY);
+  } catch {}
+}
+
+async function restoreFullscreenIfNeeded() {
+  if (!shouldRestoreFullscreenAfterNavigation()) return;
+  clearFullscreenRestoreFlag();
+  try {
+    await document.documentElement.requestFullscreen();
+    ensureShufflrButtonForFullscreen();
+    console.log('[Shufflr] Restored fullscreen after episode navigation');
+  } catch (err) {
+    console.log('[Shufflr] Could not restore fullscreen:', err);
+  }
+}
+
+function restoreShufflrUIFromFullscreenContainer() {
+  const wrap = document.getElementById('shufflr-wrap');
+  const toast = document.getElementById('shufflr-toast');
+  if (wrap && wrap.parentElement !== document.body) {
+    document.body.appendChild(wrap);
+  }
+  if (toast && toast.parentElement !== document.body) {
+    document.body.appendChild(toast);
+  }
+}
+
+function ensureShufflrButtonForFullscreen() {
+  if (!document.fullscreenElement) return;
+  const fs = document.fullscreenElement;
+  if (!hasShufflrButtonInDom()) {
+    void tryInjectButton();
+  }
+  const wrap = document.getElementById('shufflr-wrap');
+  const toast = document.getElementById('shufflr-toast');
+  if (wrap && !fs.contains(wrap)) {
+    fs.appendChild(wrap);
+  }
+  if (toast && !fs.contains(toast)) {
+    fs.appendChild(toast);
+  }
+}
+
+function onFullscreenChange() {
+  if (!isChromeContextValid()) return;
+  if (document.fullscreenElement) {
+    ensureShufflrButtonForFullscreen();
+    return;
+  }
+  restoreShufflrUIFromFullscreenContainer();
+  if (!hasShufflrButtonInDom()) {
+    void tryInjectButton();
+  }
+}
+
+function installFullscreenListener() {
+  if (window.__shufflrFullscreenListener) return;
+  window.__shufflrFullscreenListener = true;
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+  if (document.fullscreenElement) {
+    ensureShufflrButtonForFullscreen();
+  }
+}
+
 function beginShufflrNavigation(episodeId) {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
+  captureFullscreenBeforeShufflrNavigation();
   shufflrAboutToNavigate = false;
   const normalized = normalizeMaxId(episodeId);
   shufflrIsNavigating = true;
@@ -726,6 +785,10 @@ function installTimeupdateWatcher() {
 
   timeupdateWatcherVideo = video;
   timeupdateWatcherHandler = async function handler() {
+    const timeRemaining = video.duration > 0 ? video.duration - video.currentTime : null;
+    console.log('[Shufflr] timeupdate fired, time remaining:', timeRemaining);
+    console.log('[Shufflr] isAdPlaying:', isAdPlaying());
+    console.log('[Shufflr] shufflrEnabled:', shufflrActive);
     if (!isChromeContextValid()) {
       handleExtensionContextInvalidated();
       return;
@@ -2257,7 +2320,7 @@ function injectShufflrStyles() {
       position: fixed;
       bottom: 90px;
       right: 24px;
-      z-index: 999999;
+      z-index: 2147483647 !important;
       user-select: none;
       pointer-events: none;
     }
@@ -2679,6 +2742,11 @@ function injectShufflrButton(video) {
     ensureVideoSwapObserver();
   }
 
+  installFullscreenListener();
+  if (document.fullscreenElement) {
+    ensureShufflrButtonForFullscreen();
+  }
+
   void fullyRestoreArmedShuffleSessionAfterInject();
 }
 
@@ -2953,6 +3021,10 @@ function onVideoPlaying() {
   timeupdateWatcherHandler = null;
   installTimeupdateWatcher();
   prefetchEpisodeList();
+  void restoreFullscreenIfNeeded();
+  if (document.fullscreenElement) {
+    ensureShufflrButtonForFullscreen();
+  }
 }
 
 // ── TOGGLE ─────────────────────────────────────────────────────────────────
@@ -3014,6 +3086,11 @@ async function toggleShuffle() {
 
 // ── VIDEO EVENTS ────────────────────────────────────────────────────────────
 function onTimeUpdate() {
+  const video = document.querySelector('video');
+  const timeRemaining = video?.duration > 0 ? video.duration - video.currentTime : null;
+  console.log('[Shufflr] timeupdate fired, time remaining:', timeRemaining);
+  console.log('[Shufflr] isAdPlaying:', isAdPlaying());
+  console.log('[Shufflr] shufflrEnabled:', shufflrActive);
   if (isAdPlaying()) {
     shufflrAboutToNavigate = false;
     return;
@@ -3023,7 +3100,6 @@ function onTimeUpdate() {
     return;
   }
 
-  const video = document.querySelector('video');
   if (!video || !video.duration || !Number.isFinite(video.duration)) return;
 
   updateShufflrAboutToNavigateFromVideo(video);
@@ -3650,6 +3726,7 @@ async function shuffleToRandomEpisode() {
     if (status) status.textContent = 'LOADING SHOW PAGE...';
     showToast('API unavailable — loading show page...');
     shufflrAboutToNavigate = false;
+    captureFullscreenBeforeShufflrNavigation();
     location.href = showPage;
     return;
   }
@@ -3718,6 +3795,7 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
   if (status) status.textContent = 'SHUFFLING...';
   showToast(`Shuffling to episode ${pickIndex + 1} of ${pool.length}!`);
   shufflrAboutToNavigate = false;
+  captureFullscreenBeforeShufflrNavigation();
   location.href = pick;
 }
 
@@ -4064,6 +4142,7 @@ setTimeout(() => {
   if (!isChromeContextValid()) return;
   handleShowPageShuffle();
   tryInjectButton();
+  installFullscreenListener();
   startShuffleWatchdog();
   installTimeupdateWatcher();
   installArmedUrlGuard();
