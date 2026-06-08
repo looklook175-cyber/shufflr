@@ -8,6 +8,88 @@ const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists';
 const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
+const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function normalizeMaxId(id) {
+  return id == null || id === '' ? '' : String(id).toLowerCase();
+}
+
+function extractMaxUuidsFromWatchPath(pathname) {
+  const match = String(pathname).match(/\/video\/watch\/([^/?#]+)(?:\/([^/?#]+))?/i);
+  if (!match) return null;
+
+  const first = decodeURIComponent(match[1]);
+  const second = match[2] ? decodeURIComponent(match[2]) : null;
+  if (!MAX_SHOW_UUID_RE.test(first)) return null;
+  if (second && !MAX_SHOW_UUID_RE.test(second)) return null;
+
+  return { first, second };
+}
+
+function resolveMaxWatchIds(url, showMaxIdHint = null) {
+  try {
+    const pathname = new URL(url, MAX_WATCH_ORIGIN).pathname;
+    const uuids = extractMaxUuidsFromWatchPath(pathname);
+    if (!uuids) {
+      const legacy = String(url).match(/\/video\/watch\/([^/?#]+)/i)
+        || String(url).match(/\/video\/([^/?#]+)/i);
+      if (!legacy) return null;
+      const id = decodeURIComponent(legacy[1]);
+      return { episodeId: id, showId: null, firstUuid: id, secondUuid: null };
+    }
+
+    const { first, second } = uuids;
+    const hint = showMaxIdHint ? normalizeMaxId(showMaxIdHint) : null;
+
+    if (!second) {
+      return { episodeId: first, showId: null, firstUuid: first, secondUuid: null };
+    }
+
+    const firstNorm = normalizeMaxId(first);
+    const secondNorm = normalizeMaxId(second);
+
+    if (hint) {
+      if (firstNorm === hint && secondNorm !== hint) {
+        return { episodeId: second, showId: first, firstUuid: first, secondUuid: second };
+      }
+      if (secondNorm === hint && firstNorm !== hint) {
+        return { episodeId: first, showId: second, firstUuid: first, secondUuid: second };
+      }
+    }
+
+    return { episodeId: first, showId: second, firstUuid: first, secondUuid: second };
+  } catch {
+    return null;
+  }
+}
+
+function getMaxEpisodeIdFromUrl(url, showMaxIdHint = null) {
+  return resolveMaxWatchIds(url, showMaxIdHint)?.episodeId || null;
+}
+
+function buildMaxEpisodeWatchUrl(episodeId, showMaxId = null) {
+  const episode = String(episodeId || '');
+  if (!episode) return `${MAX_WATCH_ORIGIN}/video/watch/`;
+
+  const show = showMaxId ? String(showMaxId) : null;
+  if (!show || normalizeMaxId(episode) === normalizeMaxId(show)) {
+    return `${MAX_WATCH_ORIGIN}/video/watch/${episode}`;
+  }
+
+  return `${MAX_WATCH_ORIGIN}/video/watch/${episode}/${show}`;
+}
+
+function maxWatchUrlsRepresentSameEpisode(urlA, urlB, showMaxIdHint = null) {
+  const epA = getMaxEpisodeIdFromUrl(urlA, showMaxIdHint);
+  const epB = getMaxEpisodeIdFromUrl(urlB, showMaxIdHint);
+  if (epA && epB) return normalizeMaxId(epA) === normalizeMaxId(epB);
+
+  try {
+    return normalizeEpisodeUrl(urlA).toLowerCase() === normalizeEpisodeUrl(urlB).toLowerCase();
+  } catch {
+    return String(urlA).split('?')[0] === String(urlB).split('?')[0];
+  }
+}
 const CMS_CAPTURE_KEY = 'shufflr_cms_template';
 const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
 const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -74,10 +156,8 @@ function normalizeShowName(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function extractAlternateIdFromWatchUrl(url) {
-  const match = String(url).match(/\/video\/watch\/([^/?#]+)/i)
-    || String(url).match(/\/video\/([^/?#]+)/i);
-  return match ? decodeURIComponent(match[1]) : null;
+function extractAlternateIdFromWatchUrl(url, showMaxIdHint = null) {
+  return getMaxEpisodeIdFromUrl(url, showMaxIdHint);
 }
 
 function episodeDetailsFromCacheEntry(entry) {
@@ -174,6 +254,7 @@ let lastUiRecoveryAt = 0;
 let uiRecoveryGraceTimer = null;
 let uiMissingSince = null;
 let shufflrNavigating = false;
+let shufflrPendingEpisodeId = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let maxNextEpisodeScanTimer = null;
@@ -219,6 +300,11 @@ const urlObserver = new MutationObserver(() => {
       }
     }
     setTimeout(tryInjectButton, 2500);
+    setTimeout(() => {
+      restoreArmedShuffleSession().catch(err => {
+        console.error('[Shufflr] restoreArmedShuffleSession error:', err);
+      });
+    }, 2500);
     setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
   }
 });
@@ -452,6 +538,9 @@ function getCurrentMaxShowUuid() {
   const fromLocation = extractMaxShowUuidFromUrl(location.href);
   if (fromLocation) return fromLocation;
 
+  const fromWatch = resolveMaxWatchIds(location.href);
+  if (fromWatch?.showId) return fromWatch.showId;
+
   const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
   return extractMaxShowUuidFromUrl(showPage);
 }
@@ -555,12 +644,6 @@ function deserializePlayedByShow(serialized) {
     out[showId] = new Set(serialized[showId] || []);
   });
   return out;
-}
-
-const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function normalizeMaxId(id) {
-  return id == null || id === '' ? '' : String(id).toLowerCase();
 }
 
 function getPlaylistShowMaxId(show) {
@@ -738,7 +821,7 @@ async function buildEnrichedPlaylistFromCache(playlist) {
         seasonNum: ep.seasonNum,
         episode_number: ep.episode_number,
         alternateId: String(ep.alternateId),
-        watchUrl: ep.watchUrl || `${MAX_WATCH_ORIGIN}/video/watch/${ep.alternateId}`,
+        watchUrl: ep.watchUrl || buildMaxEpisodeWatchUrl(ep.alternateId, maxId),
         name: ep.name || '',
       };
     }).filter(Boolean);
@@ -897,12 +980,32 @@ function updateShuffleUI(playlistName) {
   }
 }
 
-async function syncShuffleUIFromStorage() {
+async function restoreArmedShuffleSession() {
   const active = await getActivePlaylistFromStorage();
   armedPlaylistCached = !!active?.armed;
-  if (!active?.armed) return;
+  if (!active?.armed) return false;
+
   shufflrActive = true;
-  updateShuffleUI(active.playlistName || '');
+  if (hasShufflrButtonInDom()) {
+    updateShuffleUI(active.playlistName || '');
+  }
+  return true;
+}
+
+async function syncShuffleUIFromStorage() {
+  await restoreArmedShuffleSession();
+}
+
+function getShowMaxIdHintFromActive(active) {
+  if (!active) return null;
+  if (active.currentEpisode?.showId) return active.currentEpisode.showId;
+
+  for (const show of active.shows || []) {
+    const maxId = getPlaylistShowMaxId(show);
+    if (maxId) return maxId;
+  }
+
+  return resolveMaxWatchIds(location.href)?.showId || null;
 }
 
 function hasShufflrButtonInDom() {
@@ -948,10 +1051,7 @@ async function runUiRecoveryAfterGrace(reason) {
   if (hasShufflrButtonInDom()) {
     console.log('[Shufflr] Watchdog: button returned during grace period — no recovery needed');
     cancelUiRecoveryGraceTimer();
-    if (active?.armed) {
-      shufflrActive = true;
-      updateShuffleUI(active.playlistName || '');
-    }
+    await restoreArmedShuffleSession();
     return;
   }
 
@@ -987,13 +1087,26 @@ async function handleShufflrNextEpisode(source) {
 }
 
 async function handlePossibleMaxAutoAdvance(prevUrl) {
+  const active = await getActivePlaylistFromStorage();
+  const showHint = getShowMaxIdHintFromActive(active);
+
   if (shufflrNavigating) {
     shufflrNavigating = false;
+    const arrivedEpisode = getMaxEpisodeIdFromUrl(location.href, showHint);
+    if (shufflrPendingEpisodeId && arrivedEpisode
+      && normalizeMaxId(arrivedEpisode) === shufflrPendingEpisodeId) {
+      shufflrPendingEpisodeId = null;
+      await restoreArmedShuffleSession();
+      return;
+    }
+    shufflrPendingEpisodeId = null;
+    if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
+      await restoreArmedShuffleSession();
+    }
     return;
   }
-  if (shufflrEpisodeTransitionLock) return;
 
-  const active = await getActivePlaylistFromStorage();
+  if (shufflrEpisodeTransitionLock) return;
   if (!active?.armed) return;
 
   shufflrActive = true;
@@ -1001,6 +1114,12 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
 
   const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   if (!onVideoPage || prevUrl === location.href) return;
+
+  if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
+    console.log('[Shufflr] URL format changed for same episode — restoring armed UI');
+    await restoreArmedShuffleSession();
+    return;
+  }
 
   console.log('[Shufflr] Max auto-advanced during armed playlist — shuffling instead');
   await handleShufflrNextEpisode('max-auto-advance');
@@ -1063,7 +1182,7 @@ function installMaxNextEpisodeInterceptor() {
 }
 
 async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex, extraState = {}) {
-  const watchUrl = `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
+  const watchUrl = buildMaxEpisodeWatchUrl(pick.alternateId, pick.showId);
   const activePayload = {
     armed: true,
     playlistName: playlist.name || '',
@@ -1174,10 +1293,12 @@ async function shuffleFromActivePlaylist(activePayload) {
   );
 
   const label = (pick.showName || 'Show').slice(0, 24);
+  const watchUrl = buildMaxEpisodeWatchUrl(pick.alternateId, pick.showId);
   showToast(`Playing: ${label}`);
   if (status) status.textContent = label.toUpperCase().slice(0, 24);
+  shufflrPendingEpisodeId = normalizeMaxId(pick.alternateId);
   shufflrNavigating = true;
-  location.href = `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
+  location.href = watchUrl;
 }
 
 async function armPlaylistFromDropdown(playlistIndex) {
@@ -1335,7 +1456,7 @@ async function runShuffleWatchdogAsync() {
     }
 
     if (shufflrActive && active?.armed) {
-      updateShuffleUI(active.playlistName || '');
+      await restoreArmedShuffleSession();
     }
     return;
   }
@@ -2155,7 +2276,7 @@ function parseEpisodesFromCmsResponse(json) {
   return episodes;
 }
 
-function parseMaxCmsEpisodesDetailed(json, seasonNumber) {
+function parseMaxCmsEpisodesDetailed(json, seasonNumber, showMaxId = null) {
   if (!json) return [];
 
   const episodes = [];
@@ -2191,7 +2312,7 @@ function parseMaxCmsEpisodesDetailed(json, seasonNumber) {
       seasonNum: Number(seasonNum),
       episode_number: Number(episode_number),
       alternateId: String(alternateId),
-      watchUrl: `https://play.max.com/video/watch/${alternateId}`,
+      watchUrl: buildMaxEpisodeWatchUrl(alternateId, showId),
       name: attrs.name || attrs.title || '',
     });
   }
@@ -2215,7 +2336,7 @@ async function collectEpisodeDetailsViaApi(showPageUrl) {
 
   const all = [];
   payloads.forEach((json, i) => {
-    all.push(...parseMaxCmsEpisodesDetailed(json, seasonNumbers[i]));
+    all.push(...parseMaxCmsEpisodesDetailed(json, seasonNumbers[i], showId));
   });
   return all;
 }
@@ -2365,7 +2486,7 @@ async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
   const episodeDetails = [];
   const episodeSet = new Set();
   payloads.forEach((payload, i) => {
-    parseMaxCmsEpisodesDetailed(payload, seasonNumbers[i]).forEach(ep => {
+    parseMaxCmsEpisodesDetailed(payload, seasonNumbers[i], maxShowId).forEach(ep => {
       const key = `${ep.seasonNum}-${ep.episode_number}`;
       if (episodeDetails.some(e => `${e.seasonNum}-${e.episode_number}` === key)) return;
       episodeDetails.push(ep);
@@ -2522,8 +2643,9 @@ async function handleShowPageShuffle() {
 }
 
 async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
-  const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl);
-  const pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys));
+  const showHint = getCurrentMaxShowUuid();
+  const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl, showHint);
+  const pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
 
   if (!pool.length) {
     showToast('No other episodes to shuffle to.');
@@ -2551,17 +2673,9 @@ function normalizeEpisodeUrl(url) {
   }
 }
 
-function extractVideoSlug(url) {
-  try {
-    const segments = new URL(url).pathname.split('/').filter(Boolean);
-    if (segments[0] === 'video' && segments[1] === 'watch' && segments[2]) {
-      return segments[2].toLowerCase();
-    }
-    if (segments[0] === 'video' && segments[1] && segments[1] !== 'watch') {
-      return segments[1].toLowerCase();
-    }
-  } catch { /* ignore */ }
-  return null;
+function extractVideoSlug(url, showMaxIdHint = null) {
+  const episodeId = getMaxEpisodeIdFromUrl(url, showMaxIdHint);
+  return episodeId ? normalizeMaxId(episodeId) : null;
 }
 
 function extractPlayerEpisodeUrn(url) {
@@ -2572,11 +2686,25 @@ function extractPlayerEpisodeUrn(url) {
   return null;
 }
 
-function buildCurrentEpisodeKeys(pageUrl) {
+function buildCurrentEpisodeKeys(pageUrl, showMaxIdHint = null) {
   const keys = new Set();
   keys.add(normalizeEpisodeUrl(pageUrl).toLowerCase());
 
-  const videoSlug = extractVideoSlug(pageUrl);
+  const resolved = resolveMaxWatchIds(pageUrl, showMaxIdHint);
+  if (resolved?.episodeId) {
+    keys.add(normalizeMaxId(resolved.episodeId));
+    keys.add(buildMaxEpisodeWatchUrl(resolved.episodeId).toLowerCase());
+    if (resolved.showId) {
+      keys.add(buildMaxEpisodeWatchUrl(resolved.episodeId, resolved.showId).toLowerCase());
+      keys.add(`${MAX_WATCH_ORIGIN}/video/watch/${resolved.episodeId}/${resolved.showId}`.toLowerCase());
+      keys.add(`${MAX_WATCH_ORIGIN}/video/watch/${resolved.showId}/${resolved.episodeId}`.toLowerCase());
+    }
+  }
+
+  if (resolved?.firstUuid) keys.add(normalizeMaxId(resolved.firstUuid));
+  if (resolved?.secondUuid) keys.add(normalizeMaxId(resolved.secondUuid));
+
+  const videoSlug = extractVideoSlug(pageUrl, showMaxIdHint);
   if (videoSlug) keys.add(videoSlug);
 
   const urnId = extractPlayerEpisodeUrn(pageUrl);
@@ -2585,11 +2713,14 @@ function buildCurrentEpisodeKeys(pageUrl) {
   return keys;
 }
 
-function isCurrentEpisode(episodeUrl, currentKeys) {
+function isCurrentEpisode(episodeUrl, currentKeys, showMaxIdHint = null) {
   const normalized = normalizeEpisodeUrl(episodeUrl).toLowerCase();
   if (currentKeys.has(normalized)) return true;
 
-  const slug = extractVideoSlug(episodeUrl);
+  const episodeId = getMaxEpisodeIdFromUrl(episodeUrl, showMaxIdHint);
+  if (episodeId && currentKeys.has(normalizeMaxId(episodeId))) return true;
+
+  const slug = extractVideoSlug(episodeUrl, showMaxIdHint);
   if (slug && currentKeys.has(slug)) return true;
 
   return false;
