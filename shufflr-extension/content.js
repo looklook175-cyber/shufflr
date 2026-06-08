@@ -2360,6 +2360,12 @@ function injectShufflrStyles() {
       box-shadow: 0 0 30px rgba(35,168,224,0.8);
       animation: shufflr-pulse 2s infinite;
     }
+    #shufflr-icon {
+      display: block;
+      width: 24px !important;
+      height: 24px !important;
+      flex-shrink: 0;
+    }
     #shufflr-btn.active #shufflr-icon {
       animation: shufflr-spin 1.5s linear infinite;
     }
@@ -2675,6 +2681,13 @@ function isShufflrVideoPlayerPage() {
   return location.href.includes('/video/') || location.href.includes('/play/');
 }
 
+function applyShufflrIconDimensions(wrap) {
+  const icon = wrap?.querySelector('#shufflr-icon');
+  if (!icon) return;
+  icon.setAttribute('width', '24');
+  icon.setAttribute('height', '24');
+}
+
 function applyShufflrInPlayerButtonStyles(wrap) {
   const btn = wrap?.querySelector('#shufflr-btn');
   if (!btn) return;
@@ -2685,6 +2698,7 @@ function applyShufflrInPlayerButtonStyles(wrap) {
   btn.style.justifyContent = 'center';
   btn.style.width = 'auto';
   btn.style.height = '100%';
+  applyShufflrIconDimensions(wrap);
 }
 
 function ensureShufflrButtonPlaced() {
@@ -2842,6 +2856,7 @@ function injectShufflrButton(video, options = {}) {
     cancelButtonInjectRetry();
     if (video) attachVideoListeners(video);
     ensureShufflrButtonPlaced();
+    applyShufflrIconDimensions(document.getElementById('shufflr-wrap'));
     ensurePlayerControlsObserver();
     void fullyRestoreArmedShuffleSessionAfterInject();
     return;
@@ -2874,7 +2889,7 @@ function injectShufflrButton(video, options = {}) {
     <div id="shufflr-split">
       <div id="shufflr-btn">
         <div id="shufflr-inner">
-          <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <svg id="shufflr-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="16 3 21 3 21 8"></polyline>
             <line x1="4" y1="20" x2="21" y2="3"></line>
             <polyline points="21 16 21 21 16 21"></polyline>
@@ -2902,6 +2917,7 @@ function injectShufflrButton(video, options = {}) {
     document.body.appendChild(toast);
   }
 
+  applyShufflrIconDimensions(wrap);
   bindShufflrButtonHandlers();
   startShuffleWatchdog();
   populatePlaylistDropdown();
