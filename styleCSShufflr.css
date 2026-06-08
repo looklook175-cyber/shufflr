@@ -460,10 +460,10 @@ body.light-mode .playlist-max-notice-dismiss:hover{background:rgba(0,0,0,0.06);}
 }
 
 /* Max extension overlay — pass mouse events through to the player */
-#shufflr-wrap{pointer-events:none;}
-#shufflr-split,#shufflr-playlist-dropdown,#shufflr-btn,#shufflr-playlist-toggle,
+#shufflr-wrap,#shufflr-split,#shufflr-status{pointer-events:none;}
+#shufflr-playlist-dropdown,#shufflr-btn,#shufflr-playlist-toggle,
 .shufflr-pl-row,.shufflr-pl-add-btn,.shufflr-pl-create-btn,.shufflr-pl-create-confirm,
-.shufflr-pl-toggle-row{pointer-events:auto;}
+.shufflr-pl-toggle-row,.shufflr-pl-create-input{pointer-events:auto;}
 #loading-screen,#onboarding,#connect-modal,#playlist-modal,#ep-sheet-overlay{pointer-events:none;}
 .loading-logo-wrap,.onboard-card,.connect-card,.playlist-card,#ep-sheet,.timer-cancel,
 .onboard-btn,.service-connect-btn,.close-modal-btn,.create-playlist-btn,.playlist-modal-row,

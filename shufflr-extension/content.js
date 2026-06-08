@@ -113,7 +113,6 @@ let shufflrTargetEpisodeId = null;
 let shufflrTargetShowHint = null;
 
 function isChromeContextValid() {
-  if (extensionContextInvalidated) return false;
   try { return !!chrome.runtime?.id; } catch { return false; }
 }
 
@@ -163,6 +162,7 @@ function handleExtensionContextInvalidated() {
 }
 
 function handleChromeRuntimeLastError() {
+  if (!isChromeContextValid()) return false;
   try {
     if (chrome.runtime?.lastError && isExtensionContextInvalidatedError(chrome.runtime.lastError)) {
       handleExtensionContextInvalidated();
@@ -375,11 +375,13 @@ function installWebAppHandoffBridge() {
     if (event.data?.source !== 'shufflr-web') return;
 
     if (event.data?.type === 'SHUFFLR_HANDOFF') {
+      if (!isChromeContextValid()) return;
       saveActivePlaylistHandoff(event.data.payload);
       return;
     }
 
     if (event.data?.type === 'SHUFFLR_SYNC_PLAYLISTS') {
+      if (!isChromeContextValid()) return;
       setShufflrPlaylistsInStorage(event.data.playlists || [], { syncToWebApp: false }).then(() => {
         console.log('[Shufflr] Playlists synced to chrome.storage.local');
       });
@@ -387,6 +389,7 @@ function installWebAppHandoffBridge() {
     }
 
     if (event.data?.type === 'SHUFFLR_READ_EPISODE_CACHE') {
+      if (!isChromeContextValid()) return;
       readEpisodeCacheForShow(event.data.showName, event.data.tmdbId).then(episodeDetails => {
         window.postMessage({
           type: 'SHUFFLR_EPISODE_CACHE',
@@ -399,10 +402,12 @@ function installWebAppHandoffBridge() {
   });
 
   window.addEventListener('shufflr-handoff', (event) => {
+    if (!isChromeContextValid()) return;
     saveActivePlaylistHandoff(event.detail);
   });
 
   window.addEventListener('shufflr-playlists-sync', (event) => {
+    if (!isChromeContextValid()) return;
     setShufflrPlaylistsInStorage(event.detail || [], { syncToWebApp: false });
   });
 
@@ -497,6 +502,7 @@ async function getPendingEpisodeIdFromStorage() {
 }
 
 function beginShufflrNavigation(episodeId) {
+  if (!isChromeContextValid()) return;
   const normalized = normalizeMaxId(episodeId);
   shufflrIsNavigating = true;
   shufflrPendingEpisodeId = normalized || null;
@@ -504,6 +510,7 @@ function beginShufflrNavigation(episodeId) {
 
   if (shufflrIsNavigatingTimer) clearTimeout(shufflrIsNavigatingTimer);
   shufflrIsNavigatingTimer = setTimeout(() => {
+    if (!isChromeContextValid()) return;
     shufflrIsNavigating = false;
     shufflrIsNavigatingTimer = null;
   }, SHUFFLR_NAVIGATION_FLAG_MS);
@@ -571,6 +578,7 @@ async function runShuffleCopCheck(prevUrl) {
 }
 
 function notifyArmedUrlChange(prevUrl) {
+  if (!isChromeContextValid()) return;
   const hrefChanged = location.href !== prevUrl;
   armedUrlPollLastHref = location.href;
 
@@ -600,6 +608,7 @@ function notifyArmedUrlChange(prevUrl) {
 }
 
 function installArmedUrlGuard() {
+  if (!isChromeContextValid()) return;
   if (window.__shufflrArmedUrlGuard) return;
   window.__shufflrArmedUrlGuard = true;
 
@@ -617,6 +626,7 @@ function installArmedUrlGuard() {
   }, ARMED_URL_POLL_MS);
 
   window.addEventListener('popstate', () => {
+    if (!isChromeContextValid()) return;
     if (location.href === armedUrlPollLastHref) return;
     const prevUrl = armedUrlPollLastHref;
     notifyArmedUrlChange(prevUrl);
@@ -700,6 +710,7 @@ if (!IS_SHUFFLR_WEB_APP && location.href.includes('/show/')) {
 
 // ── URL CHANGE WATCHER ─────────────────────────────────────────────────────
 const urlObserver = new MutationObserver(() => {
+  if (!isChromeContextValid()) return;
   if (location.href !== lastUrl) {
     const prevUrl = lastUrl;
     lastUrl = location.href;
@@ -1552,6 +1563,7 @@ async function syncShuffleUIFromStorage() {
 }
 
 function scheduleVideoListenerRestore(retryMs = 1000) {
+  if (!isChromeContextValid()) return;
   setTimeout(() => {
     if (!isChromeContextValid()) return;
     if (!shufflrActive && !armedPlaylistCached) return;
@@ -1587,6 +1599,7 @@ function cancelUiRecoveryGraceTimer() {
 }
 
 function scheduleUiRecoveryAfterGrace(reason) {
+  if (!isChromeContextValid()) return;
   if (hasShufflrButtonInDom()) {
     cancelUiRecoveryGraceTimer();
     return;
@@ -1654,6 +1667,7 @@ async function handleShufflrNextEpisode(source) {
   }
 
   setTimeout(() => {
+    if (!isChromeContextValid()) return;
     shufflrEpisodeTransitionLock = false;
   }, EPISODE_TRANSITION_LOCK_MS);
 }
@@ -1879,6 +1893,7 @@ function isShufflrPlayerPage() {
 }
 
 function tryInjectButton() {
+  if (!isChromeContextValid()) return Promise.resolve(false);
   if (document.getElementById('shufflr-wrap')) {
     const video = document.querySelector('video');
     if (video) attachVideoListeners(video);
@@ -2000,36 +2015,44 @@ function runShuffleWatchdog() {
 
 async function runShuffleWatchdogAsync() {
   if (!isChromeContextValid()) return;
-  const active = await getActivePlaylistFromStorage();
-  armedPlaylistCached = !!active?.armed;
-  const maintainSession = shufflrActive || active?.armed;
-  if (!maintainSession) {
-    cancelUiRecoveryGraceTimer();
-    return;
-  }
-
-  if (active?.armed && !shufflrActive) {
-    shufflrActive = true;
-  }
-
-  if (!isShufflrPlayerPage()) return;
-
-  if (hasShufflrButtonInDom()) {
-    cancelUiRecoveryGraceTimer();
-
-    const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-    if (isVideoPage) {
-      const video = document.querySelector('video');
-      if (video) attachVideoListeners(video);
+  try {
+    const active = await getActivePlaylistFromStorage();
+    armedPlaylistCached = !!active?.armed;
+    const maintainSession = shufflrActive || active?.armed;
+    if (!maintainSession) {
+      cancelUiRecoveryGraceTimer();
+      return;
     }
 
-    if (shufflrActive && active?.armed) {
-      await restoreArmedShuffleSession();
+    if (active?.armed && !shufflrActive) {
+      shufflrActive = true;
     }
-    return;
-  }
 
-  scheduleUiRecoveryAfterGrace('button still missing after grace period');
+    if (!isShufflrPlayerPage()) return;
+
+    if (hasShufflrButtonInDom()) {
+      cancelUiRecoveryGraceTimer();
+
+      const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+      if (isVideoPage) {
+        const video = document.querySelector('video');
+        if (video) attachVideoListeners(video);
+      }
+
+      if (shufflrActive && active?.armed) {
+        await restoreArmedShuffleSession();
+      }
+      return;
+    }
+
+    scheduleUiRecoveryAfterGrace('button still missing after grace period');
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) {
+      handleExtensionContextInvalidated();
+      return;
+    }
+    throw err;
+  }
 }
 
 function startShuffleWatchdog() {
@@ -2155,7 +2178,18 @@ function injectShufflrStyles() {
       pointer-events: none;
     }
     #shufflr-split,
-    #shufflr-playlist-dropdown {
+    #shufflr-status {
+      pointer-events: none;
+    }
+    #shufflr-btn,
+    #shufflr-playlist-toggle,
+    #shufflr-playlist-dropdown,
+    .shufflr-pl-row,
+    .shufflr-pl-add-btn,
+    .shufflr-pl-create-btn,
+    .shufflr-pl-create-confirm,
+    .shufflr-pl-toggle-row,
+    .shufflr-pl-create-input {
       pointer-events: auto;
     }
     #shufflr-split {
@@ -2499,8 +2533,10 @@ function injectShufflrStyles() {
 }
 
 function ensureVideoSwapObserver() {
+  if (!isChromeContextValid()) return;
   if (window.__shufflrVideoObserver) return;
   window.__shufflrVideoObserver = new MutationObserver(() => {
+    if (!isChromeContextValid()) return;
     const video = document.querySelector('video');
     if (video && document.getElementById('shufflr-wrap')) attachVideoListeners(video);
   });
@@ -2508,6 +2544,7 @@ function ensureVideoSwapObserver() {
 }
 
 function injectShufflrButton(video) {
+  if (!isChromeContextValid()) return;
   if (document.getElementById('shufflr-wrap')) {
     if (video) attachVideoListeners(video);
     void fullyRestoreArmedShuffleSessionAfterInject();
@@ -2755,6 +2792,7 @@ function suppressMaxAutoNextOverlayAggressive(element) {
 }
 
 function suppressMaxAutoNextOverlay(element) {
+  if (!isChromeContextValid()) return;
   if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
 
   getActivePlaylistFromStorage().then(active => {
@@ -3940,16 +3978,29 @@ function extractVideoLinks() {
 }
 
 function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  if (!isChromeContextValid()) return Promise.resolve();
+  return new Promise(resolve => {
+    setTimeout(() => {
+      if (!isChromeContextValid()) {
+        resolve();
+        return;
+      }
+      resolve();
+    }, ms);
+  });
 }
 
 function showToast(message) {
+  if (!isChromeContextValid()) return;
   const toast = document.getElementById('shufflr-toast');
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
   clearTimeout(window._shufflrToastTimer);
-  window._shufflrToastTimer = setTimeout(() => toast.classList.remove('show'), 3500);
+  window._shufflrToastTimer = setTimeout(() => {
+    if (!isChromeContextValid()) return;
+    toast.classList.remove('show');
+  }, 3500);
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────
