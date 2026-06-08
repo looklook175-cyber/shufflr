@@ -2404,7 +2404,7 @@ function injectShufflrStyles() {
     #shufflr-wrap {
       position: fixed;
       bottom: 90px;
-      right: 24px;
+      right: 96px;
       z-index: 2147483647 !important;
       user-select: none;
       pointer-events: none;
