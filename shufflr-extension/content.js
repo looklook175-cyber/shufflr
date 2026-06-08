@@ -258,13 +258,13 @@ let shufflrPendingEpisodeId = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
-let preShuffleTriggered = false;
-let preShuffleEpisodeKey = '';
+let timeupdateWatcherVideo = null;
+let timeupdateWatcherHandler = null;
 const ARMED_URL_POLL_MS = 400;
-const PRE_SHUFFLE_REMAINING_SEC = 4;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
+const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 4;
 
 function isSingleUuidWatchUrl(url) {
   try {
@@ -297,22 +297,14 @@ async function shouldRedirectSingleUuidPromo(prevUrl, nextUrl, active, showHint)
   return false;
 }
 
-function resetPreShuffleState() {
-  preShuffleTriggered = false;
-  preShuffleEpisodeKey = '';
-}
-
-function getPreShuffleEpisodeKey() {
-  return location.href.split('?')[0];
-}
-
 function notifyArmedUrlChange(prevUrl) {
   const hrefChanged = location.href !== prevUrl;
   armedUrlPollLastHref = location.href;
 
   if (hrefChanged && lastUrl !== location.href) {
     lastUrl = location.href;
-    resetPreShuffleState();
+    timeupdateWatcherVideo = null;
+    timeupdateWatcherHandler = null;
     removeShufflrUI();
     cancelUiRecoveryGraceTimer();
     setTimeout(tryInjectButton, 2500);
@@ -364,6 +356,46 @@ function installArmedUrlGuard() {
   console.log('[Shufflr] Armed URL guard ready');
 }
 
+function installTimeupdateWatcher() {
+  const video = document.querySelector('video');
+  if (!video) {
+    setTimeout(installTimeupdateWatcher, 1000);
+    return;
+  }
+
+  if (timeupdateWatcherVideo === video && timeupdateWatcherHandler) {
+    return;
+  }
+
+  if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
+    timeupdateWatcherVideo.removeEventListener('timeupdate', timeupdateWatcherHandler);
+  }
+
+  timeupdateWatcherVideo = video;
+
+  timeupdateWatcherHandler = () => {
+    if (video.paused || !(video.duration > 0)) return;
+    if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+
+    getActivePlaylistFromStorage().then(active => {
+      if (!active?.armed) return;
+
+      video.removeEventListener('timeupdate', timeupdateWatcherHandler);
+      timeupdateWatcherHandler = null;
+      timeupdateWatcherVideo = null;
+
+      shufflrActive = true;
+      armedPlaylistCached = true;
+      handleShufflrNextEpisode('timeupdate-watcher').catch(err => {
+        console.error('[Shufflr] timeupdate watcher error:', err);
+        installTimeupdateWatcher();
+      });
+    });
+  };
+
+  video.addEventListener('timeupdate', timeupdateWatcherHandler);
+}
+
 function saveShowPageUrl(url) {
   knownShowPageUrl = url.split('?')[0];
   sessionStorage.setItem(SHUFFLR_SHOW_PAGE_KEY, knownShowPageUrl);
@@ -379,7 +411,8 @@ const urlObserver = new MutationObserver(() => {
     const prevUrl = lastUrl;
     lastUrl = location.href;
     armedUrlPollLastHref = location.href;
-    resetPreShuffleState();
+    timeupdateWatcherVideo = null;
+    timeupdateWatcherHandler = null;
     removeShufflrUI();
     cancelUiRecoveryGraceTimer();
     handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
@@ -2084,11 +2117,13 @@ function attachVideoListeners(video) {
   video.removeEventListener('playing', onVideoPlaying);
   video.addEventListener('playing', onVideoPlaying);
   window.__shufflrAttachedVideo = video;
+  installTimeupdateWatcher();
 }
 
 function onVideoPlaying() {
-  preShuffleEpisodeKey = getPreShuffleEpisodeKey();
-  preShuffleTriggered = false;
+  timeupdateWatcherVideo = null;
+  timeupdateWatcherHandler = null;
+  installTimeupdateWatcher();
   prefetchEpisodeList();
 }
 
@@ -2150,34 +2185,9 @@ function onTimeUpdate() {
   const remaining = video.duration - video.currentTime;
   const status = document.getElementById('shufflr-status');
 
-  if (status && remaining <= 30 && remaining > PRE_SHUFFLE_REMAINING_SEC) {
+  if (status && remaining <= 30 && remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) {
     status.textContent = `SHUFFLING IN ${Math.floor(remaining)}s...`;
   }
-
-  const episodeKey = getPreShuffleEpisodeKey();
-  if (preShuffleEpisodeKey !== episodeKey) {
-    preShuffleEpisodeKey = episodeKey;
-    preShuffleTriggered = false;
-  }
-
-  if (preShuffleTriggered || shufflrEpisodeTransitionLock) return;
-  if (remaining > PRE_SHUFFLE_REMAINING_SEC || remaining <= 0.25) return;
-
-  preShuffleTriggered = true;
-  if (status) status.textContent = 'SMART SHUFFLE...';
-
-  getActivePlaylistFromStorage().then(active => {
-    if (!active?.armed) {
-      preShuffleTriggered = false;
-      return;
-    }
-    shufflrActive = true;
-    armedPlaylistCached = true;
-    handleShufflrNextEpisode('timeupdate-pre-end').catch(err => {
-      console.error('[Shufflr] timeupdate pre-shuffle error:', err);
-      preShuffleTriggered = false;
-    });
-  });
 }
 
 async function onEpisodeEnded() {
@@ -2188,7 +2198,7 @@ async function onEpisodeEnded() {
   }
   if (!shufflrActive && !active?.armed) return;
   if (active?.armed) {
-    if (preShuffleTriggered || shufflrEpisodeTransitionLock) return;
+    if (shufflrEpisodeTransitionLock) return;
     await handleShufflrNextEpisode('video-ended');
     return;
   }
@@ -3119,6 +3129,7 @@ setTimeout(() => {
   handleShowPageShuffle();
   tryInjectButton();
   startShuffleWatchdog();
+  installTimeupdateWatcher();
   installArmedUrlGuard();
   syncShuffleUIFromStorage();
 }, 2500);
