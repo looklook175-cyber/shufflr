@@ -448,8 +448,6 @@ let fullscreenRestorePromptActive = false;
 let fullscreenRestoreClickHandler = null;
 let fullscreenRestoreKeydownHandler = null;
 let fullscreenRestoreDismissHandler = null;
-let shufflrTimeRemainingTimer = null;
-let shufflrTimeRemainingVideo = null;
 const FULLSCREEN_RESTORE_TOAST_MS = 5000;
 const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
@@ -2303,7 +2301,6 @@ function startShuffleWatchdog() {
 }
 
 function removeShufflrUI() {
-  stopShufflrTimeRemainingTicker();
   document.getElementById('shufflr-wrap')?.remove();
   document.getElementById('shufflr-toast')?.remove();
   hasInjectedButton = false;
@@ -2411,26 +2408,6 @@ function injectShufflrStyles() {
       z-index: 2147483647 !important;
       user-select: none;
       pointer-events: none;
-    }
-    #shufflr-float-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    #shufflr-time-remaining {
-      color: #fff;
-      font-size: 14px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      font-variant-numeric: tabular-nums;
-      font-weight: 400;
-      letter-spacing: 0.02em;
-      line-height: 1;
-      white-space: nowrap;
-      background: none;
-      pointer-events: none;
-    }
-    #shufflr-time-remaining[hidden] {
-      display: none !important;
     }
     #shufflr-split,
     #shufflr-status {
@@ -2822,112 +2799,6 @@ function injectShufflrStyles() {
   document.head.appendChild(style);
 }
 
-function isShufflrVideoPlayerPage() {
-  return location.href.includes('/video/') || location.href.includes('/play/');
-}
-
-function formatShufflrTimeRemaining(seconds) {
-  if (!Number.isFinite(seconds)) return '-0:00';
-  const total = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  return `-${mins}:${String(secs).padStart(2, '0')}`;
-}
-
-function ensureShufflrTimeRemainingElement() {
-  let el = document.getElementById('shufflr-time-remaining');
-  if (el) return el;
-
-  const split = document.getElementById('shufflr-split');
-  if (!split?.parentElement) return null;
-
-  let floatRow = document.getElementById('shufflr-float-row');
-  if (!floatRow) {
-    floatRow = document.createElement('div');
-    floatRow.id = 'shufflr-float-row';
-    split.parentElement.insertBefore(floatRow, split);
-    floatRow.appendChild(split);
-  }
-
-  el = document.createElement('span');
-  el.id = 'shufflr-time-remaining';
-  el.hidden = true;
-  floatRow.insertBefore(el, split);
-  return el;
-}
-
-function updateShufflrTimeRemainingDisplay(video) {
-  const el = document.getElementById('shufflr-time-remaining');
-  if (!el) return;
-
-  if (!isShufflrVideoPlayerPage() || !video || video.paused) {
-    el.hidden = true;
-    el.textContent = '';
-    return;
-  }
-
-  if (!video.duration || !Number.isFinite(video.duration)) {
-    el.hidden = true;
-    el.textContent = '';
-    return;
-  }
-
-  el.hidden = false;
-  el.textContent = formatShufflrTimeRemaining(video.duration - video.currentTime);
-}
-
-function onShufflrVideoPauseForTimeRemaining() {
-  updateShufflrTimeRemainingDisplay(shufflrTimeRemainingVideo);
-}
-
-function stopShufflrTimeRemainingTicker() {
-  if (shufflrTimeRemainingTimer) {
-    clearInterval(shufflrTimeRemainingTimer);
-    shufflrTimeRemainingTimer = null;
-  }
-  if (shufflrTimeRemainingVideo) {
-    shufflrTimeRemainingVideo.removeEventListener('pause', onShufflrVideoPauseForTimeRemaining);
-    shufflrTimeRemainingVideo = null;
-  }
-  const el = document.getElementById('shufflr-time-remaining');
-  if (el) {
-    el.hidden = true;
-    el.textContent = '';
-  }
-}
-
-function startShufflrTimeRemainingTicker(video) {
-  ensureShufflrTimeRemainingElement();
-  if (!video || !isShufflrVideoPlayerPage()) {
-    stopShufflrTimeRemainingTicker();
-    return;
-  }
-
-  if (shufflrTimeRemainingVideo && shufflrTimeRemainingVideo !== video) {
-    shufflrTimeRemainingVideo.removeEventListener('pause', onShufflrVideoPauseForTimeRemaining);
-  }
-
-  shufflrTimeRemainingVideo = video;
-  video.removeEventListener('pause', onShufflrVideoPauseForTimeRemaining);
-  video.addEventListener('pause', onShufflrVideoPauseForTimeRemaining);
-  updateShufflrTimeRemainingDisplay(video);
-
-  if (shufflrTimeRemainingTimer) return;
-
-  shufflrTimeRemainingTimer = setInterval(() => {
-    if (!isChromeContextValid()) {
-      stopShufflrTimeRemainingTicker();
-      return;
-    }
-    const activeVideo = shufflrTimeRemainingVideo || document.querySelector('video');
-    if (!activeVideo) {
-      stopShufflrTimeRemainingTicker();
-      return;
-    }
-    updateShufflrTimeRemainingDisplay(activeVideo);
-  }, 1000);
-}
-
 function ensureVideoSwapObserver() {
   if (!isChromeContextValid()) return;
   if (window.__shufflrVideoObserver) return;
@@ -2942,12 +2813,7 @@ function ensureVideoSwapObserver() {
 function injectShufflrButton(video) {
   if (!isChromeContextValid()) return;
   if (document.getElementById('shufflr-wrap')) {
-    ensureShufflrTimeRemainingElement();
-    if (video) {
-      attachVideoListeners(video);
-    } else {
-      stopShufflrTimeRemainingTicker();
-    }
+    if (video) attachVideoListeners(video);
     void fullyRestoreArmedShuffleSessionAfterInject();
     return;
   }
@@ -2963,22 +2829,19 @@ function injectShufflrButton(video) {
     <div id="shufflr-playlist-dropdown">
       ${renderPlaylistDropdownContent([])}
     </div>
-    <div id="shufflr-float-row">
-      <span id="shufflr-time-remaining" hidden></span>
-      <div id="shufflr-split">
-        <div id="shufflr-btn">
-          <div id="shufflr-inner">
-            <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 3 21 3 21 8"></polyline>
-              <line x1="4" y1="20" x2="21" y2="3"></line>
-              <polyline points="21 16 21 21 16 21"></polyline>
-              <line x1="15" y1="15" x2="21" y2="21"></line>
-            </svg>
-            <span id="shufflr-label">SHUFFLR</span>
-          </div>
+    <div id="shufflr-split">
+      <div id="shufflr-btn">
+        <div id="shufflr-inner">
+          <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <line x1="4" y1="20" x2="21" y2="3"></line>
+            <polyline points="21 16 21 21 16 21"></polyline>
+            <line x1="15" y1="15" x2="21" y2="21"></line>
+          </svg>
+          <span id="shufflr-label">SHUFFLR</span>
         </div>
-        <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
       </div>
+      <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
     </div>
     <div id="shufflr-status"></div>
   `;
@@ -2997,8 +2860,6 @@ function injectShufflrButton(video) {
   if (video) {
     attachVideoListeners(video);
     ensureVideoSwapObserver();
-  } else {
-    stopShufflrTimeRemainingTicker();
   }
 
   installFullscreenListener();
@@ -3020,7 +2881,6 @@ function attachVideoListeners(video) {
   window.__shufflrAttachedVideo = video;
   installTimeupdateWatcher();
   suppressMaxAutoNext();
-  startShufflrTimeRemainingTicker(video);
   if (!video.paused) {
     showFullscreenRestorePrompt();
   }
@@ -3284,8 +3144,6 @@ function onVideoPlaying() {
   timeupdateWatcherHandler = null;
   installTimeupdateWatcher();
   prefetchEpisodeList();
-  const video = window.__shufflrAttachedVideo || document.querySelector('video');
-  if (video) startShufflrTimeRemainingTicker(video);
   showFullscreenRestorePrompt();
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
