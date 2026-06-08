@@ -108,6 +108,7 @@ let maxAutoNextVisibilityHandler = null;
 let maxAutoNextBeforeUnloadHandler = null;
 let maxAutoNextArmedCache = false;
 let maxAutoNextPollTimer = null;
+let shufflrAboutToNavigate = false;
 let shufflrTargetWatchUrl = null;
 let shufflrTargetEpisodeId = null;
 let shufflrTargetShowHint = null;
@@ -445,6 +446,7 @@ const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
 const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
+const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
 const SHUFFLE_COP_DELAY_MS = 1500;
 const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
 
@@ -503,6 +505,7 @@ async function getPendingEpisodeIdFromStorage() {
 
 function beginShufflrNavigation(episodeId) {
   if (!isChromeContextValid()) return;
+  shufflrAboutToNavigate = false;
   const normalized = normalizeMaxId(episodeId);
   shufflrIsNavigating = true;
   shufflrPendingEpisodeId = normalized || null;
@@ -668,6 +671,7 @@ function installTimeupdateWatcher() {
       return;
     }
     if (video.duration <= 0 || video.paused) return;
+    updateShufflrAboutToNavigateFromVideo(video);
     if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
     let result;
     try {
@@ -2692,8 +2696,19 @@ function refreshMaxAutoNextArmedCache() {
   });
 }
 
+function updateShufflrAboutToNavigateFromVideo(video) {
+  if (!video || video.duration <= 0 || video.paused) return;
+  if (!shufflrActive && !armedPlaylistCached) {
+    shufflrAboutToNavigate = false;
+    return;
+  }
+  const remaining = video.duration - video.currentTime;
+  shufflrAboutToNavigate = remaining <= SHUFFLR_ABOUT_TO_NAVIGATE_SEC;
+}
+
 function suppressMaxAutoNextOverlayAggressive(element) {
   if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
+  if (!shufflrAboutToNavigate) return;
   if (!maxAutoNextArmedCache) return;
 
   const height = element.getBoundingClientRect().height || element.offsetHeight || 0;
@@ -2736,6 +2751,7 @@ function pollAndSuppressMaxAutoNextOverlays() {
     teardownMaxAutoNextSuppression();
     return;
   }
+  if (!shufflrAboutToNavigate) return;
 
   refreshMaxAutoNextArmedCache().then(armed => {
     if (!armed) return;
@@ -2748,6 +2764,7 @@ function pollAndSuppressMaxAutoNextOverlays() {
 
 function scanForMaxAutoNextOverlays(root = document.body) {
   if (!root?.querySelectorAll) return;
+  if (!shufflrAboutToNavigate) return;
 
   try {
     if (root.matches?.(MAX_AUTO_NEXT_OVERLAY_SELECTORS)) {
@@ -2775,6 +2792,7 @@ function teardownMaxAutoNextSuppression() {
     maxAutoNextBeforeUnloadHandler = null;
   }
   maxAutoNextArmedCache = false;
+  shufflrAboutToNavigate = false;
   shufflrTargetWatchUrl = null;
   shufflrTargetEpisodeId = null;
   shufflrTargetShowHint = null;
@@ -2825,10 +2843,7 @@ function suppressMaxAutoNext() {
     }, 500);
   }
 
-  refreshMaxAutoNextArmedCache().then(() => {
-    scanForMaxAutoNextOverlays();
-    pollAndSuppressMaxAutoNextOverlays();
-  });
+  refreshMaxAutoNextArmedCache();
 }
 
 function onVideoPlaying() {
@@ -2892,10 +2907,15 @@ async function toggleShuffle() {
 
 // ── VIDEO EVENTS ────────────────────────────────────────────────────────────
 function onTimeUpdate() {
-  if (!shufflrActive && !armedPlaylistCached) return;
+  if (!shufflrActive && !armedPlaylistCached) {
+    shufflrAboutToNavigate = false;
+    return;
+  }
 
   const video = document.querySelector('video');
   if (!video || !video.duration || !Number.isFinite(video.duration)) return;
+
+  updateShufflrAboutToNavigateFromVideo(video);
 
   const remaining = video.duration - video.currentTime;
   const status = document.getElementById('shufflr-status');
@@ -3514,6 +3534,7 @@ async function shuffleToRandomEpisode() {
     sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage }));
     if (status) status.textContent = 'LOADING SHOW PAGE...';
     showToast('API unavailable — loading show page...');
+    shufflrAboutToNavigate = false;
     location.href = showPage;
     return;
   }
@@ -3580,6 +3601,7 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
 
   if (status) status.textContent = 'SHUFFLING...';
   showToast(`Shuffling to episode ${pickIndex + 1} of ${pool.length}!`);
+  shufflrAboutToNavigate = false;
   location.href = pick;
 }
 
