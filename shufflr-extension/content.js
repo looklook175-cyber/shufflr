@@ -2951,7 +2951,7 @@ function injectShufflrStyles() {
       box-shadow: 0 0 12px rgba(26,107,255,0.6);
     }
     #shufflr-status {
-      font-size: 8px;
+      font-size: 11px;
       color: #ffffff;
       text-align: right;
       margin: 0;
