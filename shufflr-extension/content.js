@@ -10,6 +10,7 @@ const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
+const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1604,6 +1605,7 @@ async function navigateToNextOrderedShow(source) {
 
     shufflrTargetWatchUrl = null;
     shufflrTargetEpisodeId = null;
+    sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
     location.href = showUrl;
   } catch (err) {
     console.error('[Shufflr] navigateToNextOrderedShow error:', err);
@@ -4706,11 +4708,70 @@ function showToast(message) {
   }, 3500);
 }
 
+let showPageAutoplayPollTimer = null;
+
+function findResumeOrWatchButton() {
+  const candidates = document.querySelectorAll('button, a[role="button"], [role="button"]');
+  for (const el of candidates) {
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (text.includes('Resume')) return el;
+  }
+  for (const el of candidates) {
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (text.includes('Watch')) return el;
+  }
+  return null;
+}
+
+// Ordered-mode show-page autoplay: shuffle cop sets shufflr_autoplay_pending before navigating
+// to a show page; on load we clear the flag and poll once for Max's Resume/Watch button.
+async function maybeAutoClickShowPageResume() {
+  if (!isChromeContextValid()) return;
+  if (showPageAutoplayPollTimer) return;
+  if (!location.href.includes('/show/')) return;
+  if (sessionStorage.getItem(SHUFFLR_AUTOPLAY_PENDING_KEY) !== 'true') return;
+
+  const settings = await readShuffleSettings();
+  if (!settings.orderedEpisodes) return;
+
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+
+  sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
+
+  const startedAt = Date.now();
+  const maxMs = 5000;
+
+  showPageAutoplayPollTimer = setInterval(() => {
+    if (!isChromeContextValid()) {
+      clearInterval(showPageAutoplayPollTimer);
+      showPageAutoplayPollTimer = null;
+      return;
+    }
+
+    const button = findResumeOrWatchButton();
+    if (button) {
+      clearInterval(showPageAutoplayPollTimer);
+      showPageAutoplayPollTimer = null;
+      try {
+        button.click();
+      } catch {}
+      return;
+    }
+
+    if (Date.now() - startedAt >= maxMs) {
+      clearInterval(showPageAutoplayPollTimer);
+      showPageAutoplayPollTimer = null;
+    }
+  }, 300);
+}
+
 // ── INIT ────────────────────────────────────────────────────────────────────
 if (!IS_SHUFFLR_WEB_APP) {
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;
 });
+void maybeAutoClickShowPageResume();
 setTimeout(() => {
   if (!isChromeContextValid()) return;
   handleShowPageShuffle();
@@ -4720,5 +4781,6 @@ setTimeout(() => {
   installTimeupdateWatcher();
   installArmedUrlGuard();
   syncShuffleUIFromStorage();
+  void maybeAutoClickShowPageResume();
 }, 2500);
 }
