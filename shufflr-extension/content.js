@@ -258,6 +258,8 @@ let shufflrPendingEpisodeId = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let maxNextEpisodeScanTimer = null;
+let armedUrlPollLastHref = location.href;
+const ARMED_URL_POLL_MS = 400;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
@@ -271,6 +273,155 @@ const MAX_NEXT_EP_SELECTORS = [
   '[aria-label*="next episode" i]',
   '[aria-label*="Up Next" i]',
 ];
+
+function isSingleUuidWatchUrl(url) {
+  try {
+    const uuids = extractMaxUuidsFromWatchPath(new URL(url, MAX_WATCH_ORIGIN).pathname);
+    return !!(uuids && !uuids.second);
+  } catch {
+    return false;
+  }
+}
+
+function elementMatchesMaxNextEpisodeControl(el) {
+  if (!el || el.closest('#shufflr-wrap')) return false;
+
+  const testId = el.getAttribute('data-testid') || '';
+  if (/next-episode|nextEpisode|up-next|upNext/i.test(testId)) return true;
+
+  const aria = el.getAttribute('aria-label') || '';
+  if (MAX_NEXT_EP_TEXT_RE.test(aria)) return true;
+
+  const label = `${el.textContent || ''} ${aria}`.replace(/\s+/g, ' ').trim();
+  return MAX_NEXT_EP_TEXT_RE.test(label);
+}
+
+function applyMaxNextEpisodeBlockingStyles() {
+  if (document.getElementById('shufflr-max-next-block-style')) return;
+
+  const style = document.createElement('style');
+  style.id = 'shufflr-max-next-block-style';
+  style.textContent = `
+    [data-shufflr-next-intercept="1"] {
+      pointer-events: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      position: absolute !important;
+      width: 0 !important;
+      height: 0 !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function interceptMaxNextEpisodeEvent(event, source) {
+  if (!shufflrActive && !armedPlaylistCached) return false;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+
+  handleShufflrNextEpisode(source).catch(err => {
+    console.error(`[Shufflr] ${source} intercept error:`, err);
+  });
+  return true;
+}
+
+function onDocumentMaxNextCapture(event) {
+  if (!shufflrActive && !armedPlaylistCached) return;
+
+  const target = event.target?.nodeType === Node.ELEMENT_NODE
+    ? event.target
+    : event.target?.parentElement;
+  if (!target) return;
+
+  const control = target.closest('button, a[href], [role="button"]');
+  if (!control || control.closest('#shufflr-wrap')) return;
+  if (!elementMatchesMaxNextEpisodeControl(control) && control.dataset.shufflrNextIntercept !== '1') return;
+
+  interceptMaxNextEpisodeEvent(event, 'document-capture');
+}
+
+async function shouldRedirectSingleUuidPromo(prevUrl, nextUrl, active, showHint) {
+  if (!isSingleUuidWatchUrl(nextUrl)) return false;
+
+  const nextEp = getMaxEpisodeIdFromUrl(nextUrl, showHint);
+  const currentAlt = active?.currentEpisode?.alternateId;
+  if (currentAlt && nextEp && normalizeMaxId(nextEp) === normalizeMaxId(currentAlt)) {
+    return false;
+  }
+
+  if (!isSingleUuidWatchUrl(prevUrl)) {
+    return true;
+  }
+
+  const prepared = preparePlaylistForShuffle(await resolvePlaylistForShuffle(active));
+  const showIds = getPlaylistMaxIds(prepared);
+  if (nextEp && showIds.has(normalizeMaxId(nextEp))) {
+    return true;
+  }
+
+  return false;
+}
+
+function notifyArmedUrlChange(prevUrl) {
+  const hrefChanged = location.href !== prevUrl;
+  armedUrlPollLastHref = location.href;
+
+  if (hrefChanged && lastUrl !== location.href) {
+    lastUrl = location.href;
+    removeShufflrUI();
+    cancelUiRecoveryGraceTimer();
+    setTimeout(tryInjectButton, 2500);
+    setTimeout(() => {
+      restoreArmedShuffleSession().catch(err => {
+        console.error('[Shufflr] restoreArmedShuffleSession error:', err);
+      });
+    }, 2500);
+    setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
+  }
+
+  handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
+    console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
+  });
+}
+
+function installArmedUrlGuard() {
+  if (window.__shufflrArmedUrlGuard) return;
+  window.__shufflrArmedUrlGuard = true;
+
+  armedUrlPollLastHref = location.href;
+
+  setInterval(() => {
+    if (location.href === armedUrlPollLastHref) return;
+    const prevUrl = armedUrlPollLastHref;
+    notifyArmedUrlChange(prevUrl);
+  }, ARMED_URL_POLL_MS);
+
+  window.addEventListener('popstate', () => {
+    if (location.href === armedUrlPollLastHref) return;
+    const prevUrl = armedUrlPollLastHref;
+    notifyArmedUrlChange(prevUrl);
+  });
+
+  const wrapHistory = method => {
+    const original = history[method];
+    history[method] = function (...args) {
+      const prevUrl = location.href;
+      const result = original.apply(this, args);
+      if (location.href !== prevUrl) {
+        notifyArmedUrlChange(prevUrl);
+      }
+      return result;
+    };
+  };
+
+  wrapHistory('pushState');
+  wrapHistory('replaceState');
+  console.log('[Shufflr] Armed URL guard ready');
+}
 
 function saveShowPageUrl(url) {
   knownShowPageUrl = url.split('?')[0];
@@ -286,6 +437,7 @@ const urlObserver = new MutationObserver(() => {
   if (location.href !== lastUrl) {
     const prevUrl = lastUrl;
     lastUrl = location.href;
+    armedUrlPollLastHref = location.href;
     removeShufflrUI();
     cancelUiRecoveryGraceTimer();
     handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
@@ -1160,31 +1312,43 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
     return;
   }
 
+  if (await shouldRedirectSingleUuidPromo(prevUrl, location.href, active, showHint)) {
+    console.log('[Shufflr] Single-UUID promo/trailer navigation while armed — shuffling instead');
+    await handleShufflrNextEpisode('single-uuid-promo');
+    return;
+  }
+
   console.log('[Shufflr] Max auto-advanced during armed playlist — shuffling instead');
   await handleShufflrNextEpisode('max-auto-advance');
+}
+
+function disableMaxNextEpisodeControl(el) {
+  el.setAttribute('aria-disabled', 'true');
+  el.setAttribute('tabindex', '-1');
+  if ('disabled' in el) {
+    try { el.disabled = true; } catch { /* ignore */ }
+  }
 }
 
 function bindMaxNextEpisodeControl(el) {
   if (!el || el.closest('#shufflr-wrap') || el.dataset.shufflrNextIntercept === '1') return;
   el.dataset.shufflrNextIntercept = '1';
+  disableMaxNextEpisodeControl(el);
 
   const intercept = (event) => {
-    if (!shufflrActive && !armedPlaylistCached) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-    handleShufflrNextEpisode('max-next-ui').catch(err => {
-      console.error('[Shufflr] max-next-ui intercept error:', err);
-    });
+    interceptMaxNextEpisodeEvent(event, 'max-next-ui');
   };
 
-  el.addEventListener('click', intercept, true);
-  el.addEventListener('pointerup', intercept, true);
+  const events = ['click', 'mousedown', 'pointerdown', 'pointerup', 'touchstart', 'touchend'];
+  events.forEach(type => {
+    el.addEventListener(type, intercept, true);
+  });
 }
 
 function scanMaxNextEpisodeControls(root = document) {
   if (!shufflrActive && !armedPlaylistCached) return;
+
+  applyMaxNextEpisodeBlockingStyles();
 
   const seen = new Set();
   MAX_NEXT_EP_SELECTORS.forEach(selector => {
@@ -1197,8 +1361,7 @@ function scanMaxNextEpisodeControls(root = document) {
 
   root.querySelectorAll('button, a[href], [role="button"]').forEach(el => {
     if (el.closest('#shufflr-wrap') || seen.has(el)) return;
-    const label = `${el.textContent || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
-    if (!MAX_NEXT_EP_TEXT_RE.test(label)) return;
+    if (!elementMatchesMaxNextEpisodeControl(el)) return;
     seen.add(el);
     bindMaxNextEpisodeControl(el);
   });
@@ -1208,15 +1371,24 @@ function installMaxNextEpisodeInterceptor() {
   if (window.__shufflrMaxNextEpisodeInterceptor) return;
   window.__shufflrMaxNextEpisodeInterceptor = true;
 
+  applyMaxNextEpisodeBlockingStyles();
+
+  const captureEvents = ['click', 'mousedown', 'pointerdown', 'touchstart'];
+  captureEvents.forEach(type => {
+    document.addEventListener(type, onDocumentMaxNextCapture, true);
+  });
+
   const observer = new MutationObserver(() => {
-    if (maxNextEpisodeScanTimer) return;
-    maxNextEpisodeScanTimer = setTimeout(() => {
+    if (!shufflrActive && !armedPlaylistCached) return;
+    if (maxNextEpisodeScanTimer) cancelAnimationFrame(maxNextEpisodeScanTimer);
+    maxNextEpisodeScanTimer = requestAnimationFrame(() => {
       maxNextEpisodeScanTimer = null;
       scanMaxNextEpisodeControls();
-    }, 250);
+    });
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label', 'data-testid', 'class'] });
   scanMaxNextEpisodeControls();
+  installArmedUrlGuard();
   console.log('[Shufflr] Max next-episode interceptor ready');
 }
 
