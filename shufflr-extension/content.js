@@ -2776,15 +2776,26 @@ function injectShufflrStyles() {
       background: rgba(26,107,255,0.18);
     }
     .shufflr-pl-shows-toggle {
-      background: none;
-      border: none;
-      color: #ffffff;
-      cursor: pointer;
-      padding: 0 2px;
-      font-family: monospace;
-      font-size: 10px;
-      line-height: 1;
       flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid #1a6bff;
+      border-radius: 6px;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+    .shufflr-pl-shows-toggle:hover {
+      background: #1a6bff;
+      color: #000;
     }
     .shufflr-pl-shows-list {
       max-height: 120px;
