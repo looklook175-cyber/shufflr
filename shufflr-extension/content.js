@@ -2406,6 +2406,9 @@ function injectShufflrStyles() {
       bottom: 90px;
       right: 96px;
       z-index: 2147483647 !important;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
       user-select: none;
       pointer-events: none;
     }
@@ -2427,6 +2430,7 @@ function injectShufflrStyles() {
     #shufflr-split {
       display: flex;
       align-items: stretch;
+      order: 2;
     }
     #shufflr-btn {
       cursor: pointer;
@@ -2723,10 +2727,12 @@ function injectShufflrStyles() {
       box-shadow: 0 0 12px rgba(26,107,255,0.6);
     }
     #shufflr-status {
+      order: 1;
       font-size: 8px;
       color: #1a6bff;
       text-align: center;
-      margin-top: 5px;
+      margin-top: 0;
+      margin-bottom: 5px;
       letter-spacing: 1px;
       min-height: 10px;
       font-family: monospace;
