@@ -10,7 +10,6 @@ const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
-const SHUFFLR_LAST_WATCHED_PREFIX = 'shufflr_last_watched_';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -71,6 +70,12 @@ function getMaxEpisodeIdFromUrl(url, showMaxIdHint = null) {
   return resolveMaxWatchIds(url, showMaxIdHint)?.episodeId || null;
 }
 
+function buildMaxShowPageUrl(showMaxId) {
+  const show = String(showMaxId || '').trim();
+  if (!show) return `${MAX_WATCH_ORIGIN}/show`;
+  return `${MAX_WATCH_ORIGIN}/show/${show}`;
+}
+
 function buildMaxEpisodeWatchUrl(episodeId, showMaxId = null) {
   const episode = String(episodeId || '');
   if (!episode) return `${MAX_WATCH_ORIGIN}/video/watch/`;
@@ -115,6 +120,7 @@ let shufflrAboutToNavigate = false;
 let shufflrTargetWatchUrl = null;
 let shufflrTargetEpisodeId = null;
 let shufflrTargetShowHint = null;
+let orderedEpisodesCached = false;
 const SHUFFLR_AUTO_HIDE_MS = 5000;
 let shufflrAutoHideTimer = null;
 let shufflrButtonHovered = false;
@@ -760,6 +766,34 @@ async function runShuffleCopCheck(prevUrl) {
   const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   if (!onVideoPage) return;
 
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+
+  // Ordered Episodes: Shufflr only controls WHICH show plays — Max handles episode auto-next
+  // within a show. Shuffle cop intervenes only when Max jumps to a different show (e.g. a
+  // recommendation); it then round-robins to the next playlist show page and lets Max Resume.
+  if (settings.orderedEpisodes) {
+    if (shufflrIsNavigating) return;
+
+    const prevShowId = resolveShowIdForCop(prevUrl, active);
+    const currShowId = resolveShowIdForCop(location.href, active);
+
+    if (prevShowId && currShowId && prevShowId === currShowId) {
+      await clearPendingEpisodeIdInStorage();
+      shufflrPendingEpisodeId = null;
+      shufflrNavigating = false;
+      await updateOrderedCurrentEpisodeFromUrl(active, location.href);
+      await restoreArmedShuffleSession();
+      return;
+    }
+
+    console.log('[Shufflr] Shuffle cop (ordered): show changed, redirecting to next playlist show...');
+    showToast('Shufflr: next show...');
+    await clearPendingEpisodeIdInStorage();
+    await navigateToNextOrderedShow('shuffle-cop');
+    return;
+  }
+
   if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
     await clearPendingEpisodeIdInStorage();
     return;
@@ -896,6 +930,7 @@ function installTimeupdateWatcher() {
       return;
     }
     if (!result[SHUFFLR_ACTIVE_PLAYLIST_KEY]?.armed) return;
+    if (orderedEpisodesCached) return;
     video.removeEventListener('timeupdate', handler);
     timeupdateWatcherHandler = null;
     timeupdateWatcherVideo = null;
@@ -1155,9 +1190,7 @@ async function saveShuffleSettings(settings) {
 async function setOrderedEpisodesEnabled(enabled) {
   if (!isChromeContextValid()) return { orderedEpisodes: false };
   const next = await saveShuffleSettings({ orderedEpisodes: !!enabled });
-  if (next.orderedEpisodes) {
-    await resetOrderedSessionIndexes();
-  }
+  orderedEpisodesCached = !!next.orderedEpisodes;
   showToast(next.orderedEpisodes ? 'Ordered Episodes ON' : 'Ordered Episodes OFF');
   return next;
 }
@@ -1426,99 +1459,166 @@ function serializeRoundPlayedShows(roundPlayedShows) {
   return [...(roundPlayedShows || new Set())].map(id => String(id));
 }
 
-function lastWatchedStorageKey(showUuid) {
-  return `${SHUFFLR_LAST_WATCHED_PREFIX}${normalizeMaxId(showUuid)}`;
+function resolveShowIdForCop(url, active) {
+  const hint = getShowMaxIdHintFromActive(active);
+  const resolved = resolveMaxWatchIds(url, hint);
+  if (resolved?.showId) return normalizeMaxId(resolved.showId);
+  if (active?.currentShow?.showId) return normalizeMaxId(active.currentShow.showId);
+  if (active?.currentEpisode?.showId) return normalizeMaxId(active.currentEpisode.showId);
+  if (hint) return normalizeMaxId(hint);
+  return null;
 }
 
-async function readLastWatchedEpisode(showUuid) {
-  if (!isChromeContextValid()) return null;
-  const stored = await storageLocalGet(lastWatchedStorageKey(showUuid));
-  if (!stored || typeof stored !== 'object') return null;
-  if (!Number.isFinite(stored.episodeIndex) && !stored.episodeId) return null;
-  return {
-    episodeIndex: Number.isFinite(stored.episodeIndex) ? stored.episodeIndex : null,
-    episodeId: stored.episodeId ? String(stored.episodeId) : null,
-    title: stored.title || '',
-  };
-}
+function pickNextShowRoundRobin(playlistShows, lastPlayedShow, roundPlayedShows) {
+  const validShows = (playlistShows || []).filter(showHasMaxId);
+  if (!validShows.length) return null;
 
-async function saveLastWatchedEpisode(showUuid, episode, episodeIndex) {
-  if (!isChromeContextValid() || !showUuid || !episode) return;
-  await storageLocalSet(lastWatchedStorageKey(showUuid), {
-    episodeIndex,
-    episodeId: episode.alternateId || episode.id || '',
-    title: episode.name || episode.showName || episode.title || '',
-  });
-}
+  const entries = validShows.map(show => ({
+    show,
+    id: normalizeMaxId(getPlaylistShowMaxId(show)),
+  }));
 
-function sortEpisodesInPlaybackOrder(episodes) {
-  return [...(episodes || [])].sort((a, b) => {
-    const seasonA = a.seasonNum ?? 0;
-    const seasonB = b.seasonNum ?? 0;
-    if (seasonA !== seasonB) return seasonA - seasonB;
-    return (a.episode_number ?? 0) - (b.episode_number ?? 0);
-  });
-}
-
-function getOrderedResumeIndex(episodes, lastWatched) {
-  if (!episodes?.length) return 0;
-  if (!lastWatched) return 0;
-
-  if (lastWatched.episodeId) {
-    const byId = episodes.findIndex(ep => (
-      normalizeMaxId(ep.alternateId) === normalizeMaxId(lastWatched.episodeId)
-      || ep.id === lastWatched.episodeId
-    ));
-    if (byId >= 0) return (byId + 1) % episodes.length;
+  let roundPool = entries.filter(entry => !roundPlayedShows.has(entry.id));
+  if (!roundPool.length) {
+    roundPlayedShows.clear();
+    roundPool = entries;
   }
 
-  if (Number.isFinite(lastWatched.episodeIndex)) {
-    const idx = lastWatched.episodeIndex;
-    if (idx >= 0 && idx < episodes.length) return (idx + 1) % episodes.length;
+  let pool = roundPool;
+  if (lastPlayedShow && pool.length > 1) {
+    const lastNorm = normalizeMaxId(lastPlayedShow);
+    const withoutLast = pool.filter(entry => entry.id !== lastNorm);
+    if (withoutLast.length) pool = withoutLast;
   }
 
-  return 0;
+  return pool[0]?.show || null;
 }
 
-// Ordered Episodes resume: each show's next index is seeded from shufflr_last_watched_{showUUID}
-// in chrome.storage.local (episode after last watched, or S1E1 if none). Round-robin picks the
-// show; episodes play sequentially within that show before advancing the stored index.
-async function seedOrderedResumeIndexes(enrichedShows, nextEpisodeIndexByShow = {}) {
-  const seeded = { ...nextEpisodeIndexByShow };
-  for (const show of enrichedShows) {
-    const showId = String(show.id);
-    if (!show.episodes?.length) continue;
-    if (Object.prototype.hasOwnProperty.call(seeded, showId)) continue;
-    const lastWatched = await readLastWatchedEpisode(showId);
-    seeded[showId] = getOrderedResumeIndex(show.episodes, lastWatched);
-  }
-  return seeded;
-}
-
-async function resetOrderedSessionIndexes() {
+async function saveOrderedShowRotationState(playlist, show, showId, playlistIndex, roundPlayedShows) {
   if (!isChromeContextValid()) return;
+  const showTitle = getPlaylistShowTitle(show);
+  const activePayload = {
+    armed: true,
+    playlistName: playlist.name || '',
+    playlistIndex,
+    shows: [...(playlist.shows || [])],
+    episodes: [...(playlist.episodes || [])],
+    selectedService: 'max',
+    currentShow: { showId, showName: showTitle },
+    currentEpisode: null,
+    currentEpisodeUrl: null,
+    sessionStartedAt: Date.now(),
+  };
   const stored = await storageLocalGet(SHUFFLR_EPISODE_STATE_KEY);
-  if (!stored || typeof stored !== 'object') return;
-  await storageLocalSet(SHUFFLR_EPISODE_STATE_KEY, {
-    ...stored,
-    nextEpisodeIndexByShow: {},
+  const episodeState = {
+    ...(stored && typeof stored === 'object' ? stored : {}),
+    lastPlayedShow: showId,
+    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
+    playlistName: playlist.name || '',
+    playlistIndex,
+  };
+
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
+    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
   });
 }
 
-async function saveCurrentEpisodeAsLastWatched(activePayload) {
-  if (!activePayload?.currentEpisode) return;
-  const showId = activePayload.currentEpisode.showId;
-  if (!showId) return;
-  const orderedIndex = activePayload.currentEpisode.orderedIndex;
-  const index = Number.isFinite(orderedIndex) ? orderedIndex : 0;
-  await saveLastWatchedEpisode(showId, activePayload.currentEpisode, index);
+async function updateOrderedCurrentEpisodeFromUrl(active, url) {
+  if (!isChromeContextValid() || !active?.armed) return;
+  const hint = getShowMaxIdHintFromActive(active);
+  const episodeId = getMaxEpisodeIdFromUrl(url, hint);
+  if (!episodeId) return;
+
+  const showId = resolveShowIdForCop(url, active);
+  const updated = {
+    ...active,
+    currentEpisode: {
+      showId,
+      showName: active.currentEpisode?.showName || active.currentShow?.showName || '',
+      alternateId: episodeId,
+    },
+    currentEpisodeUrl: String(url).split('?')[0],
+  };
+  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
+}
+
+// Ordered Episodes: round-robin across show pages only — Max handles episode order and resume.
+async function navigateToNextOrderedShow(source) {
+  if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
+  if (shufflrEpisodeTransitionLock) {
+    console.log(`[Shufflr] Show transition already in progress (${source})`);
+    return;
+  }
+
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+
+  shufflrEpisodeTransitionLock = true;
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  console.log(`[Shufflr] Ordered mode — next show via ${source}`);
+
+  try {
+    const sourcePlaylist = await resolvePlaylistForShuffle(active);
+    const playlistIndex = active.playlistIndex ?? 0;
+    const preparedPlaylist = preparePlaylistForShuffle(sourcePlaylist);
+    if (!preparedPlaylist.shows.length) {
+      showToast('No shows with Max ID');
+      return;
+    }
+
+    let { lastPlayedShow, roundPlayedShows } =
+      await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
+    if (!(roundPlayedShows instanceof Set)) {
+      roundPlayedShows = deserializeRoundPlayedShows(roundPlayedShows);
+    }
+
+    const nextShow = pickNextShowRoundRobin(preparedPlaylist.shows, lastPlayedShow, roundPlayedShows);
+    if (!nextShow) {
+      showToast('No shows available in playlist');
+      return;
+    }
+
+    const showMaxId = getPlaylistShowMaxId(nextShow);
+    if (!showMaxId) return;
+
+    const showId = normalizeMaxId(showMaxId);
+    roundPlayedShows.add(showId);
+
+    const showUrl = buildMaxShowPageUrl(showMaxId);
+    const showTitle = getPlaylistShowTitle(nextShow);
+    const status = document.getElementById('shufflr-status');
+
+    await saveOrderedShowRotationState(
+      preparedPlaylist,
+      nextShow,
+      showId,
+      playlistIndex,
+      roundPlayedShows
+    );
+
+    showToast(`Next show: ${showTitle}`);
+    if (status) status.textContent = showTitle.toUpperCase().slice(0, 24);
+
+    shufflrTargetWatchUrl = null;
+    shufflrTargetEpisodeId = null;
+    location.href = showUrl;
+  } catch (err) {
+    console.error('[Shufflr] navigateToNextOrderedShow error:', err);
+  } finally {
+    setTimeout(() => {
+      if (!isChromeContextValid()) return;
+      shufflrEpisodeTransitionLock = false;
+    }, EPISODE_TRANSITION_LOCK_MS);
+  }
 }
 
 function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds = null, options = {}) {
   const roundPlayedShows = options.roundPlayedShows instanceof Set
     ? options.roundPlayedShows
     : deserializeRoundPlayedShows(options.roundPlayedShows);
-  const orderedEpisodes = !!options.orderedEpisodes;
   const nextEpisodeIndexByShow = { ...(options.nextEpisodeIndexByShow || {}) };
 
   let availableShows = enrichedShows.filter(show => show.episodes?.length);
@@ -1537,28 +1637,6 @@ function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds
   if (lastPlayedShow && showPool.length > 1) {
     const withoutLast = showPool.filter(show => String(show.id) !== String(lastPlayedShow));
     if (withoutLast.length) showPool = withoutLast;
-  }
-
-  if (orderedEpisodes) {
-    const show = showPool[0];
-    const showId = String(show.id);
-    const idx = nextEpisodeIndexByShow[showId] ?? 0;
-    const safeIdx = show.episodes.length ? idx % show.episodes.length : 0;
-    const episode = show.episodes[safeIdx];
-    if (!episode) return null;
-
-    const pick = { ...episode, showId: show.id, orderedIndex: safeIdx };
-    nextEpisodeIndexByShow[showId] = (safeIdx + 1) % show.episodes.length;
-    if (!playedByShow[showId]) playedByShow[showId] = new Set();
-    playedByShow[showId].add(pick.id);
-    roundPlayedShows.add(showId);
-
-    return {
-      pick,
-      lastPlayedShow: showId,
-      roundPlayedShows,
-      nextEpisodeIndexByShow,
-    };
   }
 
   let candidates = [];
@@ -1669,9 +1747,7 @@ async function validateShowForShuffle(show) {
     return null;
   }
 
-  const episodes = sortEpisodesInPlaybackOrder(
-    mapEpisodeDetailsToShuffleEpisodes(show, details)
-  );
+  const episodes = mapEpisodeDetailsToShuffleEpisodes(show, details);
   if (!episodes.length) {
     console.log(`[Shufflr] Skipping show with no episodes: ${showName}`);
     return null;
@@ -1950,6 +2026,7 @@ function scheduleVideoListenerRestore(retryMs = 1000) {
 
 function getShowMaxIdHintFromActive(active) {
   if (!active) return null;
+  if (active.currentShow?.showId) return active.currentShow.showId;
   if (active.currentEpisode?.showId) return active.currentEpisode.showId;
 
   for (const show of active.shows || []) {
@@ -2035,10 +2112,12 @@ async function handleShufflrNextEpisode(source) {
 
   try {
     const settings = await readShuffleSettings();
+    orderedEpisodesCached = !!settings.orderedEpisodes;
     if (settings.orderedEpisodes) {
-      await saveCurrentEpisodeAsLastWatched(active);
+      await navigateToNextOrderedShow(source);
+    } else {
+      await shuffleFromActivePlaylist(active);
     }
-    await shuffleFromActivePlaylist(active);
   } catch (err) {
     console.error('[Shufflr] handleShufflrNextEpisode error:', err);
     shufflrEpisodeTransitionLock = false;
@@ -2083,6 +2162,17 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
   const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   if (!onVideoPage || prevUrl === location.href) return;
 
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  if (settings.orderedEpisodes) {
+    const prevShowId = resolveShowIdForCop(prevUrl, active);
+    const currShowId = resolveShowIdForCop(location.href, active);
+    if (prevShowId && currShowId && prevShowId === currShowId) {
+      await restoreArmedShuffleSession();
+    }
+    return;
+  }
+
   if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
     console.log('[Shufflr] URL format changed for same episode — restoring armed UI');
     await restoreArmedShuffleSession();
@@ -2115,7 +2205,6 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
       name: pick.name,
       id: pick.id,
       alternateId: pick.alternateId,
-      orderedIndex: Number.isFinite(pick.orderedIndex) ? pick.orderedIndex : undefined,
     },
     currentEpisodeUrl: watchUrl,
     sessionStartedAt: Date.now(),
@@ -2158,16 +2247,12 @@ async function shuffleFromActivePlaylist(activePayload) {
 
   let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
     await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
-  const settings = await readShuffleSettings();
   const excludedShowIds = new Set();
   let result = null;
 
   for (let attempt = 0; attempt < preparedPlaylist.shows.length; attempt++) {
     const enriched = await buildEnrichedPlaylistFromCache(preparedPlaylist, excludedShowIds);
     const playlistShows = filterEnrichedToPlaylist(enriched, preparedPlaylist);
-    if (settings.orderedEpisodes && playlistShows.length) {
-      nextEpisodeIndexByShow = await seedOrderedResumeIndexes(playlistShows, nextEpisodeIndexByShow);
-    }
     console.log(
       `[Shufflr] Smart Shuffle attempt ${attempt + 1}/${preparedPlaylist.shows.length} — ` +
       `playlist "${preparedPlaylist.name || 'Untitled'}": ` +
@@ -2184,7 +2269,6 @@ async function shuffleFromActivePlaylist(activePayload) {
       allowedMaxIds,
       {
         roundPlayedShows,
-        orderedEpisodes: settings.orderedEpisodes,
         nextEpisodeIndexByShow,
       }
     );
@@ -3340,6 +3424,10 @@ function updateShufflrAboutToNavigateFromVideo(video) {
     shufflrAboutToNavigate = false;
     return;
   }
+  if (orderedEpisodesCached) {
+    shufflrAboutToNavigate = false;
+    return;
+  }
   if (!video || video.duration <= 0 || video.paused) return;
   if (!shufflrActive && !armedPlaylistCached) {
     shufflrAboutToNavigate = false;
@@ -3576,6 +3664,10 @@ function onTimeUpdate() {
     shufflrAboutToNavigate = false;
     return;
   }
+  if (orderedEpisodesCached) {
+    shufflrAboutToNavigate = false;
+    return;
+  }
 
   if (!video || !video.duration || !Number.isFinite(video.duration)) return;
 
@@ -3601,6 +3693,7 @@ async function onEpisodeEnded() {
   }
   if (!shufflrActive && !active?.armed) return;
   if (active?.armed) {
+    if (orderedEpisodesCached) return;
     if (shufflrEpisodeTransitionLock) return;
     await handleShufflrNextEpisode('video-ended');
     return;
@@ -4615,6 +4708,9 @@ function showToast(message) {
 
 // ── INIT ────────────────────────────────────────────────────────────────────
 if (!IS_SHUFFLR_WEB_APP) {
+void readShuffleSettings().then(settings => {
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+});
 setTimeout(() => {
   if (!isChromeContextValid()) return;
   handleShowPageShuffle();
