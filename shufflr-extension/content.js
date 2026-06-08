@@ -2001,7 +2001,14 @@ async function runShuffleWatchdogAsync() {
 function startShuffleWatchdog() {
   if (!isChromeContextValid()) return;
   if (shuffleWatchdogTimer) return;
-  shuffleWatchdogTimer = setInterval(runShuffleWatchdog, 2000);
+  shuffleWatchdogTimer = setInterval(() => {
+    if (!isChromeContextValid()) {
+      clearInterval(shuffleWatchdogTimer);
+      shuffleWatchdogTimer = null;
+      return;
+    }
+    runShuffleWatchdog();
+  }, 2000);
 }
 
 function removeShufflrUI() {
@@ -2111,6 +2118,11 @@ function injectShufflrStyles() {
       right: 24px;
       z-index: 999999;
       user-select: none;
+      pointer-events: none;
+    }
+    #shufflr-split,
+    #shufflr-playlist-dropdown {
+      pointer-events: auto;
     }
     #shufflr-split {
       display: flex;
