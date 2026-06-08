@@ -2407,8 +2407,9 @@ function injectShufflrStyles() {
       right: 96px;
       z-index: 2147483647 !important;
       display: inline-flex;
-      flex-direction: column;
+      flex-direction: row;
       align-items: flex-end;
+      gap: 8px;
       padding-bottom: 15px;
       box-sizing: border-box;
       user-select: none;
@@ -2432,6 +2433,7 @@ function injectShufflrStyles() {
     #shufflr-split {
       display: flex;
       align-items: stretch;
+      flex-shrink: 0;
     }
     #shufflr-btn {
       cursor: pointer;
@@ -2728,20 +2730,18 @@ function injectShufflrStyles() {
       box-shadow: 0 0 12px rgba(26,107,255,0.6);
     }
     #shufflr-status {
-      position: absolute;
-      right: 0;
-      left: 0;
-      bottom: 15px;
-      transform: translateY(calc(-100% - 5px));
       font-size: 8px;
       color: #1a6bff;
-      text-align: center;
+      text-align: right;
       margin: 0;
       letter-spacing: 1px;
       min-height: 10px;
       font-family: monospace;
       opacity: 0.8;
       white-space: nowrap;
+      flex-shrink: 0;
+      line-height: 1;
+      padding-bottom: 2px;
     }
     @keyframes shufflr-pulse {
       0%, 100% { box-shadow: 0 0 30px rgba(35,168,224,0.8); }
@@ -2840,6 +2840,7 @@ function injectShufflrButton(video) {
     <div id="shufflr-playlist-dropdown">
       ${renderPlaylistDropdownContent([])}
     </div>
+    <div id="shufflr-status"></div>
     <div id="shufflr-split">
       <div id="shufflr-btn">
         <div id="shufflr-inner">
@@ -2854,7 +2855,6 @@ function injectShufflrButton(video) {
       </div>
       <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
     </div>
-    <div id="shufflr-status"></div>
   `;
   document.body.appendChild(wrap);
 
