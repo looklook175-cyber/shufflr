@@ -96,42 +96,166 @@ const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
 
+let extensionContextInvalidated = false;
+let armedUrlPollTimer = null;
+let shuffleWatchdogTimer = null;
+let uiRecoveryGraceTimer = null;
+let timeupdateWatcherVideo = null;
+let timeupdateWatcherHandler = null;
+
+function isChromeContextValid() {
+  if (extensionContextInvalidated) return false;
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+
+function isExtensionContextInvalidatedError(err) {
+  const msg = String(err?.message || err || '');
+  return msg.includes('Extension context invalidated');
+}
+
+function handleExtensionContextInvalidated() {
+  if (extensionContextInvalidated) return;
+  extensionContextInvalidated = true;
+
+  if (shuffleWatchdogTimer) {
+    clearInterval(shuffleWatchdogTimer);
+    shuffleWatchdogTimer = null;
+  }
+  if (armedUrlPollTimer) {
+    clearInterval(armedUrlPollTimer);
+    armedUrlPollTimer = null;
+  }
+  if (uiRecoveryGraceTimer) {
+    clearTimeout(uiRecoveryGraceTimer);
+    uiRecoveryGraceTimer = null;
+  }
+  uiMissingSince = null;
+
+  if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
+    try {
+      timeupdateWatcherVideo.removeEventListener('timeupdate', timeupdateWatcherHandler);
+    } catch {}
+  }
+  timeupdateWatcherVideo = null;
+  timeupdateWatcherHandler = null;
+
+  try {
+    const video = document.querySelector('video');
+    if (video) video.removeEventListener('timeupdate', onTimeUpdate);
+  } catch {}
+}
+
+function handleChromeRuntimeLastError() {
+  try {
+    if (chrome.runtime?.lastError && isExtensionContextInvalidatedError(chrome.runtime.lastError)) {
+      handleExtensionContextInvalidated();
+      return true;
+    }
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) {
+      handleExtensionContextInvalidated();
+      return true;
+    }
+  }
+  return false;
+}
+
+function chromeStorageLocalSet(items) {
+  if (!isChromeContextValid()) return Promise.resolve(false);
+  return new Promise(resolve => {
+    try {
+      chrome.storage.local.set(items, () => {
+        try {
+          if (handleChromeRuntimeLastError()) {
+            resolve(false);
+            return;
+          }
+          resolve(true);
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          resolve(false);
+        }
+      });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      resolve(false);
+    }
+  });
+}
+
+function chromeStorageLocalRemove(keys) {
+  if (!isChromeContextValid()) return Promise.resolve(false);
+  return new Promise(resolve => {
+    try {
+      chrome.storage.local.remove(keys, () => {
+        try {
+          if (handleChromeRuntimeLastError()) {
+            resolve(false);
+            return;
+          }
+          resolve(true);
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          resolve(false);
+        }
+      });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      resolve(false);
+    }
+  });
+}
+
 async function syncPlaylistsToWebApp(playlists) {
+  if (!isChromeContextValid()) return;
   if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
 
   try {
     const tabs = await chrome.tabs.query({ url: 'https://shufflr-app.netlify.app/*' });
     await Promise.all(tabs.map(tab => new Promise(resolve => {
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'SHUFFLR_SYNC_PLAYLISTS',
-        payload: playlists,
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.log('[Shufflr] Web app sync skipped:', chrome.runtime.lastError.message);
-        }
+      try {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'SHUFFLR_SYNC_PLAYLISTS',
+          payload: playlists,
+        }, () => {
+          try {
+            if (handleChromeRuntimeLastError()) {
+              resolve();
+              return;
+            }
+            if (chrome.runtime.lastError) {
+              console.log('[Shufflr] Web app sync skipped:', chrome.runtime.lastError.message);
+            }
+          } catch (err) {
+            if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          }
+          resolve();
+        });
+      } catch (err) {
+        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
         resolve();
-      });
+      }
     })));
   } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) {
+      handleExtensionContextInvalidated();
+      return;
+    }
     console.error('[Shufflr] syncPlaylistsToWebApp error:', err);
   }
 }
 
 async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } = {}) {
-  await new Promise(resolve => {
-    chrome.storage.local.set({ [SHUFFLR_PLAYLISTS_KEY]: playlists }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('[Shufflr] Playlists storage error:', chrome.runtime.lastError.message);
-      }
-      resolve();
-    });
-  });
+  if (!isChromeContextValid()) return;
+  const ok = await chromeStorageLocalSet({ [SHUFFLR_PLAYLISTS_KEY]: playlists });
+  if (!ok) return;
   if (syncToWebApp) {
     await syncPlaylistsToWebApp(playlists);
   }
 }
 
 function saveActivePlaylistHandoff(payload) {
+  if (!isChromeContextValid()) return;
   if (!payload || typeof payload !== 'object') return;
   const storagePayload = { [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload };
   if (payload.playedByShow) {
@@ -144,13 +268,22 @@ function saveActivePlaylistHandoff(payload) {
       playlistIndex: payload.playlistIndex ?? 0,
     };
   }
-  chrome.storage.local.set(storagePayload, () => {
-    if (chrome.runtime.lastError) {
-      console.error('[Shufflr] Handoff storage error:', chrome.runtime.lastError.message);
-      return;
-    }
-    console.log('[Shufflr] Active playlist saved to chrome.storage.local');
-  });
+  try {
+    chrome.storage.local.set(storagePayload, () => {
+      try {
+        if (handleChromeRuntimeLastError()) return;
+        if (chrome.runtime.lastError) {
+          console.error('[Shufflr] Handoff storage error:', chrome.runtime.lastError.message);
+          return;
+        }
+        console.log('[Shufflr] Active playlist saved to chrome.storage.local');
+      } catch (err) {
+        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      }
+    });
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  }
 }
 
 function normalizeShowName(name) {
@@ -174,7 +307,32 @@ function episodeDetailsFromCacheEntry(entry) {
 }
 
 async function readEpisodeCacheForShow(showName, tmdbId) {
-  const all = await new Promise(resolve => chrome.storage.local.get(null, resolve));
+  if (!isChromeContextValid()) return [];
+  let all;
+  try {
+    all = await new Promise(resolve => {
+      try {
+        chrome.storage.local.get(null, result => {
+          try {
+            if (handleChromeRuntimeLastError()) {
+              resolve({});
+              return;
+            }
+            resolve(result || {});
+          } catch (err) {
+            if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+            resolve({});
+          }
+        });
+      } catch (err) {
+        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+        resolve({});
+      }
+    });
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+    return [];
+  }
   const target = normalizeShowName(showName);
 
   for (const [key, entry] of Object.entries(all)) {
@@ -244,7 +402,6 @@ let shufflrActive = false;
 let hasInjectedButton = false;
 let toggleShuffleInProgress = false;
 let documentClickBound = false;
-let shuffleWatchdogTimer = null;
 let lastUrl = location.href;
 let knownShowPageUrl = sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
 let shuffleInProgress = false;
@@ -252,15 +409,12 @@ let lastPrefetchedEpisodeUrl = null;
 let prefetchInFlightShowId = null;
 let uiRecoveryInProgress = false;
 let lastUiRecoveryAt = 0;
-let uiRecoveryGraceTimer = null;
 let uiMissingSince = null;
 let shufflrNavigating = false;
 let shufflrPendingEpisodeId = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
-let timeupdateWatcherVideo = null;
-let timeupdateWatcherHandler = null;
 const ARMED_URL_POLL_MS = 400;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
@@ -277,6 +431,7 @@ function isSingleUuidWatchUrl(url) {
 }
 
 async function shouldRedirectSingleUuidPromo(prevUrl, nextUrl, active, showHint) {
+  if (!isChromeContextValid()) return false;
   if (!isSingleUuidWatchUrl(nextUrl)) return false;
 
   const nextEp = getMaxEpisodeIdFromUrl(nextUrl, showHint);
@@ -328,7 +483,11 @@ function installArmedUrlGuard() {
 
   armedUrlPollLastHref = location.href;
 
-  setInterval(() => {
+  armedUrlPollTimer = setInterval(() => {
+    if (!isChromeContextValid()) {
+      handleExtensionContextInvalidated();
+      return;
+    }
     if (location.href === armedUrlPollLastHref) return;
     const prevUrl = armedUrlPollLastHref;
     notifyArmedUrlChange(prevUrl);
@@ -358,6 +517,7 @@ function installArmedUrlGuard() {
 }
 
 async function navigateToNextShow() {
+  if (!isChromeContextValid()) return;
   const active = await getActivePlaylistFromStorage();
   if (!active?.armed) return;
   shufflrActive = true;
@@ -366,19 +526,41 @@ async function navigateToNextShow() {
 }
 
 function installTimeupdateWatcher() {
+  if (!isChromeContextValid()) return;
   const video = document.querySelector('video');
   if (!video) {
     setTimeout(installTimeupdateWatcher, 1000);
     return;
   }
-  video.addEventListener('timeupdate', async function handler() {
+
+  if (timeupdateWatcherVideo === video && timeupdateWatcherHandler) return;
+
+  if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
+    timeupdateWatcherVideo.removeEventListener('timeupdate', timeupdateWatcherHandler);
+  }
+
+  timeupdateWatcherVideo = video;
+  timeupdateWatcherHandler = async function handler() {
+    if (!isChromeContextValid()) {
+      handleExtensionContextInvalidated();
+      return;
+    }
     if (video.duration <= 0 || video.paused) return;
     if (video.duration - video.currentTime > 4) return;
-    const result = await chrome.storage.local.get([SHUFFLR_ACTIVE_PLAYLIST_KEY]);
+    let result;
+    try {
+      result = await chrome.storage.local.get([SHUFFLR_ACTIVE_PLAYLIST_KEY]);
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      return;
+    }
     if (!result[SHUFFLR_ACTIVE_PLAYLIST_KEY]?.armed) return;
     video.removeEventListener('timeupdate', handler);
+    timeupdateWatcherHandler = null;
+    timeupdateWatcherVideo = null;
     navigateToNextShow();
-  });
+  };
+  video.addEventListener('timeupdate', timeupdateWatcherHandler);
 }
 
 function saveShowPageUrl(url) {
@@ -428,11 +610,26 @@ urlObserver.observe(document.body, { childList: true, subtree: true });
 let dropdownPlaylists = [];
 
 function readPlaylistsFromStorage() {
+  if (!isChromeContextValid()) return Promise.resolve([]);
   return new Promise(resolve => {
-    chrome.storage.local.get(SHUFFLR_PLAYLISTS_KEY, result => {
-      const playlists = result[SHUFFLR_PLAYLISTS_KEY];
-      resolve(Array.isArray(playlists) ? playlists : []);
-    });
+    try {
+      chrome.storage.local.get(SHUFFLR_PLAYLISTS_KEY, result => {
+        try {
+          if (handleChromeRuntimeLastError()) {
+            resolve([]);
+            return;
+          }
+          const playlists = result[SHUFFLR_PLAYLISTS_KEY];
+          resolve(Array.isArray(playlists) ? playlists : []);
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          resolve([]);
+        }
+      });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      resolve([]);
+    }
   });
 }
 
@@ -481,6 +678,7 @@ function closeCreatePlaylistForm() {
 }
 
 async function submitCreatePlaylistForm() {
+  if (!isChromeContextValid()) return;
   const input = document.getElementById('shufflr-pl-create-input');
   const name = input?.value?.trim();
   if (!name) {
@@ -562,6 +760,7 @@ function renderShuffleSettingsSection(settings = {}) {
 }
 
 async function readShuffleSettings() {
+  if (!isChromeContextValid()) return { orderedEpisodes: false };
   const stored = await storageLocalGet(SHUFFLR_SHUFFLE_SETTINGS_KEY);
   return {
     orderedEpisodes: !!stored?.orderedEpisodes,
@@ -569,6 +768,7 @@ async function readShuffleSettings() {
 }
 
 async function saveShuffleSettings(settings) {
+  if (!isChromeContextValid()) return { orderedEpisodes: false };
   const payload = {
     orderedEpisodes: !!settings.orderedEpisodes,
   };
@@ -577,6 +777,7 @@ async function saveShuffleSettings(settings) {
 }
 
 async function setOrderedEpisodesEnabled(enabled) {
+  if (!isChromeContextValid()) return { orderedEpisodes: false };
   const next = await saveShuffleSettings({ orderedEpisodes: !!enabled });
   showToast(next.orderedEpisodes ? 'Ordered Episodes ON' : 'Ordered Episodes OFF');
   return next;
@@ -682,11 +883,13 @@ function getCurrentShowTitle() {
 }
 
 async function writePlaylistsToStorage(playlists) {
+  if (!isChromeContextValid()) return;
   dropdownPlaylists = playlists;
   await setShufflrPlaylistsInStorage(playlists, { syncToWebApp: true });
 }
 
 async function addCurrentShowToPlaylist(playlistIndex) {
+  if (!isChromeContextValid()) return;
   const uuid = getCurrentMaxShowUuid();
   if (!uuid) {
     showToast('Could not find show ID');
@@ -722,6 +925,7 @@ async function addCurrentShowToPlaylist(playlistIndex) {
 }
 
 async function populatePlaylistDropdown() {
+  if (!isChromeContextValid()) return;
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (!dropdown) return;
   dropdownPlaylists = await readPlaylistsFromStorage();
@@ -786,6 +990,13 @@ function filterEnrichedToPlaylist(enriched, playlist) {
 }
 
 async function resolvePlaylistForShuffle(activePayload) {
+  if (!isChromeContextValid()) {
+    return {
+      name: activePayload?.playlistName || '',
+      shows: activePayload?.shows || [],
+      episodes: activePayload?.episodes || [],
+    };
+  }
   const playlists = await readPlaylistsFromStorage();
   const index = activePayload?.playlistIndex;
   const name = String(activePayload?.playlistName || '');
@@ -904,6 +1115,7 @@ function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds
 }
 
 async function getEpisodeDetailsForPlaylistShow(show) {
+  if (!isChromeContextValid()) return [];
   const maxId = getPlaylistShowMaxId(show);
   if (!maxId) return [];
 
@@ -928,6 +1140,7 @@ function isMovieEpisodeList(episodeDetails) {
 }
 
 async function ensureShowEpisodesFetched(show) {
+  if (!isChromeContextValid()) return [];
   let details = await getEpisodeDetailsForPlaylistShow(show);
   if (details.length) return details;
 
@@ -954,6 +1167,7 @@ function mapEpisodeDetailsToShuffleEpisodes(show, details) {
 }
 
 async function validateShowForShuffle(show) {
+  if (!isChromeContextValid()) return null;
   const showName = getPlaylistShowTitle(show);
   const details = await ensureShowEpisodesFetched(show);
 
@@ -981,6 +1195,7 @@ async function validateShowForShuffle(show) {
 }
 
 async function buildEnrichedPlaylistFromCache(playlist, excludedShowIds = null) {
+  if (!isChromeContextValid()) return [];
   const allowedMaxIds = getPlaylistMaxIds(playlist);
   const excluded = excludedShowIds instanceof Set ? excludedShowIds : new Set();
   const shows = (playlist?.shows || []).filter(show => {
@@ -1001,6 +1216,14 @@ async function buildEnrichedPlaylistFromCache(playlist, excludedShowIds = null) 
 }
 
 async function loadEpisodeStateForPlaylist(playlist, playlistIndex) {
+  if (!isChromeContextValid()) {
+    return {
+      playedByShow: {},
+      lastPlayedShow: null,
+      roundPlayedShows: new Set(),
+      nextEpisodeIndexByShow: {},
+    };
+  }
   const stored = await storageLocalGet(SHUFFLR_EPISODE_STATE_KEY);
   if (
     stored
@@ -1024,11 +1247,13 @@ async function loadEpisodeStateForPlaylist(playlist, playlistIndex) {
 }
 
 async function hasEpisodeCacheForPlaylistShow(show) {
+  if (!isChromeContextValid()) return false;
   const details = await getEpisodeDetailsForPlaylistShow(show);
   return details.length > 0;
 }
 
 async function findShowsMissingCache(shows) {
+  if (!isChromeContextValid()) return [];
   const checks = await Promise.all(shows.map(async show => ({
     show,
     missing: !(await hasEpisodeCacheForPlaylistShow(show)),
@@ -1056,6 +1281,7 @@ function preparePlaylistForShuffle(playlist) {
 }
 
 async function fetchAndCachePlaylistShow(show) {
+  if (!isChromeContextValid()) return { show, success: false };
   const label = show.name || show.title || 'show';
   try {
     const maxId = getPlaylistShowMaxId(show);
@@ -1079,6 +1305,7 @@ async function fetchAndCachePlaylistShow(show) {
 }
 
 async function prefetchMissingPlaylistShows(shows) {
+  if (!isChromeContextValid()) return { fetched: 0, failed: 0 };
   const missing = await findShowsMissingCache(shows);
   if (!missing.length) return { fetched: 0, failed: 0 };
 
@@ -1091,6 +1318,7 @@ async function prefetchMissingPlaylistShows(shows) {
 }
 
 async function saveArmedActivePlaylist(playlist, playlistIndex) {
+  if (!isChromeContextValid()) return;
   const payload = {
     armed: true,
     playlistName: playlist.name || '',
@@ -1101,25 +1329,19 @@ async function saveArmedActivePlaylist(playlist, playlistIndex) {
     sessionStartedAt: Date.now(),
   };
 
-  await new Promise(resolve => {
-    chrome.storage.local.set({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('[Shufflr] Armed playlist storage error:', chrome.runtime.lastError.message);
-      } else {
-        console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
-      }
-      resolve();
-    });
-  });
+  const ok = await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload });
+  if (ok) {
+    console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
+  }
 }
 
 async function clearActivePlaylist() {
-  await new Promise(resolve => {
-    chrome.storage.local.remove(SHUFFLR_ACTIVE_PLAYLIST_KEY, resolve);
-  });
+  if (!isChromeContextValid()) return;
+  await chromeStorageLocalRemove(SHUFFLR_ACTIVE_PLAYLIST_KEY);
 }
 
 async function getActivePlaylistFromStorage() {
+  if (!isChromeContextValid()) return;
   return storageLocalGet(SHUFFLR_ACTIVE_PLAYLIST_KEY);
 }
 
@@ -1143,6 +1365,7 @@ function updateShuffleUI(playlistName) {
 }
 
 async function fullyRestoreArmedShuffleSessionAfterInject() {
+  if (!isChromeContextValid()) return false;
   const active = await getActivePlaylistFromStorage();
   armedPlaylistCached = !!active?.armed;
 
@@ -1176,10 +1399,12 @@ async function fullyRestoreArmedShuffleSessionAfterInject() {
 }
 
 async function restoreArmedShuffleSession() {
+  if (!isChromeContextValid()) return false;
   return fullyRestoreArmedShuffleSessionAfterInject();
 }
 
 async function syncShuffleUIFromStorage() {
+  if (!isChromeContextValid()) return;
   await fullyRestoreArmedShuffleSessionAfterInject();
 }
 
@@ -1238,6 +1463,7 @@ function scheduleUiRecoveryAfterGrace(reason) {
 }
 
 async function runUiRecoveryAfterGrace(reason) {
+  if (!isChromeContextValid()) return;
   const active = await getActivePlaylistFromStorage();
   const maintainSession = shufflrActive || active?.armed;
   if (!maintainSession) {
@@ -1260,6 +1486,7 @@ async function runUiRecoveryAfterGrace(reason) {
 }
 
 async function handleShufflrNextEpisode(source) {
+  if (!isChromeContextValid()) return;
   if (shufflrEpisodeTransitionLock) {
     console.log(`[Shufflr] Episode transition already in progress (${source})`);
     return;
@@ -1287,6 +1514,7 @@ async function handleShufflrNextEpisode(source) {
 }
 
 async function handlePossibleMaxAutoAdvance(prevUrl) {
+  if (!isChromeContextValid()) return;
   const active = await getActivePlaylistFromStorage();
   const showHint = getShowMaxIdHintFromActive(active);
 
@@ -1332,6 +1560,7 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
 }
 
 async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex, extraState = {}) {
+  if (!isChromeContextValid()) return;
   const watchUrl = buildMaxEpisodeWatchUrl(pick.alternateId, pick.showId);
   const activePayload = {
     armed: true,
@@ -1361,22 +1590,15 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
     playlistIndex,
   };
 
-  await new Promise(resolve => {
-    chrome.storage.local.set({
-      [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
-      [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('[Shufflr] Playlist shuffle storage error:', chrome.runtime.lastError.message);
-      } else {
-        console.log('[Shufflr] Saved active playlist + episode state');
-      }
-      resolve();
-    });
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
+    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
   });
+  console.log('[Shufflr] Saved active playlist + episode state');
 }
 
 async function shuffleFromActivePlaylist(activePayload) {
+  if (!isChromeContextValid()) return;
   const sourcePlaylist = await resolvePlaylistForShuffle(activePayload);
   const playlistIndex = activePayload.playlistIndex ?? 0;
   const status = document.getElementById('shufflr-status');
@@ -1470,6 +1692,7 @@ async function shuffleFromActivePlaylist(activePayload) {
 }
 
 async function armPlaylistFromDropdown(playlistIndex) {
+  if (!isChromeContextValid()) return;
   const playlists = await readPlaylistsFromStorage();
   dropdownPlaylists = playlists;
   const playlist = playlists[playlistIndex];
@@ -1500,6 +1723,7 @@ async function armPlaylistFromDropdown(playlistIndex) {
 }
 
 async function playPlaylistFromDropdown(playlistIndex) {
+  if (!isChromeContextValid()) return;
   await armPlaylistFromDropdown(playlistIndex);
 }
 
@@ -1543,6 +1767,7 @@ function tryInjectButton() {
 }
 
 async function recoverShufflrUI(reason) {
+  if (!isChromeContextValid()) return;
   if (uiRecoveryInProgress) return;
   const now = Date.now();
   if (now - lastUiRecoveryAt < UI_RECOVERY_COOLDOWN_MS) return;
@@ -1592,6 +1817,7 @@ async function recoverShufflrUI(reason) {
 }
 
 async function resetShuffleState(options = {}) {
+  if (!isChromeContextValid()) return;
   const { clearStorage = true } = options;
   shufflrActive = false;
   armedPlaylistCached = false;
@@ -1607,12 +1833,21 @@ async function resetShuffleState(options = {}) {
 }
 
 function runShuffleWatchdog() {
+  if (!isChromeContextValid()) {
+    handleExtensionContextInvalidated();
+    return;
+  }
   runShuffleWatchdogAsync().catch(err => {
+    if (isExtensionContextInvalidatedError(err)) {
+      handleExtensionContextInvalidated();
+      return;
+    }
     console.error('[Shufflr] Watchdog error:', err);
   });
 }
 
 async function runShuffleWatchdogAsync() {
+  if (!isChromeContextValid()) return;
   const active = await getActivePlaylistFromStorage();
   armedPlaylistCached = !!active?.armed;
   const maintainSession = shufflrActive || active?.armed;
@@ -1646,6 +1881,7 @@ async function runShuffleWatchdogAsync() {
 }
 
 function startShuffleWatchdog() {
+  if (!isChromeContextValid()) return;
   if (shuffleWatchdogTimer) return;
   shuffleWatchdogTimer = setInterval(runShuffleWatchdog, 2000);
 }
@@ -2182,6 +2418,7 @@ function onVideoPlaying() {
 
 // ── TOGGLE ─────────────────────────────────────────────────────────────────
 async function toggleShuffle() {
+  if (!isChromeContextValid()) return;
   if (toggleShuffleInProgress) return;
 
   const btn = document.getElementById('shufflr-btn');
@@ -2244,6 +2481,7 @@ function onTimeUpdate() {
 }
 
 async function onEpisodeEnded() {
+  if (!isChromeContextValid()) return;
   const active = await getActivePlaylistFromStorage();
   if (active?.armed) {
     shufflrActive = true;
@@ -2637,18 +2875,35 @@ function episodeCacheKey(showId) {
 }
 
 function storageLocalGet(key) {
+  if (!isChromeContextValid()) return Promise.resolve(undefined);
   return new Promise(resolve => {
-    chrome.storage.local.get(key, result => resolve(result[key]));
+    try {
+      chrome.storage.local.get(key, result => {
+        try {
+          if (handleChromeRuntimeLastError()) {
+            resolve(undefined);
+            return;
+          }
+          resolve(result[key]);
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          resolve(undefined);
+        }
+      });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      resolve(undefined);
+    }
   });
 }
 
 function storageLocalSet(key, value) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ [key]: value }, resolve);
-  });
+  if (!isChromeContextValid()) return Promise.resolve(false);
+  return chromeStorageLocalSet({ [key]: value });
 }
 
 async function getCachedEpisodeEntry(showId) {
+  if (!isChromeContextValid()) return null;
   const entry = await storageLocalGet(episodeCacheKey(showId));
   if (!entry?.cachedAt) return null;
   if (!entry.episodeDetails?.length && !entry.episodes?.length) return null;
@@ -2667,6 +2922,7 @@ async function getCachedEpisodeEntry(showId) {
 }
 
 async function getCachedEpisodes(showId) {
+  if (!isChromeContextValid()) return null;
   const entry = await getCachedEpisodeEntry(showId);
   return entry?.episodes || null;
 }
@@ -2678,6 +2934,7 @@ function getShowNameFromRouteJson(json) {
 }
 
 async function setCachedEpisodes(showId, episodes, episodeDetails, showName, tmdbId) {
+  if (!isChromeContextValid()) return;
   await storageLocalSet(episodeCacheKey(showId), {
     showId,
     showName: showName || null,
@@ -2690,6 +2947,7 @@ async function setCachedEpisodes(showId, episodes, episodeDetails, showName, tmd
 }
 
 async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
+  if (!isChromeContextValid()) return null;
   if (!maxShowId) return null;
 
   console.log(`[Shufflr] === collectEpisodesViaMaxShowId: ${maxShowId} ===`);
@@ -2746,6 +3004,7 @@ async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
 }
 
 async function collectEpisodesViaApi(showPageUrl) {
+  if (!isChromeContextValid()) return null;
   const showId = extractShowId(showPageUrl);
   if (!showId) {
     console.log(`[Shufflr] Could not extract show ID from: ${showPageUrl}`);
@@ -2756,6 +3015,7 @@ async function collectEpisodesViaApi(showPageUrl) {
 }
 
 async function prefetchEpisodeList() {
+  if (!isChromeContextValid()) return;
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   if (!isVideoPage) return;
 
