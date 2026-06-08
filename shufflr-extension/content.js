@@ -980,20 +980,56 @@ function updateShuffleUI(playlistName) {
   }
 }
 
-async function restoreArmedShuffleSession() {
+async function fullyRestoreArmedShuffleSessionAfterInject() {
   const active = await getActivePlaylistFromStorage();
   armedPlaylistCached = !!active?.armed;
-  if (!active?.armed) return false;
+
+  if (!active?.armed) {
+    shufflrActive = false;
+    if (hasShufflrButtonInDom()) updateShuffleUI('');
+    return false;
+  }
 
   shufflrActive = true;
+  startShuffleWatchdog();
+
   if (hasShufflrButtonInDom()) {
     updateShuffleUI(active.playlistName || '');
   }
+
+  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (isVideoPage) {
+    const video = document.querySelector('video');
+    if (video) {
+      attachVideoListeners(video);
+      ensureVideoSwapObserver();
+    }
+  }
+
+  scanMaxNextEpisodeControls();
+  console.log(
+    `[Shufflr] Restored armed playlist "${active.playlistName || 'Untitled'}" ` +
+    '(UI + episode listeners)'
+  );
   return true;
 }
 
+async function restoreArmedShuffleSession() {
+  return fullyRestoreArmedShuffleSessionAfterInject();
+}
+
 async function syncShuffleUIFromStorage() {
-  await restoreArmedShuffleSession();
+  await fullyRestoreArmedShuffleSessionAfterInject();
+}
+
+function scheduleVideoListenerRestore(retryMs = 1000) {
+  setTimeout(() => {
+    if (!shufflrActive && !armedPlaylistCached) return;
+    const video = document.querySelector('video');
+    if (!video || !document.getElementById('shufflr-wrap')) return;
+    attachVideoListeners(video);
+    ensureVideoSwapObserver();
+  }, retryMs);
 }
 
 function getShowMaxIdHintFromActive(active) {
@@ -1057,6 +1093,9 @@ async function runUiRecoveryAfterGrace(reason) {
 
   cancelUiRecoveryGraceTimer();
   await recoverShufflrUI(reason);
+  await fullyRestoreArmedShuffleSessionAfterInject();
+  scheduleVideoListenerRestore(500);
+  scheduleVideoListenerRestore(1500);
 }
 
 async function handleShufflrNextEpisode(source) {
@@ -1344,17 +1383,16 @@ function tryInjectButton() {
   if (document.getElementById('shufflr-wrap')) {
     const video = document.querySelector('video');
     if (video) attachVideoListeners(video);
-    syncShuffleUIFromStorage();
-    return;
+    return fullyRestoreArmedShuffleSessionAfterInject();
   }
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
-  if (!isVideoPage && !isShowPage) return;
+  if (!isVideoPage && !isShowPage) return Promise.resolve(false);
 
   if (isShowPage) {
     saveShowPageUrl(location.href);
     injectShufflrButton(null);
-    return;
+    return fullyRestoreArmedShuffleSessionAfterInject();
   }
 
   // Save show page from referrer if we don't have it yet
@@ -1363,9 +1401,16 @@ function tryInjectButton() {
     console.log(`[Shufflr] Got show page from referrer: ${knownShowPageUrl}`);
   }
   const video = document.querySelector('video');
-  if (!video) { setTimeout(tryInjectButton, 1500); return; }
+  if (!video) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        tryInjectButton().then(resolve);
+      }, 1500);
+    });
+  }
   injectShufflrButton(video);
   prefetchEpisodeList();
+  return fullyRestoreArmedShuffleSessionAfterInject();
 }
 
 async function recoverShufflrUI(reason) {
@@ -1378,7 +1423,6 @@ async function recoverShufflrUI(reason) {
 
   try {
     console.log(`[Shufflr] Watchdog: ${reason} — re-injecting UI`);
-    await syncShuffleUIFromStorage();
 
     if (!isShufflrPlayerPage()) return;
 
@@ -1390,6 +1434,7 @@ async function recoverShufflrUI(reason) {
     if (isShowPage) {
       saveShowPageUrl(location.href);
       injectShufflrButton(null);
+      await fullyRestoreArmedShuffleSessionAfterInject();
       return;
     }
 
@@ -1397,10 +1442,19 @@ async function recoverShufflrUI(reason) {
     if (video) {
       injectShufflrButton(video);
       prefetchEpisodeList();
+      await fullyRestoreArmedShuffleSessionAfterInject();
+      scheduleVideoListenerRestore(500);
       return;
     }
 
-    setTimeout(tryInjectButton, 500);
+    setTimeout(() => {
+      tryInjectButton().then(() => {
+        fullyRestoreArmedShuffleSessionAfterInject().catch(err => {
+          console.error('[Shufflr] post-inject restore error:', err);
+        });
+        scheduleVideoListenerRestore(500);
+      });
+    }, 500);
   } catch (err) {
     console.error('[Shufflr] recoverShufflrUI error:', err);
   } finally {
@@ -1929,7 +1983,7 @@ function ensureVideoSwapObserver() {
 function injectShufflrButton(video) {
   if (document.getElementById('shufflr-wrap')) {
     if (video) attachVideoListeners(video);
-    syncShuffleUIFromStorage();
+    void fullyRestoreArmedShuffleSessionAfterInject();
     return;
   }
 
@@ -1977,7 +2031,7 @@ function injectShufflrButton(video) {
     ensureVideoSwapObserver();
   }
 
-  syncShuffleUIFromStorage();
+  void fullyRestoreArmedShuffleSessionAfterInject();
 }
 
 function attachVideoListeners(video) {
@@ -1988,6 +2042,7 @@ function attachVideoListeners(video) {
   video.addEventListener('timeupdate', onTimeUpdate);
   video.removeEventListener('playing', onVideoPlaying);
   video.addEventListener('playing', onVideoPlaying);
+  window.__shufflrAttachedVideo = video;
 }
 
 function onVideoPlaying() {
@@ -2060,7 +2115,7 @@ async function onEpisodeEnded() {
     shufflrActive = true;
     armedPlaylistCached = true;
   }
-  if (!shufflrActive) return;
+  if (!shufflrActive && !active?.armed) return;
   if (active?.armed) {
     await handleShufflrNextEpisode('video-ended');
     return;
