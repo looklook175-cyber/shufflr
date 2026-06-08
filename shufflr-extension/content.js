@@ -2696,6 +2696,9 @@ function suppressMaxAutoNextOverlayAggressive(element) {
   if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
   if (!maxAutoNextArmedCache) return;
 
+  const height = element.getBoundingClientRect().height || element.offsetHeight || 0;
+  if (height >= 200) return;
+
   const dismissBtn = findMaxAutoNextDismissButton(element);
   if (dismissBtn) {
     try {
@@ -2704,7 +2707,6 @@ function suppressMaxAutoNextOverlayAggressive(element) {
   }
 
   element.style.display = 'none';
-  if (element.parentElement) element.parentElement.style.display = 'none';
   element.dataset.shufflrAutoNextSuppressed = '1';
 }
 
