@@ -10,6 +10,7 @@ const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
+const SHUFFLR_LAST_WATCHED_PREFIX = 'shufflr_last_watched_';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1154,6 +1155,9 @@ async function saveShuffleSettings(settings) {
 async function setOrderedEpisodesEnabled(enabled) {
   if (!isChromeContextValid()) return { orderedEpisodes: false };
   const next = await saveShuffleSettings({ orderedEpisodes: !!enabled });
+  if (next.orderedEpisodes) {
+    await resetOrderedSessionIndexes();
+  }
   showToast(next.orderedEpisodes ? 'Ordered Episodes ON' : 'Ordered Episodes OFF');
   return next;
 }
@@ -1421,6 +1425,94 @@ function serializeRoundPlayedShows(roundPlayedShows) {
   return [...(roundPlayedShows || new Set())].map(id => String(id));
 }
 
+function lastWatchedStorageKey(showUuid) {
+  return `${SHUFFLR_LAST_WATCHED_PREFIX}${normalizeMaxId(showUuid)}`;
+}
+
+async function readLastWatchedEpisode(showUuid) {
+  if (!isChromeContextValid()) return null;
+  const stored = await storageLocalGet(lastWatchedStorageKey(showUuid));
+  if (!stored || typeof stored !== 'object') return null;
+  if (!Number.isFinite(stored.episodeIndex) && !stored.episodeId) return null;
+  return {
+    episodeIndex: Number.isFinite(stored.episodeIndex) ? stored.episodeIndex : null,
+    episodeId: stored.episodeId ? String(stored.episodeId) : null,
+    title: stored.title || '',
+  };
+}
+
+async function saveLastWatchedEpisode(showUuid, episode, episodeIndex) {
+  if (!isChromeContextValid() || !showUuid || !episode) return;
+  await storageLocalSet(lastWatchedStorageKey(showUuid), {
+    episodeIndex,
+    episodeId: episode.alternateId || episode.id || '',
+    title: episode.name || episode.showName || episode.title || '',
+  });
+}
+
+function sortEpisodesInPlaybackOrder(episodes) {
+  return [...(episodes || [])].sort((a, b) => {
+    const seasonA = a.seasonNum ?? 0;
+    const seasonB = b.seasonNum ?? 0;
+    if (seasonA !== seasonB) return seasonA - seasonB;
+    return (a.episode_number ?? 0) - (b.episode_number ?? 0);
+  });
+}
+
+function getOrderedResumeIndex(episodes, lastWatched) {
+  if (!episodes?.length) return 0;
+  if (!lastWatched) return 0;
+
+  if (lastWatched.episodeId) {
+    const byId = episodes.findIndex(ep => (
+      normalizeMaxId(ep.alternateId) === normalizeMaxId(lastWatched.episodeId)
+      || ep.id === lastWatched.episodeId
+    ));
+    if (byId >= 0) return (byId + 1) % episodes.length;
+  }
+
+  if (Number.isFinite(lastWatched.episodeIndex)) {
+    const idx = lastWatched.episodeIndex;
+    if (idx >= 0 && idx < episodes.length) return (idx + 1) % episodes.length;
+  }
+
+  return 0;
+}
+
+// Ordered Episodes resume: each show's next index is seeded from shufflr_last_watched_{showUUID}
+// in chrome.storage.local (episode after last watched, or S1E1 if none). Round-robin picks the
+// show; episodes play sequentially within that show before advancing the stored index.
+async function seedOrderedResumeIndexes(enrichedShows, nextEpisodeIndexByShow = {}) {
+  const seeded = { ...nextEpisodeIndexByShow };
+  for (const show of enrichedShows) {
+    const showId = String(show.id);
+    if (!show.episodes?.length) continue;
+    if (Object.prototype.hasOwnProperty.call(seeded, showId)) continue;
+    const lastWatched = await readLastWatchedEpisode(showId);
+    seeded[showId] = getOrderedResumeIndex(show.episodes, lastWatched);
+  }
+  return seeded;
+}
+
+async function resetOrderedSessionIndexes() {
+  if (!isChromeContextValid()) return;
+  const stored = await storageLocalGet(SHUFFLR_EPISODE_STATE_KEY);
+  if (!stored || typeof stored !== 'object') return;
+  await storageLocalSet(SHUFFLR_EPISODE_STATE_KEY, {
+    ...stored,
+    nextEpisodeIndexByShow: {},
+  });
+}
+
+async function saveCurrentEpisodeAsLastWatched(activePayload) {
+  if (!activePayload?.currentEpisode) return;
+  const showId = activePayload.currentEpisode.showId;
+  if (!showId) return;
+  const orderedIndex = activePayload.currentEpisode.orderedIndex;
+  const index = Number.isFinite(orderedIndex) ? orderedIndex : 0;
+  await saveLastWatchedEpisode(showId, activePayload.currentEpisode, index);
+}
+
 function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds = null, options = {}) {
   const roundPlayedShows = options.roundPlayedShows instanceof Set
     ? options.roundPlayedShows
@@ -1447,14 +1539,15 @@ function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds
   }
 
   if (orderedEpisodes) {
-    const show = showPool[Math.floor(Math.random() * showPool.length)];
+    const show = showPool[0];
     const showId = String(show.id);
-    const idx = nextEpisodeIndexByShow[showId] || 0;
-    const episode = show.episodes[idx % show.episodes.length];
+    const idx = nextEpisodeIndexByShow[showId] ?? 0;
+    const safeIdx = show.episodes.length ? idx % show.episodes.length : 0;
+    const episode = show.episodes[safeIdx];
     if (!episode) return null;
 
-    const pick = { ...episode, showId: show.id };
-    nextEpisodeIndexByShow[showId] = (idx + 1) % show.episodes.length;
+    const pick = { ...episode, showId: show.id, orderedIndex: safeIdx };
+    nextEpisodeIndexByShow[showId] = (safeIdx + 1) % show.episodes.length;
     if (!playedByShow[showId]) playedByShow[showId] = new Set();
     playedByShow[showId].add(pick.id);
     roundPlayedShows.add(showId);
@@ -1575,7 +1668,9 @@ async function validateShowForShuffle(show) {
     return null;
   }
 
-  const episodes = mapEpisodeDetailsToShuffleEpisodes(show, details);
+  const episodes = sortEpisodesInPlaybackOrder(
+    mapEpisodeDetailsToShuffleEpisodes(show, details)
+  );
   if (!episodes.length) {
     console.log(`[Shufflr] Skipping show with no episodes: ${showName}`);
     return null;
@@ -1938,6 +2033,10 @@ async function handleShufflrNextEpisode(source) {
   console.log(`[Shufflr] Playlist next episode via ${source}`);
 
   try {
+    const settings = await readShuffleSettings();
+    if (settings.orderedEpisodes) {
+      await saveCurrentEpisodeAsLastWatched(active);
+    }
     await shuffleFromActivePlaylist(active);
   } catch (err) {
     console.error('[Shufflr] handleShufflrNextEpisode error:', err);
@@ -2015,6 +2114,7 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
       name: pick.name,
       id: pick.id,
       alternateId: pick.alternateId,
+      orderedIndex: Number.isFinite(pick.orderedIndex) ? pick.orderedIndex : undefined,
     },
     currentEpisodeUrl: watchUrl,
     sessionStartedAt: Date.now(),
@@ -2055,7 +2155,7 @@ async function shuffleFromActivePlaylist(activePayload) {
 
   await prefetchMissingPlaylistShows(preparedPlaylist.shows);
 
-  const { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
+  let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
     await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
   const settings = await readShuffleSettings();
   const excludedShowIds = new Set();
@@ -2064,6 +2164,9 @@ async function shuffleFromActivePlaylist(activePayload) {
   for (let attempt = 0; attempt < preparedPlaylist.shows.length; attempt++) {
     const enriched = await buildEnrichedPlaylistFromCache(preparedPlaylist, excludedShowIds);
     const playlistShows = filterEnrichedToPlaylist(enriched, preparedPlaylist);
+    if (settings.orderedEpisodes && playlistShows.length) {
+      nextEpisodeIndexByShow = await seedOrderedResumeIndexes(playlistShows, nextEpisodeIndexByShow);
+    }
     console.log(
       `[Shufflr] Smart Shuffle attempt ${attempt + 1}/${preparedPlaylist.shows.length} — ` +
       `playlist "${preparedPlaylist.name || 'Untitled'}": ` +
