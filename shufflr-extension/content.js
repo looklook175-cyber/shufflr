@@ -7,6 +7,7 @@ const SHUFFLR_ACTIVE_PLAYLIST_KEY = 'shufflr_active_playlist';
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists';
 const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
+const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -153,6 +154,12 @@ function handleExtensionContextInvalidated() {
   } catch {}
 
   teardownMaxAutoNextSuppression();
+  cancelScheduledShuffleCop();
+  if (shufflrIsNavigatingTimer) {
+    clearTimeout(shufflrIsNavigatingTimer);
+    shufflrIsNavigatingTimer = null;
+  }
+  shufflrIsNavigating = false;
 }
 
 function handleChromeRuntimeLastError() {
@@ -422,6 +429,9 @@ let lastUiRecoveryAt = 0;
 let uiMissingSince = null;
 let shufflrNavigating = false;
 let shufflrPendingEpisodeId = null;
+let shufflrIsNavigating = false;
+let shufflrIsNavigatingTimer = null;
+let shuffleCopTimer = null;
 let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
@@ -430,6 +440,8 @@ const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
 const EPISODE_TRANSITION_LOCK_MS = 8000;
 const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
+const SHUFFLE_COP_DELAY_MS = 1500;
+const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
 
 function isSingleUuidWatchUrl(url) {
   try {
@@ -463,6 +475,100 @@ async function shouldRedirectSingleUuidPromo(prevUrl, nextUrl, active, showHint)
   return false;
 }
 
+async function setPendingEpisodeIdInStorage(episodeId) {
+  if (!isChromeContextValid()) return;
+  const normalized = normalizeMaxId(episodeId);
+  if (!normalized) {
+    await chromeStorageLocalRemove(SHUFFLR_PENDING_EPISODE_ID);
+    return;
+  }
+  await chromeStorageLocalSet({ [SHUFFLR_PENDING_EPISODE_ID]: normalized });
+}
+
+async function clearPendingEpisodeIdInStorage() {
+  if (!isChromeContextValid()) return;
+  await chromeStorageLocalRemove(SHUFFLR_PENDING_EPISODE_ID);
+}
+
+async function getPendingEpisodeIdFromStorage() {
+  if (!isChromeContextValid()) return null;
+  const value = await storageLocalGet(SHUFFLR_PENDING_EPISODE_ID);
+  return value ? normalizeMaxId(value) : null;
+}
+
+function beginShufflrNavigation(episodeId) {
+  const normalized = normalizeMaxId(episodeId);
+  shufflrIsNavigating = true;
+  shufflrPendingEpisodeId = normalized || null;
+  shufflrNavigating = true;
+
+  if (shufflrIsNavigatingTimer) clearTimeout(shufflrIsNavigatingTimer);
+  shufflrIsNavigatingTimer = setTimeout(() => {
+    shufflrIsNavigating = false;
+    shufflrIsNavigatingTimer = null;
+  }, SHUFFLR_NAVIGATION_FLAG_MS);
+
+  void setPendingEpisodeIdInStorage(normalized);
+}
+
+function cancelScheduledShuffleCop() {
+  if (shuffleCopTimer) {
+    clearTimeout(shuffleCopTimer);
+    shuffleCopTimer = null;
+  }
+}
+
+function scheduleShuffleCopCheck(prevUrl) {
+  if (!isChromeContextValid()) return;
+  cancelScheduledShuffleCop();
+
+  shuffleCopTimer = setTimeout(() => {
+    shuffleCopTimer = null;
+    runShuffleCopCheck(prevUrl).catch(err => {
+      console.error('[Shufflr] shuffle cop error:', err);
+    });
+  }, SHUFFLE_COP_DELAY_MS);
+}
+
+async function runShuffleCopCheck(prevUrl) {
+  if (!isChromeContextValid()) return;
+  if (prevUrl === location.href) return;
+
+  const active = await getActivePlaylistFromStorage();
+  if (!active?.armed) return;
+
+  const showHint = getShowMaxIdHintFromActive(active);
+  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (!onVideoPage) return;
+
+  if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
+    await clearPendingEpisodeIdInStorage();
+    return;
+  }
+
+  const arrivedEpisode = getMaxEpisodeIdFromUrl(location.href, showHint);
+  const arrivedNorm = arrivedEpisode ? normalizeMaxId(arrivedEpisode) : null;
+  const pendingId = await getPendingEpisodeIdFromStorage();
+
+  if (pendingId && arrivedNorm && pendingId === arrivedNorm) {
+    await clearPendingEpisodeIdInStorage();
+    shufflrPendingEpisodeId = null;
+    shufflrNavigating = false;
+    shufflrIsNavigating = false;
+    if (shufflrIsNavigatingTimer) {
+      clearTimeout(shufflrIsNavigatingTimer);
+      shufflrIsNavigatingTimer = null;
+    }
+    return;
+  }
+
+  if (shufflrIsNavigating) return;
+
+  console.log('[Shufflr] Shuffle cop: Max hijacked navigation, correcting...');
+  await clearPendingEpisodeIdInStorage();
+  await handleShufflrNextEpisode('shuffle-cop');
+}
+
 function notifyArmedUrlChange(prevUrl) {
   const hrefChanged = location.href !== prevUrl;
   armedUrlPollLastHref = location.href;
@@ -482,6 +588,7 @@ function notifyArmedUrlChange(prevUrl) {
     setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
   }
 
+  scheduleShuffleCopCheck(prevUrl);
   handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
     console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
   });
@@ -592,6 +699,7 @@ const urlObserver = new MutationObserver(() => {
     timeupdateWatcherHandler = null;
     removeShufflrUI();
     cancelUiRecoveryGraceTimer();
+    scheduleShuffleCopCheck(prevUrl);
     handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
       console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
     });
@@ -1534,6 +1642,7 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
     if (shufflrPendingEpisodeId && arrivedEpisode
       && normalizeMaxId(arrivedEpisode) === shufflrPendingEpisodeId) {
       shufflrPendingEpisodeId = null;
+      void clearPendingEpisodeIdInStorage();
       await restoreArmedShuffleSession();
       return;
     }
@@ -1564,9 +1673,6 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
     await handleShufflrNextEpisode('single-uuid-promo');
     return;
   }
-
-  console.log('[Shufflr] Max auto-advanced during armed playlist — shuffling instead');
-  await handleShufflrNextEpisode('max-auto-advance');
 }
 
 async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex, extraState = {}) {
@@ -1696,11 +1802,10 @@ async function shuffleFromActivePlaylist(activePayload) {
   const watchUrl = buildMaxEpisodeWatchUrl(pick.alternateId, pick.showId);
   showToast(`Playing: ${label}`);
   if (status) status.textContent = label.toUpperCase().slice(0, 24);
-  shufflrPendingEpisodeId = normalizeMaxId(pick.alternateId);
-  shufflrNavigating = true;
   shufflrTargetWatchUrl = watchUrl.split('?')[0];
-  shufflrTargetEpisodeId = shufflrPendingEpisodeId;
+  shufflrTargetEpisodeId = normalizeMaxId(pick.alternateId);
   void refreshMaxAutoNextArmedCache();
+  beginShufflrNavigation(pick.alternateId);
   location.href = watchUrl;
 }
 
@@ -2485,8 +2590,9 @@ function shouldBlockMaxHistoryNavigation(targetUrl) {
 }
 
 function redirectBlockedMaxHistoryNavigation() {
-  if (shufflrTargetWatchUrl && (shufflrPendingEpisodeId || shufflrNavigating)) {
+  if (shufflrTargetWatchUrl && (shufflrPendingEpisodeId || shufflrNavigating || shufflrTargetEpisodeId)) {
     console.log('[Shufflr] Blocked Max history navigation — redirecting to Shufflr pick');
+    beginShufflrNavigation(shufflrTargetEpisodeId || shufflrPendingEpisodeId);
     location.href = shufflrTargetWatchUrl;
     return;
   }
