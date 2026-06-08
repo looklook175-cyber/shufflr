@@ -523,6 +523,7 @@ function scheduleShuffleCopCheck(prevUrl) {
   cancelScheduledShuffleCop();
 
   shuffleCopTimer = setTimeout(() => {
+    if (!isChromeContextValid()) return;
     shuffleCopTimer = null;
     runShuffleCopCheck(prevUrl).catch(err => {
       console.error('[Shufflr] shuffle cop error:', err);
@@ -579,8 +580,12 @@ function notifyArmedUrlChange(prevUrl) {
     timeupdateWatcherHandler = null;
     removeShufflrUI();
     cancelUiRecoveryGraceTimer();
-    setTimeout(tryInjectButton, 2500);
     setTimeout(() => {
+      if (!isChromeContextValid()) return;
+      tryInjectButton();
+    }, 2500);
+    setTimeout(() => {
+      if (!isChromeContextValid()) return;
       restoreArmedShuffleSession().catch(err => {
         console.error('[Shufflr] restoreArmedShuffleSession error:', err);
       });
@@ -602,7 +607,8 @@ function installArmedUrlGuard() {
 
   armedUrlPollTimer = setInterval(() => {
     if (!isChromeContextValid()) {
-      handleExtensionContextInvalidated();
+      clearInterval(armedUrlPollTimer);
+      armedUrlPollTimer = null;
       return;
     }
     if (location.href === armedUrlPollLastHref) return;
@@ -646,7 +652,10 @@ function installTimeupdateWatcher() {
   if (!isChromeContextValid()) return;
   const video = document.querySelector('video');
   if (!video) {
-    setTimeout(installTimeupdateWatcher, 1000);
+    setTimeout(() => {
+      if (!isChromeContextValid()) return;
+      installTimeupdateWatcher();
+    }, 1000);
     return;
   }
 
@@ -708,11 +717,18 @@ const urlObserver = new MutationObserver(() => {
       saveShowPageUrl(location.href);
       console.log(`[Shufflr] Saved show page: ${knownShowPageUrl}`);
       if (sessionStorage.getItem(SHUFFLR_PENDING_KEY)) {
-        setTimeout(handleShowPageShuffle, 500);
+        setTimeout(() => {
+          if (!isChromeContextValid()) return;
+          handleShowPageShuffle();
+        }, 500);
       }
     }
-    setTimeout(tryInjectButton, 2500);
     setTimeout(() => {
+      if (!isChromeContextValid()) return;
+      tryInjectButton();
+    }, 2500);
+    setTimeout(() => {
+      if (!isChromeContextValid()) return;
       restoreArmedShuffleSession().catch(err => {
         console.error('[Shufflr] restoreArmedShuffleSession error:', err);
       });
@@ -1528,6 +1544,7 @@ async function syncShuffleUIFromStorage() {
 
 function scheduleVideoListenerRestore(retryMs = 1000) {
   setTimeout(() => {
+    if (!isChromeContextValid()) return;
     if (!shufflrActive && !armedPlaylistCached) return;
     const video = document.querySelector('video');
     if (!video || !document.getElementById('shufflr-wrap')) return;
@@ -1573,6 +1590,7 @@ function scheduleUiRecoveryAfterGrace(reason) {
   }
 
   uiRecoveryGraceTimer = setTimeout(() => {
+    if (!isChromeContextValid()) return;
     uiRecoveryGraceTimer = null;
     runUiRecoveryAfterGrace(reason).catch(err => {
       console.error('[Shufflr] runUiRecoveryAfterGrace error:', err);
@@ -1875,6 +1893,10 @@ function tryInjectButton() {
   if (!video) {
     return new Promise(resolve => {
       setTimeout(() => {
+        if (!isChromeContextValid()) {
+          resolve(false);
+          return;
+        }
         tryInjectButton().then(resolve);
       }, 1500);
     });
@@ -1920,6 +1942,7 @@ async function recoverShufflrUI(reason) {
     }
 
     setTimeout(() => {
+      if (!isChromeContextValid()) return;
       tryInjectButton().then(() => {
         fullyRestoreArmedShuffleSessionAfterInject().catch(err => {
           console.error('[Shufflr] post-inject restore error:', err);
@@ -2826,7 +2849,14 @@ function suppressMaxAutoNext() {
   }
 
   if (!maxAutoNextPollTimer) {
-    maxAutoNextPollTimer = setInterval(pollAndSuppressMaxAutoNextOverlays, 500);
+    maxAutoNextPollTimer = setInterval(() => {
+      if (!isChromeContextValid()) {
+        clearInterval(maxAutoNextPollTimer);
+        maxAutoNextPollTimer = null;
+        return;
+      }
+      pollAndSuppressMaxAutoNextOverlays();
+    }, 500);
   }
 
   refreshMaxAutoNextArmedCache().then(() => {
@@ -3911,6 +3941,7 @@ function showToast(message) {
 // ── INIT ────────────────────────────────────────────────────────────────────
 if (!IS_SHUFFLR_WEB_APP) {
 setTimeout(() => {
+  if (!isChromeContextValid()) return;
   handleShowPageShuffle();
   tryInjectButton();
   startShuffleWatchdog();
