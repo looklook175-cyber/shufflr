@@ -446,6 +446,7 @@ let armedUrlPollLastHref = location.href;
 let wasFullscreen = false;
 let fullscreenRestorePromptActive = false;
 let fullscreenRestoreClickHandler = null;
+let fullscreenRestoreKeydownHandler = null;
 const FULLSCREEN_RESTORE_TOAST_MS = 5000;
 const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
@@ -540,44 +541,53 @@ function shouldShowFullscreenRestorePrompt() {
   }
 }
 
-function teardownFullscreenRestoreClickListener() {
-  if (!fullscreenRestoreClickHandler) return;
-  document.querySelectorAll('video').forEach(video => {
-    video.removeEventListener('click', fullscreenRestoreClickHandler, true);
-  });
-  fullscreenRestoreClickHandler = null;
+function teardownFullscreenRestoreListeners() {
+  if (fullscreenRestoreClickHandler) {
+    document.removeEventListener('click', fullscreenRestoreClickHandler, true);
+    fullscreenRestoreClickHandler = null;
+  }
+  if (fullscreenRestoreKeydownHandler) {
+    document.removeEventListener('keydown', fullscreenRestoreKeydownHandler, true);
+    fullscreenRestoreKeydownHandler = null;
+  }
 }
 
-function dismissFullscreenRestorePrompt(options = {}) {
-  const { restoreFullscreen = false } = options;
+function dismissFullscreenRestorePrompt() {
   if (!fullscreenRestorePromptActive) return;
 
   fullscreenRestorePromptActive = false;
   clearTimeout(window._shufflrFullscreenRestoreTimer);
   window._shufflrFullscreenRestoreTimer = null;
-  teardownFullscreenRestoreClickListener();
+  teardownFullscreenRestoreListeners();
 
   const toast = document.getElementById('shufflr-toast');
   if (toast) {
     toast.classList.remove('show');
   }
-
-  if (restoreFullscreen) {
-    void requestFullscreenFromUserGesture();
-  }
 }
 
-async function requestFullscreenFromUserGesture() {
+function tryRestoreFullscreenSync(source) {
+  console.log(`[Shufflr] restoring fullscreen via ${source}`);
   try {
-    await document.documentElement.requestFullscreen();
-    ensureShufflrButtonForFullscreen();
-    console.log('[Shufflr] Restored fullscreen via user gesture');
+    document.documentElement.requestFullscreen();
   } catch (err) {
     console.log('[Shufflr] Could not restore fullscreen:', err);
   }
 }
 
-function showFullscreenRestorePrompt(videoEl = null) {
+function onFullscreenRestoreClick() {
+  tryRestoreFullscreenSync('click');
+  dismissFullscreenRestorePrompt();
+}
+
+function onFullscreenRestoreF11(event) {
+  if (event.key !== 'F11') return;
+  event.preventDefault();
+  tryRestoreFullscreenSync('F11');
+  dismissFullscreenRestorePrompt();
+}
+
+function showFullscreenRestorePrompt() {
   if (!shouldShowFullscreenRestorePrompt()) return;
   if (fullscreenRestorePromptActive) return;
 
@@ -597,18 +607,15 @@ function showFullscreenRestorePrompt(videoEl = null) {
   toast.classList.add('show');
   clearTimeout(window._shufflrToastTimer);
 
-  const video = videoEl || document.querySelector('video');
-  if (video) {
-    teardownFullscreenRestoreClickListener();
-    fullscreenRestoreClickHandler = () => {
-      dismissFullscreenRestorePrompt({ restoreFullscreen: true });
-    };
-    video.addEventListener('click', fullscreenRestoreClickHandler, true);
-  }
+  teardownFullscreenRestoreListeners();
+  fullscreenRestoreClickHandler = onFullscreenRestoreClick;
+  fullscreenRestoreKeydownHandler = onFullscreenRestoreF11;
+  document.addEventListener('click', fullscreenRestoreClickHandler, true);
+  document.addEventListener('keydown', fullscreenRestoreKeydownHandler, true);
 
   clearTimeout(window._shufflrFullscreenRestoreTimer);
   window._shufflrFullscreenRestoreTimer = setTimeout(() => {
-    dismissFullscreenRestorePrompt({ restoreFullscreen: false });
+    dismissFullscreenRestorePrompt();
   }, FULLSCREEN_RESTORE_TOAST_MS);
 }
 
@@ -2817,7 +2824,7 @@ function attachVideoListeners(video) {
   installTimeupdateWatcher();
   suppressMaxAutoNext();
   if (!video.paused) {
-    showFullscreenRestorePrompt(video);
+    showFullscreenRestorePrompt();
   }
 }
 
