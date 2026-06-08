@@ -6,6 +6,7 @@ const SHUFFLR_SHOW_PAGE_KEY = 'shufflr_show_page';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY = 'shufflr_active_playlist';
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists';
 const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
+const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const CMS_CAPTURE_KEY = 'shufflr_cms_template';
 const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
@@ -49,7 +50,18 @@ async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } 
 
 function saveActivePlaylistHandoff(payload) {
   if (!payload || typeof payload !== 'object') return;
-  chrome.storage.local.set({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload }, () => {
+  const storagePayload = { [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload };
+  if (payload.playedByShow) {
+    storagePayload[SHUFFLR_EPISODE_STATE_KEY] = {
+      playedByShow: payload.playedByShow,
+      lastPlayedShow: payload.lastPlayedShow || null,
+      roundPlayedShows: payload.roundPlayedShows || [],
+      nextEpisodeIndexByShow: payload.nextEpisodeIndexByShow || {},
+      playlistName: payload.playlistName || '',
+      playlistIndex: payload.playlistIndex ?? 0,
+    };
+  }
+  chrome.storage.local.set(storagePayload, () => {
     if (chrome.runtime.lastError) {
       console.error('[Shufflr] Handoff storage error:', chrome.runtime.lastError.message);
       return;
@@ -305,13 +317,56 @@ function togglePlaylistDropdown(event) {
   }
 }
 
-function renderPlaylistDropdownContent(playlists) {
+function renderShuffleSettingsSection(settings = {}) {
+  const ordered = !!settings.orderedEpisodes;
+  return `
+    <div class="shufflr-pl-settings">
+      <label class="shufflr-pl-toggle-row">
+        <input
+          type="checkbox"
+          class="shufflr-pl-toggle-input"
+          data-pl-action="toggle-ordered"
+          ${ordered ? 'checked' : ''}
+        />
+        <span class="shufflr-pl-toggle-label">
+          <span class="shufflr-pl-toggle-title">Ordered Episodes</span>
+          <span class="shufflr-pl-toggle-hint">Sequential per show · round-robin between shows</span>
+        </span>
+      </label>
+    </div>
+  `;
+}
+
+async function readShuffleSettings() {
+  const stored = await storageLocalGet(SHUFFLR_SHUFFLE_SETTINGS_KEY);
+  return {
+    orderedEpisodes: !!stored?.orderedEpisodes,
+  };
+}
+
+async function saveShuffleSettings(settings) {
+  const payload = {
+    orderedEpisodes: !!settings.orderedEpisodes,
+  };
+  await storageLocalSet(SHUFFLR_SHUFFLE_SETTINGS_KEY, payload);
+  return payload;
+}
+
+async function setOrderedEpisodesEnabled(enabled) {
+  const next = await saveShuffleSettings({ orderedEpisodes: !!enabled });
+  showToast(next.orderedEpisodes ? 'Ordered Episodes ON' : 'Ordered Episodes OFF');
+  return next;
+}
+
+function renderPlaylistDropdownContent(playlists, settings = {}) {
   const emptyMessage = 'No playlists yet — create one below';
+  const settingsSection = renderShuffleSettingsSection(settings);
 
   if (!playlists.length) {
     return `
       <div class="shufflr-pl-section">
         <div class="shufflr-pl-section-header">SMART SHUFFLE</div>
+        ${settingsSection}
         <button type="button" class="shufflr-pl-row shufflr-pl-empty" disabled>${emptyMessage}</button>
       </div>
       <div class="shufflr-pl-divider"></div>
@@ -347,6 +402,7 @@ function renderPlaylistDropdownContent(playlists) {
   return `
     <div class="shufflr-pl-section">
       <div class="shufflr-pl-section-header">SMART SHUFFLE</div>
+      ${settingsSection}
       ${shuffleRows}
     </div>
     <div class="shufflr-pl-divider"></div>
@@ -442,7 +498,8 @@ async function populatePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (!dropdown) return;
   dropdownPlaylists = await readPlaylistsFromStorage();
-  dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists);
+  const settings = await readShuffleSettings();
+  dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists, settings);
 }
 
 function smartShuffleEpKey(seasonNum, epNum) {
@@ -529,15 +586,64 @@ async function resolvePlaylistForShuffle(activePayload) {
   };
 }
 
-function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds = null) {
+function deserializeRoundPlayedShows(serialized) {
+  if (!Array.isArray(serialized)) return new Set();
+  return new Set(serialized.map(id => String(id)));
+}
+
+function serializeRoundPlayedShows(roundPlayedShows) {
+  return [...(roundPlayedShows || new Set())].map(id => String(id));
+}
+
+function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds = null, options = {}) {
+  const roundPlayedShows = options.roundPlayedShows instanceof Set
+    ? options.roundPlayedShows
+    : deserializeRoundPlayedShows(options.roundPlayedShows);
+  const orderedEpisodes = !!options.orderedEpisodes;
+  const nextEpisodeIndexByShow = { ...(options.nextEpisodeIndexByShow || {}) };
+
   let availableShows = enrichedShows.filter(show => show.episodes?.length);
   if (allowedMaxIds?.size) {
     availableShows = availableShows.filter(show => allowedMaxIds.has(normalizeMaxId(show.id)));
   }
+  if (!availableShows.length) return null;
+
+  let roundShows = availableShows.filter(show => !roundPlayedShows.has(String(show.id)));
+  if (!roundShows.length) {
+    roundPlayedShows.clear();
+    roundShows = availableShows;
+  }
+
+  let showPool = roundShows;
+  if (lastPlayedShow && showPool.length > 1) {
+    const withoutLast = showPool.filter(show => String(show.id) !== String(lastPlayedShow));
+    if (withoutLast.length) showPool = withoutLast;
+  }
+
+  if (orderedEpisodes) {
+    const show = showPool[Math.floor(Math.random() * showPool.length)];
+    const showId = String(show.id);
+    const idx = nextEpisodeIndexByShow[showId] || 0;
+    const episode = show.episodes[idx % show.episodes.length];
+    if (!episode) return null;
+
+    const pick = { ...episode, showId: show.id };
+    nextEpisodeIndexByShow[showId] = (idx + 1) % show.episodes.length;
+    if (!playedByShow[showId]) playedByShow[showId] = new Set();
+    playedByShow[showId].add(pick.id);
+    roundPlayedShows.add(showId);
+
+    return {
+      pick,
+      lastPlayedShow: showId,
+      roundPlayedShows,
+      nextEpisodeIndexByShow,
+    };
+  }
 
   let candidates = [];
 
-  for (const show of availableShows) {
+  for (const show of showPool) {
     const showId = String(show.id);
     if (!playedByShow[showId]) playedByShow[showId] = new Set();
 
@@ -547,9 +653,7 @@ function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds
       unplayed = show.episodes;
     }
 
-    if (String(show.id) !== String(lastPlayedShow)) {
-      candidates = candidates.concat(unplayed.map(ep => ({ ...ep, showId: show.id })));
-    }
+    candidates = candidates.concat(unplayed.map(ep => ({ ...ep, showId: show.id })));
   }
 
   if (!candidates.length) {
@@ -568,7 +672,14 @@ function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds
   const pickShowId = String(pick.showId);
   if (!playedByShow[pickShowId]) playedByShow[pickShowId] = new Set();
   playedByShow[pickShowId].add(pick.id);
-  return { pick, lastPlayedShow: pickShowId };
+  roundPlayedShows.add(pickShowId);
+
+  return {
+    pick,
+    lastPlayedShow: pickShowId,
+    roundPlayedShows,
+    nextEpisodeIndexByShow,
+  };
 }
 
 async function getEpisodeDetailsForPlaylistShow(show) {
@@ -628,10 +739,17 @@ async function loadEpisodeStateForPlaylist(playlist, playlistIndex) {
     return {
       playedByShow: deserializePlayedByShow(stored.playedByShow),
       lastPlayedShow: stored.lastPlayedShow || null,
+      roundPlayedShows: deserializeRoundPlayedShows(stored.roundPlayedShows),
+      nextEpisodeIndexByShow: { ...(stored.nextEpisodeIndexByShow || {}) },
     };
   }
 
-  return { playedByShow: {}, lastPlayedShow: null };
+  return {
+    playedByShow: {},
+    lastPlayedShow: null,
+    roundPlayedShows: new Set(),
+    nextEpisodeIndexByShow: {},
+  };
 }
 
 async function hasEpisodeCacheForPlaylistShow(show) {
@@ -760,7 +878,7 @@ async function syncShuffleUIFromStorage() {
   updateShuffleUI(active.playlistName || '');
 }
 
-async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex) {
+async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex, extraState = {}) {
   const watchUrl = `${MAX_WATCH_ORIGIN}/video/watch/${pick.alternateId}`;
   const activePayload = {
     armed: true,
@@ -784,6 +902,8 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
   const episodeState = {
     playedByShow: serializePlayedByShow(playedByShow),
     lastPlayedShow,
+    roundPlayedShows: serializeRoundPlayedShows(extraState.roundPlayedShows),
+    nextEpisodeIndexByShow: { ...(extraState.nextEpisodeIndexByShow || {}) },
     playlistName: playlist.name || '',
     playlistIndex,
   };
@@ -836,16 +956,38 @@ async function shuffleFromActivePlaylist(activePayload) {
     return;
   }
 
-  const { playedByShow, lastPlayedShow } = await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
-  const result = smartShuffle(playlistShows, playedByShow, lastPlayedShow, allowedMaxIds);
+  const { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
+    await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
+  const settings = await readShuffleSettings();
+  const result = smartShuffle(
+    playlistShows,
+    playedByShow,
+    lastPlayedShow,
+    allowedMaxIds,
+    {
+      roundPlayedShows,
+      orderedEpisodes: settings.orderedEpisodes,
+      nextEpisodeIndexByShow,
+    }
+  );
   if (!result?.pick?.alternateId) {
     showToast('No episodes found');
     if (status) status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || 'NO EPISODES';
     return;
   }
 
-  const { pick, lastPlayedShow: newLast } = result;
-  await savePlaylistShuffleState(preparedPlaylist, pick, playedByShow, newLast, playlistIndex);
+  const { pick, lastPlayedShow: newLast, roundPlayedShows: newRound, nextEpisodeIndexByShow: newIndexes } = result;
+  await savePlaylistShuffleState(
+    preparedPlaylist,
+    pick,
+    playedByShow,
+    newLast,
+    playlistIndex,
+    {
+      roundPlayedShows: newRound,
+      nextEpisodeIndexByShow: newIndexes,
+    }
+  );
 
   const label = (pick.showName || 'Show').slice(0, 24);
   showToast(`Playing: ${label}`);
@@ -959,6 +1101,12 @@ function onShuffleBtnClick(event) {
 function onPlaylistDropdownClick(event) {
   event.stopPropagation();
 
+  const toggleInput = event.target.closest('[data-pl-action="toggle-ordered"]');
+  if (toggleInput) {
+    event.stopPropagation();
+    return;
+  }
+
   const createBtn = event.target.closest('[data-pl-action="create"]');
   if (createBtn) {
     event.preventDefault();
@@ -985,6 +1133,13 @@ function onPlaylistDropdownClick(event) {
   const index = Number(shuffleRow.dataset.plIndex);
   const playlist = dropdownPlaylists[index];
   if (playlist) playPlaylistFromDropdown(index);
+}
+
+function onPlaylistDropdownChange(event) {
+  event.stopPropagation();
+  const toggleInput = event.target.closest('[data-pl-action="toggle-ordered"]');
+  if (!toggleInput) return;
+  setOrderedEpisodesEnabled(toggleInput.checked);
 }
 
 function onPlaylistDropdownKeydown(event) {
@@ -1014,6 +1169,8 @@ function bindShufflrButtonHandlers() {
   if (dropdown) {
     dropdown.removeEventListener('click', onPlaylistDropdownClick);
     dropdown.addEventListener('click', onPlaylistDropdownClick);
+    dropdown.removeEventListener('change', onPlaylistDropdownChange);
+    dropdown.addEventListener('change', onPlaylistDropdownChange);
     dropdown.removeEventListener('keydown', onPlaylistDropdownKeydown);
     dropdown.addEventListener('keydown', onPlaylistDropdownKeydown);
   }
@@ -1136,6 +1293,49 @@ function injectShufflrStyles() {
       letter-spacing: 1.5px;
       padding: 6px 10px 4px;
       opacity: 0.9;
+    }
+    .shufflr-pl-settings {
+      padding: 2px 4px 6px;
+    }
+    .shufflr-pl-toggle-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .shufflr-pl-toggle-row:hover {
+      background: rgba(26,107,255,0.12);
+    }
+    .shufflr-pl-toggle-input {
+      flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      margin-top: 1px;
+      accent-color: #1a6bff;
+      cursor: pointer;
+    }
+    .shufflr-pl-toggle-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .shufflr-pl-toggle-title {
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+    .shufflr-pl-toggle-hint {
+      color: rgba(26,107,255,0.85);
+      font-family: monospace;
+      font-size: 9px;
+      letter-spacing: 0.3px;
+      line-height: 1.35;
     }
     .shufflr-pl-divider {
       height: 1px;
@@ -1374,6 +1574,7 @@ function injectShufflrButton(video) {
 
   bindShufflrButtonHandlers();
   startShuffleWatchdog();
+  populatePlaylistDropdown();
 
   if (video) {
     attachVideoListeners(video);

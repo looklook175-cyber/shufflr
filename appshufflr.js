@@ -810,6 +810,30 @@ function removeEpFromPlaylist(pi,ei){
 
 // ── SMART SHUFFLE + EXTENSION HANDOFF ───────────────────────────────────────
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
+const SHUFFLR_EPISODE_STATE_KEY='shufflr_episode_state';
+const SHUFFLR_SHUFFLE_SETTINGS_KEY='shufflr_shuffle_settings';
+
+function deserializeRoundPlayedShows(serialized){
+  if(!Array.isArray(serialized))return new Set();
+  return new Set(serialized.map(id=>String(id)));
+}
+function serializeRoundPlayedShows(roundPlayedShows){
+  return [...(roundPlayedShows||new Set())].map(id=>String(id));
+}
+async function readShuffleSettings(){
+  try{
+    if(typeof chrome!=='undefined'&&chrome.storage?.local){
+      const stored=await new Promise(resolve=>{
+        chrome.storage.local.get(SHUFFLR_SHUFFLE_SETTINGS_KEY,result=>{
+          resolve(result[SHUFFLR_SHUFFLE_SETTINGS_KEY]);
+        });
+      });
+      if(stored)return {orderedEpisodes:!!stored.orderedEpisodes};
+    }
+  }catch(e){}
+  const local=JSON.parse(localStorage.getItem(SHUFFLR_SHUFFLE_SETTINGS_KEY)||'{}');
+  return {orderedEpisodes:!!local.orderedEpisodes};
+}
 const MAX_WATCH_ORIGIN='https://play.max.com';
 const SERVICE_AVAILABILITY={
   netflix:{ids:[8],names:['netflix']},
@@ -831,10 +855,47 @@ function serializePlayedByShow(playedByShow){
   Object.keys(playedByShow).forEach(showId=>{out[showId]=[...playedByShow[showId]];});
   return out;
 }
-function smartShuffle(enrichedShows,playedByShow,lastPlayedShow){
-  const availableShows=enrichedShows.filter(show=>show.onService!==false&&show.episodes.length);
+function smartShuffle(enrichedShows,playedByShow,lastPlayedShow,allowedMaxIds=null,options={}){
+  const roundPlayedShows=options.roundPlayedShows instanceof Set
+    ?options.roundPlayedShows
+    :deserializeRoundPlayedShows(options.roundPlayedShows);
+  const orderedEpisodes=!!options.orderedEpisodes;
+  const nextEpisodeIndexByShow={...(options.nextEpisodeIndexByShow||{})};
+
+  let availableShows=enrichedShows.filter(show=>show.onService!==false&&show.episodes?.length);
+  if(allowedMaxIds?.size){
+    availableShows=availableShows.filter(show=>allowedMaxIds.has(String(show.id).toLowerCase()));
+  }
+  if(!availableShows.length)return null;
+
+  let roundShows=availableShows.filter(show=>!roundPlayedShows.has(String(show.id)));
+  if(!roundShows.length){
+    roundPlayedShows.clear();
+    roundShows=availableShows;
+  }
+
+  let showPool=roundShows;
+  if(lastPlayedShow&&showPool.length>1){
+    const withoutLast=showPool.filter(show=>String(show.id)!==String(lastPlayedShow));
+    if(withoutLast.length)showPool=withoutLast;
+  }
+
+  if(orderedEpisodes){
+    const show=showPool[Math.floor(Math.random()*showPool.length)];
+    const showId=String(show.id);
+    const idx=nextEpisodeIndexByShow[showId]||0;
+    const episode=show.episodes[idx%show.episodes.length];
+    if(!episode)return null;
+    const pick={...episode,showId:show.id};
+    nextEpisodeIndexByShow[showId]=(idx+1)%show.episodes.length;
+    if(!playedByShow[showId])playedByShow[showId]=new Set();
+    playedByShow[showId].add(pick.id);
+    roundPlayedShows.add(showId);
+    return {pick,lastPlayedShow:showId,roundPlayedShows,nextEpisodeIndexByShow};
+  }
+
   let candidates=[];
-  for(const show of availableShows){
+  for(const show of showPool){
     const showId=String(show.id);
     if(!playedByShow[showId])playedByShow[showId]=new Set();
     let unplayed=show.episodes.filter(ep=>!playedByShow[showId].has(ep.id));
@@ -842,19 +903,18 @@ function smartShuffle(enrichedShows,playedByShow,lastPlayedShow){
       playedByShow[showId].clear();
       unplayed=show.episodes;
     }
-    if(String(show.id)!==String(lastPlayedShow)){
-      candidates=candidates.concat(unplayed.map(ep=>({...ep,showId:show.id})));
-    }
+    candidates=candidates.concat(unplayed.map(ep=>({...ep,showId:show.id})));
   }
   if(!candidates.length){
-    candidates=availableShows.flatMap(s=>s.episodes.map(ep=>({...ep,showId:s.id})));
+    candidates=availableShows.flatMap(show=>show.episodes.map(ep=>({...ep,showId:show.id})));
   }
   if(!candidates.length)return null;
   const pick=candidates[Math.floor(Math.random()*candidates.length)];
   const pickShowId=String(pick.showId);
   if(!playedByShow[pickShowId])playedByShow[pickShowId]=new Set();
   playedByShow[pickShowId].add(pick.id);
-  return {pick,lastPlayedShow:pickShowId};
+  roundPlayedShows.add(pickShowId);
+  return {pick,lastPlayedShow:pickShowId,roundPlayedShows,nextEpisodeIndexByShow};
 }
 async function showAvailableOnService(showId,type,selectedService){
   const svc=SERVICE_AVAILABILITY[selectedService];
@@ -1007,10 +1067,14 @@ function buildSmartShuffleEpisodeUrl(pick,selectedService){
   const query=`${showName} S${String(pick.seasonNum).padStart(2,'0')}E${String(pick.episode_number).padStart(2,'0')}`;
   return svc?svc.url+encodeURIComponent(query):getEpLink();
 }
-function buildActivePlaylistHandoff(playlist,enriched,selectedService,pick,playedByShow,lastPlayedShow){
+function buildActivePlaylistHandoff(playlist,enriched,selectedService,pick,playedByShow,lastPlayedShow,playlistIndex,extraState={}){
   return {
+    armed:true,
     playlist:enriched.map(s=>({id:s.id,name:s.name,type:s.type,episodes:s.episodes})),
     playlistName:playlist.name||'',
+    playlistIndex,
+    shows:[...(playlist.shows||[])],
+    episodes:[...(playlist.episodes||[])],
     selectedService,
     currentEpisode:{
       showId:pick.showId,
@@ -1025,11 +1089,24 @@ function buildActivePlaylistHandoff(playlist,enriched,selectedService,pick,playe
     currentEpisodeUrl:buildSmartShuffleEpisodeUrl(pick,selectedService),
     playedByShow:serializePlayedByShow(playedByShow),
     lastPlayedShow,
+    roundPlayedShows:serializeRoundPlayedShows(extraState.roundPlayedShows),
+    nextEpisodeIndexByShow:{...(extraState.nextEpisodeIndexByShow||{})},
     sessionStartedAt:Date.now(),
   };
 }
 function handoffActivePlaylistToExtension(payload){
   return new Promise(resolve=>{
+    const storagePayload={[SHUFFLR_ACTIVE_PLAYLIST_KEY]:payload};
+    if(payload.playedByShow){
+      storagePayload[SHUFFLR_EPISODE_STATE_KEY]={
+        playedByShow:payload.playedByShow,
+        lastPlayedShow:payload.lastPlayedShow||null,
+        roundPlayedShows:payload.roundPlayedShows||[],
+        nextEpisodeIndexByShow:payload.nextEpisodeIndexByShow||{},
+        playlistName:payload.playlistName||'',
+        playlistIndex:payload.playlistIndex??0,
+      };
+    }
     const finish=()=>{
       localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY,JSON.stringify(payload));
       window.dispatchEvent(new CustomEvent('shufflr-handoff',{detail:payload}));
@@ -1038,7 +1115,7 @@ function handoffActivePlaylistToExtension(payload){
     };
     try{
       if(typeof chrome!=='undefined'&&chrome.storage&&chrome.storage.local){
-        chrome.storage.local.set({[SHUFFLR_ACTIVE_PLAYLIST_KEY]:payload},finish);
+        chrome.storage.local.set(storagePayload,finish);
         return;
       }
     }catch(e){}
@@ -1052,14 +1129,24 @@ async function playPlaylist(pi){
   showToast('SMART SHUFFLE...');
   const playedByShow={};
   const lastPlayedShow=null;
+  const roundPlayedShows=new Set();
+  const nextEpisodeIndexByShow={};
+  const settings=await readShuffleSettings();
   try{
     let enriched=await buildEnrichedPlaylist(p,selectedService);
     enriched=await filterPlaylistByService(enriched,selectedService);
     if(!enriched.length)return;
-    const result=smartShuffle(enriched,playedByShow,lastPlayedShow);
+    const result=smartShuffle(enriched,playedByShow,lastPlayedShow,null,{
+      roundPlayedShows,
+      orderedEpisodes:settings.orderedEpisodes,
+      nextEpisodeIndexByShow,
+    });
     if(!result){showToast('NO EPISODES FOUND');return;}
-    const {pick,lastPlayedShow:newLast}=result;
-    const handoff=buildActivePlaylistHandoff(p,enriched,selectedService,pick,playedByShow,newLast);
+    const {pick,lastPlayedShow:newLast,roundPlayedShows:newRound,nextEpisodeIndexByShow:newIndexes}=result;
+    const handoff=buildActivePlaylistHandoff(p,enriched,selectedService,pick,playedByShow,newLast,pi,{
+      roundPlayedShows:newRound,
+      nextEpisodeIndexByShow:newIndexes,
+    });
     await handoffActivePlaylistToExtension(handoff);
     if(!pick.isMovie){
       markWatched(`${pick.showId}-s${pick.seasonNum}e${pick.episode_number}`,pick.showName,pick.name,pick.seasonNum,pick.episode_number,'');
