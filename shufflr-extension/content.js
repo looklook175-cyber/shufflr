@@ -2490,7 +2490,6 @@ function bindShufflrButtonHandlers() {
 function injectShufflrStyles() {
   if (document.getElementById('shufflr-styles')) return;
 
-  // Shufflr brand colors — primary #00B4D8, hover #0096B7, text #ffffff, border #00B4D8, glow rgba(0,180,216,0.4)
   const style = document.createElement('style');
   style.id = 'shufflr-styles';
   style.textContent = `
@@ -2552,30 +2551,30 @@ function injectShufflrStyles() {
       gap: 8px;
       height: 100%;
       box-sizing: border-box;
-      background: #00B4D8;
-      border: 1px solid #00B4D8;
-      border-right: 1px solid rgba(0, 180, 216, 0.35);
+      background: rgba(0,0,0,0.85);
+      border: 2px solid #1a6bff;
+      border-right: 1px solid rgba(26,107,255,0.35);
       border-radius: 12px 0 0 12px;
       padding: 10px 16px;
-      color: #ffffff;
+      color: #1a6bff;
       font-family: monospace;
       font-size: 11px;
       letter-spacing: 1.5px;
-      box-shadow: 0 0 20px rgba(0, 180, 216, 0.4);
+      box-shadow: 0 0 20px rgba(26,107,255,0.4);
       transition: all 0.2s ease;
       backdrop-filter: blur(8px);
     }
     #shufflr-btn:hover #shufflr-inner {
-      background: #0096B7;
-      color: #ffffff;
-      box-shadow: 0 0 20px rgba(0, 180, 216, 0.4);
+      background: #1a6bff;
+      color: #000;
+      box-shadow: 0 0 30px rgba(26,107,255,0.7);
       transform: scale(1.04);
       transform-origin: center right;
     }
     #shufflr-btn.active #shufflr-inner {
-      background: #00B4D8;
-      color: #ffffff;
-      box-shadow: 0 0 20px rgba(0, 180, 216, 0.4);
+      background: #23A8E0;
+      color: #000;
+      box-shadow: 0 0 30px rgba(35,168,224,0.8);
       animation: shufflr-pulse 2s infinite;
     }
     #shufflr-btn.active #shufflr-icon {
@@ -2587,24 +2586,24 @@ function injectShufflrStyles() {
       justify-content: center;
       min-width: 34px;
       padding: 0 10px;
-      background: #00B4D8;
-      border: 1px solid #00B4D8;
+      background: rgba(0,0,0,0.85);
+      border: 2px solid #1a6bff;
       border-left: none;
       border-radius: 0 12px 12px 0;
-      color: #ffffff;
+      color: #1a6bff;
       font-family: monospace;
       font-size: 13px;
       line-height: 1;
       cursor: pointer;
-      box-shadow: 0 0 20px rgba(0, 180, 216, 0.4);
+      box-shadow: 0 0 20px rgba(26,107,255,0.4);
       transition: all 0.2s ease;
       backdrop-filter: blur(8px);
     }
     #shufflr-playlist-toggle:hover,
     #shufflr-playlist-toggle.open {
-      background: #0096B7;
-      color: #ffffff;
-      box-shadow: 0 0 20px rgba(0, 180, 216, 0.4);
+      background: #1a6bff;
+      color: #000;
+      box-shadow: 0 0 30px rgba(26,107,255,0.7);
     }
     #shufflr-playlist-dropdown {
       display: none;
@@ -2838,7 +2837,7 @@ function injectShufflrStyles() {
     }
     #shufflr-status {
       font-size: 8px;
-      color: #00B4D8;
+      color: #1a6bff;
       text-align: right;
       margin: 0;
       letter-spacing: 1px;
@@ -2851,8 +2850,8 @@ function injectShufflrStyles() {
       padding-bottom: 2px;
     }
     @keyframes shufflr-pulse {
-      0%, 100% { box-shadow: 0 0 20px rgba(0, 180, 216, 0.4); }
-      50% { box-shadow: 0 0 30px rgba(0, 180, 216, 0.4); }
+      0%, 100% { box-shadow: 0 0 30px rgba(35,168,224,0.8); }
+      50% { box-shadow: 0 0 50px rgba(35,168,224,1); }
     }
     @keyframes shufflr-spin {
       from { transform: rotate(0deg); }
