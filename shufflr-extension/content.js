@@ -2630,7 +2630,7 @@ function injectShufflrStyles() {
       gap: 2px;
     }
     .shufflr-pl-section-header {
-      color: #1a6bff;
+      color: #ffffff;
       font-family: monospace;
       font-size: 8px;
       letter-spacing: 1.5px;
@@ -2674,7 +2674,7 @@ function injectShufflrStyles() {
       letter-spacing: 0.5px;
     }
     .shufflr-pl-toggle-hint {
-      color: rgba(26,107,255,0.85);
+      color: #ffffff;
       font-family: monospace;
       font-size: 9px;
       letter-spacing: 0.3px;
@@ -2776,7 +2776,7 @@ function injectShufflrStyles() {
       background: transparent;
       border: 1px dashed rgba(26,107,255,0.45);
       border-radius: 7px;
-      color: #1a6bff;
+      color: #ffffff;
       font-family: monospace;
       font-size: 10px;
       letter-spacing: 0.5px;
@@ -2837,7 +2837,7 @@ function injectShufflrStyles() {
     }
     #shufflr-status {
       font-size: 8px;
-      color: #1a6bff;
+      color: #ffffff;
       text-align: right;
       margin: 0;
       letter-spacing: 1px;
