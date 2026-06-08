@@ -447,6 +447,7 @@ let wasFullscreen = false;
 let fullscreenRestorePromptActive = false;
 let fullscreenRestoreClickHandler = null;
 let fullscreenRestoreKeydownHandler = null;
+let fullscreenRestoreDismissHandler = null;
 const FULLSCREEN_RESTORE_TOAST_MS = 5000;
 const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
@@ -550,6 +551,11 @@ function teardownFullscreenRestoreListeners() {
     document.removeEventListener('keydown', fullscreenRestoreKeydownHandler, true);
     fullscreenRestoreKeydownHandler = null;
   }
+  const dismissBtn = document.getElementById('shufflr-toast-dismiss');
+  if (dismissBtn && fullscreenRestoreDismissHandler) {
+    dismissBtn.removeEventListener('click', fullscreenRestoreDismissHandler, true);
+  }
+  fullscreenRestoreDismissHandler = null;
 }
 
 function dismissFullscreenRestorePrompt() {
@@ -562,7 +568,8 @@ function dismissFullscreenRestorePrompt() {
 
   const toast = document.getElementById('shufflr-toast');
   if (toast) {
-    toast.classList.remove('show');
+    toast.classList.remove('show', 'shufflr-toast-interactive');
+    toast.textContent = '';
   }
 }
 
@@ -575,8 +582,15 @@ function tryRestoreFullscreenSync(source) {
   }
 }
 
-function onFullscreenRestoreClick() {
+function onFullscreenRestoreClick(event) {
+  if (event.target.closest('#shufflr-toast-dismiss')) return;
   tryRestoreFullscreenSync('click');
+  dismissFullscreenRestorePrompt();
+}
+
+function onFullscreenRestoreDismissClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
   dismissFullscreenRestorePrompt();
 }
 
@@ -603,8 +617,11 @@ function showFullscreenRestorePrompt() {
     return;
   }
 
-  toast.textContent = 'Click anywhere or press F11 to restore fullscreen';
-  toast.classList.add('show');
+  toast.innerHTML = `
+    <span class="shufflr-toast-message">Click to restore fullscreen</span>
+    <button type="button" id="shufflr-toast-dismiss" class="shufflr-toast-dismiss" aria-label="Dismiss fullscreen restore prompt">✕</button>
+  `;
+  toast.classList.add('show', 'shufflr-toast-interactive');
   clearTimeout(window._shufflrToastTimer);
 
   teardownFullscreenRestoreListeners();
@@ -612,6 +629,12 @@ function showFullscreenRestorePrompt() {
   fullscreenRestoreKeydownHandler = onFullscreenRestoreF11;
   document.addEventListener('click', fullscreenRestoreClickHandler, true);
   document.addEventListener('keydown', fullscreenRestoreKeydownHandler, true);
+
+  const dismissBtn = document.getElementById('shufflr-toast-dismiss');
+  if (dismissBtn) {
+    fullscreenRestoreDismissHandler = onFullscreenRestoreDismissClick;
+    dismissBtn.addEventListener('click', fullscreenRestoreDismissHandler, true);
+  }
 
   clearTimeout(window._shufflrFullscreenRestoreTimer);
   window._shufflrFullscreenRestoreTimer = setTimeout(() => {
@@ -2737,6 +2760,41 @@ function injectShufflrStyles() {
       line-height: 1.6;
     }
     #shufflr-toast.show { opacity: 1; transform: translateY(0); }
+    #shufflr-toast.shufflr-toast-interactive {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+      padding-right: 10px;
+      max-width: 280px;
+    }
+    .shufflr-toast-message {
+      flex: 1;
+      min-width: 0;
+    }
+    .shufflr-toast-dismiss {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid rgba(26,107,255,0.55);
+      border-radius: 4px;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .shufflr-toast-dismiss:hover {
+      background: #1a6bff;
+      color: #000;
+      border-color: #1a6bff;
+    }
   `;
   document.head.appendChild(style);
 }
