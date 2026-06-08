@@ -450,6 +450,50 @@ const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
 const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
 const SHUFFLE_COP_DELAY_MS = 400;
 const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
+const AD_MAX_DURATION_SEC = 180;
+
+function hasVisibleAdDomMarkers() {
+  try {
+    const markers = document.querySelectorAll('[data-testid*="ad"], [class*="Ad"], [class*="-ad-"]');
+    for (const el of markers) {
+      const rect = el.getBoundingClientRect?.();
+      if (!rect || (rect.width > 0 && rect.height > 0)) return true;
+    }
+  } catch {}
+  return false;
+}
+
+function hasAdCountdownOrSkipLabel() {
+  try {
+    const candidates = document.querySelectorAll(
+      'button, [role="button"], span, div, p, [data-testid*="ad"]'
+    );
+    for (const el of candidates) {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 48) continue;
+      if (/\bad\s+\d+\s+of\s+\d+\b/i.test(text)) return true;
+      if (/skip\s+ad/i.test(text)) return true;
+    }
+  } catch {}
+  return false;
+}
+
+function hasShortVideoWithAdContainer() {
+  const video = document.querySelector('video');
+  if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return false;
+  if (video.duration >= AD_MAX_DURATION_SEC) return false;
+  return hasVisibleAdDomMarkers();
+}
+
+function isAdPlaying() {
+  try {
+    if (document.querySelector('[data-testid="player-ux-ad-skip-button"]')) return true;
+    if (hasVisibleAdDomMarkers()) return true;
+    if (hasAdCountdownOrSkipLabel()) return true;
+    if (hasShortVideoWithAdContainer()) return true;
+  } catch {}
+  return false;
+}
 
 function isSingleUuidWatchUrl(url) {
   try {
@@ -506,6 +550,7 @@ async function getPendingEpisodeIdFromStorage() {
 
 function beginShufflrNavigation(episodeId) {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   shufflrAboutToNavigate = false;
   const normalized = normalizeMaxId(episodeId);
   shufflrIsNavigating = true;
@@ -544,6 +589,7 @@ function scheduleShuffleCopCheck(prevUrl) {
 
 function triggerShuffleCopOnUrlChange(prevUrl) {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   if (prevUrl === location.href) return;
 
   runShuffleCopCheck(prevUrl).catch(err => {
@@ -554,6 +600,7 @@ function triggerShuffleCopOnUrlChange(prevUrl) {
 
 async function runShuffleCopCheck(prevUrl) {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   if (prevUrl === location.href) return;
 
   const active = await getActivePlaylistFromStorage();
@@ -652,6 +699,7 @@ function installArmedUrlGuard() {
 
 async function navigateToNextShow() {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   const active = await getActivePlaylistFromStorage();
   if (!active?.armed) return;
   shufflrActive = true;
@@ -682,6 +730,7 @@ function installTimeupdateWatcher() {
       handleExtensionContextInvalidated();
       return;
     }
+    if (isAdPlaying()) return;
     if (video.duration <= 0 || video.paused) return;
     updateShufflrAboutToNavigateFromVideo(video);
     if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
@@ -1676,6 +1725,7 @@ async function runUiRecoveryAfterGrace(reason) {
 
 async function handleShufflrNextEpisode(source) {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   if (shufflrEpisodeTransitionLock) {
     console.log(`[Shufflr] Episode transition already in progress (${source})`);
     return;
@@ -1705,6 +1755,7 @@ async function handleShufflrNextEpisode(source) {
 
 async function handlePossibleMaxAutoAdvance(prevUrl) {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   const active = await getActivePlaylistFromStorage();
   const showHint = getShowMaxIdHintFromActive(active);
 
@@ -1741,6 +1792,7 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
   }
 
   if (await shouldRedirectSingleUuidPromo(prevUrl, location.href, active, showHint)) {
+    if (isAdPlaying()) return;
     console.log('[Shufflr] Single-UUID promo/trailer navigation while armed — shuffling instead');
     await handleShufflrNextEpisode('single-uuid-promo');
     return;
@@ -1877,6 +1929,7 @@ async function shuffleFromActivePlaylist(activePayload) {
   shufflrTargetWatchUrl = watchUrl.split('?')[0];
   shufflrTargetEpisodeId = normalizeMaxId(pick.alternateId);
   void refreshMaxAutoNextArmedCache();
+  if (isAdPlaying()) return;
   beginShufflrNavigation(pick.alternateId);
   location.href = watchUrl;
 }
@@ -2738,6 +2791,10 @@ function refreshMaxAutoNextArmedCache() {
 }
 
 function updateShufflrAboutToNavigateFromVideo(video) {
+  if (isAdPlaying()) {
+    shufflrAboutToNavigate = false;
+    return;
+  }
   if (!video || video.duration <= 0 || video.paused) return;
   if (!shufflrActive && !armedPlaylistCached) {
     shufflrAboutToNavigate = false;
@@ -2748,6 +2805,7 @@ function updateShufflrAboutToNavigateFromVideo(video) {
 }
 
 function suppressMaxAutoNextOverlayAggressive(element) {
+  if (isAdPlaying()) return;
   if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
   if (!shufflrAboutToNavigate) return;
   if (!maxAutoNextArmedCache) return;
@@ -2768,6 +2826,7 @@ function suppressMaxAutoNextOverlayAggressive(element) {
 
 function suppressMaxAutoNextOverlay(element) {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
 
   getActivePlaylistFromStorage().then(active => {
@@ -2792,6 +2851,7 @@ function pollAndSuppressMaxAutoNextOverlays() {
     teardownMaxAutoNextSuppression();
     return;
   }
+  if (isAdPlaying()) return;
   if (!shufflrAboutToNavigate) return;
 
   refreshMaxAutoNextArmedCache().then(armed => {
@@ -2805,6 +2865,7 @@ function pollAndSuppressMaxAutoNextOverlays() {
 
 function scanForMaxAutoNextOverlays(root = document.body) {
   if (!root?.querySelectorAll) return;
+  if (isAdPlaying()) return;
   if (!shufflrAboutToNavigate) return;
 
   try {
@@ -2953,6 +3014,10 @@ async function toggleShuffle() {
 
 // ── VIDEO EVENTS ────────────────────────────────────────────────────────────
 function onTimeUpdate() {
+  if (isAdPlaying()) {
+    shufflrAboutToNavigate = false;
+    return;
+  }
   if (!shufflrActive && !armedPlaylistCached) {
     shufflrAboutToNavigate = false;
     return;
@@ -2973,6 +3038,7 @@ function onTimeUpdate() {
 
 async function onEpisodeEnded() {
   if (!isChromeContextValid()) return;
+  if (isAdPlaying()) return;
   const active = await getActivePlaylistFromStorage();
   if (active?.armed) {
     shufflrActive = true;
@@ -3555,6 +3621,7 @@ async function prefetchEpisodeList() {
 
 // ── SHUFFLE LOGIC ───────────────────────────────────────────────────────────
 async function shuffleToRandomEpisode() {
+  if (isAdPlaying()) return;
   const status = document.getElementById('shufflr-status');
   const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
   const lastEpisodeUrl = location.href;
@@ -3633,6 +3700,7 @@ async function handleShowPageShuffle() {
 }
 
 async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
+  if (isAdPlaying()) return;
   const showHint = getCurrentMaxShowUuid();
   const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl, showHint);
   const pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
