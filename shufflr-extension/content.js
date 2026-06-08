@@ -10,6 +10,7 @@ const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
+const MAX_SKIP_FORWARD_SELECTOR = 'button[data-testid="player-ux-skip-forward-button"]';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function normalizeMaxId(id) {
@@ -1680,6 +1681,7 @@ function cancelUiRecoveryGraceTimer() {
 
 function scheduleUiRecoveryAfterGrace(reason) {
   if (!isChromeContextValid()) return;
+  tryReinjectShufflrPlayerButton();
   if (hasShufflrButtonInDom()) {
     cancelUiRecoveryGraceTimer();
     return;
@@ -2254,12 +2256,20 @@ function injectShufflrStyles() {
   style.id = 'shufflr-styles';
   style.textContent = `
     #shufflr-wrap {
-      position: fixed;
-      bottom: 90px;
-      right: 24px;
       z-index: 999999;
       user-select: none;
       pointer-events: none;
+    }
+    #shufflr-wrap.shufflr-in-player {
+      display: inline-flex;
+      align-items: center;
+      position: relative;
+      vertical-align: middle;
+    }
+    #shufflr-wrap.shufflr-floating {
+      position: fixed;
+      bottom: 90px;
+      right: 24px;
     }
     #shufflr-split,
     #shufflr-status {
@@ -2616,8 +2626,103 @@ function injectShufflrStyles() {
   document.head.appendChild(style);
 }
 
+function getMaxPlayerSkipForwardButton() {
+  return document.querySelector(MAX_SKIP_FORWARD_SELECTOR);
+}
+
+function getMaxPlayerControlsContainer() {
+  const forwardBtn = getMaxPlayerSkipForwardButton();
+  if (forwardBtn?.parentElement) return forwardBtn.parentElement;
+  const video = document.querySelector('video');
+  return video?.parentElement || null;
+}
+
+function isShufflrVideoPlayerPage() {
+  return location.href.includes('/video/') || location.href.includes('/play/');
+}
+
+function ensureShufflrButtonPlaced() {
+  const wrap = document.getElementById('shufflr-wrap');
+  if (!wrap) return;
+
+  if (isShufflrVideoPlayerPage()) {
+    const forwardBtn = getMaxPlayerSkipForwardButton();
+    if (!forwardBtn) return;
+    if (wrap.previousElementSibling !== forwardBtn) {
+      forwardBtn.insertAdjacentElement('afterend', wrap);
+    }
+    wrap.classList.add('shufflr-in-player');
+    wrap.classList.remove('shufflr-floating');
+    return;
+  }
+
+  if (wrap.parentElement !== document.body) {
+    document.body.appendChild(wrap);
+  }
+  wrap.classList.add('shufflr-floating');
+  wrap.classList.remove('shufflr-in-player');
+}
+
+function onPlayerControlsDomMutation() {
+  if (!isChromeContextValid()) return;
+  tryReinjectShufflrPlayerButton();
+  ensureShufflrButtonPlaced();
+  const video = document.querySelector('video');
+  if (video && hasShufflrButtonInDom()) attachVideoListeners(video);
+}
+
+function attachPlayerControlsObserver() {
+  const container = getMaxPlayerControlsContainer();
+  if (!container) return false;
+
+  if (window.__shufflrPlayerControlsObserved === container) {
+    onPlayerControlsDomMutation();
+    return true;
+  }
+
+  if (window.__shufflrPlayerControlsMO) {
+    window.__shufflrPlayerControlsMO.disconnect();
+    window.__shufflrPlayerControlsMO = null;
+  }
+
+  window.__shufflrPlayerControlsMO = new MutationObserver(() => {
+    if (!isChromeContextValid()) return;
+    onPlayerControlsDomMutation();
+  });
+  window.__shufflrPlayerControlsMO.observe(container, { childList: true, subtree: true });
+  window.__shufflrPlayerControlsObserved = container;
+  onPlayerControlsDomMutation();
+  return true;
+}
+
+function ensurePlayerControlsObserver() {
+  if (!isChromeContextValid()) return;
+
+  if (!window.__shufflrPlayerContainerWatcher) {
+    window.__shufflrPlayerContainerWatcher = new MutationObserver(() => {
+      if (!isChromeContextValid()) return;
+      attachPlayerControlsObserver();
+    });
+    window.__shufflrPlayerContainerWatcher.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  attachPlayerControlsObserver();
+}
+
+function tryReinjectShufflrPlayerButton() {
+  if (!isChromeContextValid()) return;
+  if (!isShufflrVideoPlayerPage()) return;
+  const forwardBtn = getMaxPlayerSkipForwardButton();
+  if (!forwardBtn || hasShufflrButtonInDom()) return;
+  injectShufflrButton(document.querySelector('video'));
+}
+
 function ensureVideoSwapObserver() {
   if (!isChromeContextValid()) return;
+  ensurePlayerControlsObserver();
   if (window.__shufflrVideoObserver) return;
   window.__shufflrVideoObserver = new MutationObserver(() => {
     if (!isChromeContextValid()) return;
@@ -2631,9 +2736,15 @@ function injectShufflrButton(video) {
   if (!isChromeContextValid()) return;
   if (document.getElementById('shufflr-wrap')) {
     if (video) attachVideoListeners(video);
+    ensureShufflrButtonPlaced();
+    ensurePlayerControlsObserver();
     void fullyRestoreArmedShuffleSessionAfterInject();
     return;
   }
+
+  const isVideoPage = isShufflrVideoPlayerPage();
+  const forwardBtn = isVideoPage ? getMaxPlayerSkipForwardButton() : null;
+  if (isVideoPage && !forwardBtn) return;
 
   removeShufflrUI();
   hasInjectedButton = true;
@@ -2642,6 +2753,11 @@ function injectShufflrButton(video) {
 
   const wrap = document.createElement('div');
   wrap.id = 'shufflr-wrap';
+  if (forwardBtn) {
+    wrap.classList.add('shufflr-in-player');
+  } else {
+    wrap.classList.add('shufflr-floating');
+  }
   wrap.innerHTML = `
     <div id="shufflr-playlist-dropdown">
       ${renderPlaylistDropdownContent([])}
@@ -2662,7 +2778,11 @@ function injectShufflrButton(video) {
     </div>
     <div id="shufflr-status"></div>
   `;
-  document.body.appendChild(wrap);
+  if (forwardBtn) {
+    forwardBtn.insertAdjacentElement('afterend', wrap);
+  } else {
+    document.body.appendChild(wrap);
+  }
 
   if (!document.getElementById('shufflr-toast')) {
     const toast = document.createElement('div');
@@ -2676,8 +2796,8 @@ function injectShufflrButton(video) {
 
   if (video) {
     attachVideoListeners(video);
-    ensureVideoSwapObserver();
   }
+  ensureVideoSwapObserver();
 
   void fullyRestoreArmedShuffleSessionAfterInject();
 }
