@@ -444,6 +444,9 @@ let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
 let wasFullscreen = false;
+let fullscreenRestorePromptActive = false;
+let fullscreenRestoreClickHandler = null;
+const FULLSCREEN_RESTORE_TOAST_MS = 5000;
 const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
@@ -519,7 +522,7 @@ function captureFullscreenBeforeShufflrNavigation() {
   if (document.fullscreenElement !== null) {
     wasFullscreen = true;
     try {
-      sessionStorage.setItem(SHUFFLR_WAS_FULLSCREEN_KEY, '1');
+      sessionStorage.setItem(SHUFFLR_WAS_FULLSCREEN_KEY, 'true');
     } catch {}
     return;
   }
@@ -529,32 +532,84 @@ function captureFullscreenBeforeShufflrNavigation() {
   } catch {}
 }
 
-function shouldRestoreFullscreenAfterNavigation() {
-  if (wasFullscreen) return true;
+function shouldShowFullscreenRestorePrompt() {
   try {
-    return sessionStorage.getItem(SHUFFLR_WAS_FULLSCREEN_KEY) === '1';
+    return sessionStorage.getItem(SHUFFLR_WAS_FULLSCREEN_KEY) === 'true';
   } catch {
     return false;
   }
 }
 
-function clearFullscreenRestoreFlag() {
-  wasFullscreen = false;
-  try {
-    sessionStorage.removeItem(SHUFFLR_WAS_FULLSCREEN_KEY);
-  } catch {}
+function teardownFullscreenRestoreClickListener() {
+  if (!fullscreenRestoreClickHandler) return;
+  document.querySelectorAll('video').forEach(video => {
+    video.removeEventListener('click', fullscreenRestoreClickHandler, true);
+  });
+  fullscreenRestoreClickHandler = null;
 }
 
-async function restoreFullscreenIfNeeded() {
-  if (!shouldRestoreFullscreenAfterNavigation()) return;
-  clearFullscreenRestoreFlag();
+function dismissFullscreenRestorePrompt(options = {}) {
+  const { restoreFullscreen = false } = options;
+  if (!fullscreenRestorePromptActive) return;
+
+  fullscreenRestorePromptActive = false;
+  clearTimeout(window._shufflrFullscreenRestoreTimer);
+  window._shufflrFullscreenRestoreTimer = null;
+  teardownFullscreenRestoreClickListener();
+
+  const toast = document.getElementById('shufflr-toast');
+  if (toast) {
+    toast.classList.remove('show');
+  }
+
+  if (restoreFullscreen) {
+    void requestFullscreenFromUserGesture();
+  }
+}
+
+async function requestFullscreenFromUserGesture() {
   try {
     await document.documentElement.requestFullscreen();
     ensureShufflrButtonForFullscreen();
-    console.log('[Shufflr] Restored fullscreen after episode navigation');
+    console.log('[Shufflr] Restored fullscreen via user gesture');
   } catch (err) {
     console.log('[Shufflr] Could not restore fullscreen:', err);
   }
+}
+
+function showFullscreenRestorePrompt(videoEl = null) {
+  if (!shouldShowFullscreenRestorePrompt()) return;
+  if (fullscreenRestorePromptActive) return;
+
+  try {
+    sessionStorage.removeItem(SHUFFLR_WAS_FULLSCREEN_KEY);
+  } catch {}
+  wasFullscreen = false;
+  fullscreenRestorePromptActive = true;
+
+  const toast = document.getElementById('shufflr-toast');
+  if (!toast) {
+    fullscreenRestorePromptActive = false;
+    return;
+  }
+
+  toast.textContent = 'Click anywhere or press F11 to restore fullscreen';
+  toast.classList.add('show');
+  clearTimeout(window._shufflrToastTimer);
+
+  const video = videoEl || document.querySelector('video');
+  if (video) {
+    teardownFullscreenRestoreClickListener();
+    fullscreenRestoreClickHandler = () => {
+      dismissFullscreenRestorePrompt({ restoreFullscreen: true });
+    };
+    video.addEventListener('click', fullscreenRestoreClickHandler, true);
+  }
+
+  clearTimeout(window._shufflrFullscreenRestoreTimer);
+  window._shufflrFullscreenRestoreTimer = setTimeout(() => {
+    dismissFullscreenRestorePrompt({ restoreFullscreen: false });
+  }, FULLSCREEN_RESTORE_TOAST_MS);
 }
 
 function restoreShufflrUIFromFullscreenContainer() {
@@ -2761,6 +2816,9 @@ function attachVideoListeners(video) {
   window.__shufflrAttachedVideo = video;
   installTimeupdateWatcher();
   suppressMaxAutoNext();
+  if (!video.paused) {
+    showFullscreenRestorePrompt(video);
+  }
 }
 
 const MAX_AUTO_NEXT_OVERLAY_SELECTORS = [
@@ -3021,7 +3079,7 @@ function onVideoPlaying() {
   timeupdateWatcherHandler = null;
   installTimeupdateWatcher();
   prefetchEpisodeList();
-  void restoreFullscreenIfNeeded();
+  showFullscreenRestorePrompt();
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
