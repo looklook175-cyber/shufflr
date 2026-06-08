@@ -2406,9 +2406,11 @@ function injectShufflrStyles() {
       bottom: 90px;
       right: 96px;
       z-index: 2147483647 !important;
-      display: flex;
+      display: inline-flex;
       flex-direction: column;
       align-items: flex-end;
+      padding-bottom: 15px;
+      box-sizing: border-box;
       user-select: none;
       pointer-events: none;
     }
@@ -2430,7 +2432,6 @@ function injectShufflrStyles() {
     #shufflr-split {
       display: flex;
       align-items: stretch;
-      order: 2;
     }
     #shufflr-btn {
       cursor: pointer;
@@ -2727,16 +2728,20 @@ function injectShufflrStyles() {
       box-shadow: 0 0 12px rgba(26,107,255,0.6);
     }
     #shufflr-status {
-      order: 1;
+      position: absolute;
+      right: 0;
+      left: 0;
+      bottom: 15px;
+      transform: translateY(calc(-100% - 5px));
       font-size: 8px;
       color: #1a6bff;
       text-align: center;
-      margin-top: 0;
-      margin-bottom: 5px;
+      margin: 0;
       letter-spacing: 1px;
       min-height: 10px;
       font-family: monospace;
       opacity: 0.8;
+      white-space: nowrap;
     }
     @keyframes shufflr-pulse {
       0%, 100% { box-shadow: 0 0 30px rgba(35,168,224,0.8); }
