@@ -2874,6 +2874,7 @@ function injectShufflrStyles() {
     #shufflr-btn.active #shufflr-inner {
       background: #23A8E0;
       color: #000;
+      opacity: 0.90;
       box-shadow: 0 0 30px rgba(35,168,224,0.8);
       animation: shufflr-pulse 2s infinite;
     }
@@ -2886,6 +2887,7 @@ function injectShufflrStyles() {
       justify-content: center;
       min-width: 34px;
       padding: 0 10px;
+      opacity: 0.90;
       background: rgba(0,0,0,0.85);
       border: 2px solid #1a6bff;
       border-left: none;
@@ -2914,8 +2916,8 @@ function injectShufflrStyles() {
       max-width: 280px;
       max-height: 320px;
       overflow-y: auto;
-      background: rgba(0,0,0,0.92);
-      border: 2px solid #1a6bff;
+      background: rgba(15, 15, 20, 0.85);
+      border: 2px solid rgba(0, 140, 255, 0.5);
       border-radius: 10px;
       padding: 6px;
       box-shadow: 0 0 24px rgba(26,107,255,0.35);
