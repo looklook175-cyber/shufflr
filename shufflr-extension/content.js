@@ -2872,7 +2872,7 @@ function injectShufflrStyles() {
       transform-origin: center right;
     }
     #shufflr-btn.active #shufflr-inner {
-      background: rgba(100, 170, 220, 1);
+      background: rgba(0, 210, 235, 1);
       color: #000;
       opacity: 0.90;
       box-shadow: 0 0 30px rgba(35,168,224,0.8);
