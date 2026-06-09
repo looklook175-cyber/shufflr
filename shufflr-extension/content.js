@@ -2878,8 +2878,9 @@ function injectShufflrStyles() {
       box-shadow: 0 0 30px rgba(35,168,224,0.8);
       animation: shufflr-pulse 2s infinite;
     }
-    #shufflr-btn.active #shufflr-icon {
-      animation: shufflr-spin 1.5s linear infinite;
+    #shufflr-btn.active .shufflr-spin-arc {
+      animation: shufflr-arc-spin 1.2s linear infinite;
+      transform-origin: 10px 12px;
     }
     #shufflr-playlist-toggle {
       display: flex;
@@ -3228,7 +3229,7 @@ function injectShufflrStyles() {
       0%, 100% { box-shadow: 0 0 30px rgba(35,168,224,0.8); }
       50% { box-shadow: 0 0 50px rgba(35,168,224,1); }
     }
-    @keyframes shufflr-spin {
+    @keyframes shufflr-arc-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
@@ -3326,11 +3327,14 @@ function injectShufflrButton(video) {
       <div id="shufflr-split">
         <div id="shufflr-btn">
           <div id="shufflr-inner">
-            <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 3 21 3 21 8"></polyline>
-              <line x1="4" y1="20" x2="21" y2="3"></line>
-              <polyline points="21 16 21 21 16 21"></polyline>
-              <line x1="15" y1="15" x2="21" y2="21"></line>
+            <svg id="shufflr-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round">
+              <g class="shufflr-spin-arc" style="transform-origin: 10px 12px;">
+                <path d="M10 3 C5 3 1 7 1 12 C1 17 5 21 10 21" stroke-width="2" stroke-dasharray="28 8"/>
+              </g>
+              <g class="shufflr-static-arrow">
+                <polyline points="10 4 20 12 10 20" stroke-width="2.8" stroke-linejoin="round" fill="none"/>
+                <line x1="10" y1="4" x2="10" y2="20" stroke-width="2.8"/>
+              </g>
             </svg>
             <span id="shufflr-label">SHUFFLR</span>
           </div>
