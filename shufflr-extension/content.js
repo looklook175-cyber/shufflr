@@ -2879,7 +2879,10 @@ function injectShufflrStyles() {
       animation: shufflr-pulse 2s infinite;
     }
     #shufflr-btn.active #shufflr-icon {
-      animation: shufflr-spin 1.5s linear infinite;
+      color: #ffffff;
+    }
+    #shufflr-btn.active .shufflr-spin-arc {
+      animation: shufflr-arc-spin 1.2s linear infinite;
     }
     #shufflr-playlist-toggle {
       display: flex;
@@ -3228,9 +3231,9 @@ function injectShufflrStyles() {
       0%, 100% { box-shadow: 0 0 30px rgba(35,168,224,0.8); }
       50% { box-shadow: 0 0 50px rgba(35,168,224,1); }
     }
-    @keyframes shufflr-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+    @keyframes shufflr-arc-spin {
+      from { transform: rotate(0deg); transform-origin: 12px 12px; }
+      to { transform: rotate(360deg); transform-origin: 12px 12px; }
     }
     #shufflr-toast {
       position: fixed;
@@ -3326,11 +3329,14 @@ function injectShufflrButton(video) {
       <div id="shufflr-split">
         <div id="shufflr-btn">
           <div id="shufflr-inner">
-            <svg id="shufflr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 3 21 3 21 8"></polyline>
-              <line x1="4" y1="20" x2="21" y2="3"></line>
-              <polyline points="21 16 21 21 16 21"></polyline>
-              <line x1="15" y1="15" x2="21" y2="21"></line>
+            <svg id="shufflr-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <g class="shufflr-spin-arc">
+                <path d="M12 3 C7 3 3 7 3 12 C3 17 7 21 12 21 C17 21 21 17 21 12" stroke-width="2.5" stroke-dasharray="45 10"/>
+              </g>
+              <g class="shufflr-static-arrow">
+                <polyline points="8 5 12 2 16 5" stroke-width="3" fill="none"/>
+                <line x1="12" y1="2" x2="12" y2="10" stroke-width="3"/>
+              </g>
             </svg>
             <span id="shufflr-label">SHUFFLR</span>
           </div>
