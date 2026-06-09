@@ -2851,7 +2851,7 @@ function injectShufflrStyles() {
       gap: 8px;
       height: 100%;
       box-sizing: border-box;
-      background: rgba(0,0,0,0.85);
+      background: rgba(15, 15, 20, 0.75);
       border: 2px solid #1a6bff;
       border-right: 1px solid rgba(26,107,255,0.35);
       border-radius: 12px 0 0 12px;
@@ -2888,7 +2888,7 @@ function injectShufflrStyles() {
       min-width: 34px;
       padding: 0 10px;
       opacity: 0.90;
-      background: rgba(0,0,0,0.85);
+      background: rgba(15, 15, 20, 0.75);
       border: 2px solid #1a6bff;
       border-left: none;
       border-radius: 0 12px 12px 0;
