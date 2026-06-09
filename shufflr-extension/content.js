@@ -459,6 +459,7 @@ let shufflrIsNavigating = false;
 let shufflrIsNavigatingTimer = null;
 let shuffleCopTimer = null;
 let shufflrEpisodeTransitionLock = false;
+let showPageEpisodeInterceptInFlight = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
 let wasFullscreen = false;
@@ -4429,6 +4430,96 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
   location.href = pick;
 }
 
+function isShufflrUiClickTarget(target) {
+  return !!target?.closest?.('#shufflr-wrap, #shufflr-toast');
+}
+
+function findClickedEpisodeWatchLink(target) {
+  const anchor = target?.closest?.('a[href*="/video/watch/"]');
+  if (!anchor) return null;
+  const href = anchor.getAttribute('href');
+  if (!href || !href.includes('/video/watch/')) return null;
+  try {
+    return new URL(href, location.href).href.split('?')[0].split('#')[0];
+  } catch {
+    return null;
+  }
+}
+
+function isShufflrOnForShowPageIntercept() {
+  if (shufflrActive || armedPlaylistCached) return true;
+  const btn = document.getElementById('shufflr-btn');
+  return !!btn?.classList.contains('active');
+}
+
+async function redirectShowPageEpisodeClickToRandom(clickedEpisodeUrl) {
+  if (!isChromeContextValid()) return;
+  if (showPageEpisodeInterceptInFlight) return;
+  showPageEpisodeInterceptInFlight = true;
+
+  const status = document.getElementById('shufflr-status');
+  try {
+    const showPageUrl = location.href.split('?')[0].split('#')[0];
+    saveShowPageUrl(showPageUrl);
+
+    if (status) status.textContent = 'FETCHING EPISODES...';
+    showToast('Shuffling to a random episode...');
+
+    let episodes = null;
+    try {
+      episodes = await collectEpisodesViaApi(showPageUrl);
+    } catch (err) {
+      console.log('[Shufflr] Show-page click intercept API error:', err);
+    }
+
+    if (!episodes?.length) {
+      showToast('Could not load episodes for this show.');
+      if (status) status.textContent = 'NO EPISODES';
+      return;
+    }
+
+    await navigateToRandomEpisode(episodes, clickedEpisodeUrl, status);
+  } finally {
+    showPageEpisodeInterceptInFlight = false;
+  }
+}
+
+// Show-page episode click intercept: when Shufflr is ON (standalone, no playlist required),
+// clicking an episode thumbnail/link on play.hbomax.com/show/... would play that exact episode.
+// We capture those clicks and navigate to a random episode from the CMS cache instead, excluding
+// the one the user clicked. Ordered Episodes mode is skipped so users can pick episodes freely.
+// beginShufflrNavigation() sets shufflrNavigating so shuffle cop does not double-fire.
+function installShowPageEpisodeClickIntercept() {
+  if (!isChromeContextValid()) return;
+  if (window.__shufflrShowPageEpisodeClickIntercept) return;
+  window.__shufflrShowPageEpisodeClickIntercept = true;
+
+  document.addEventListener('click', onShowPageEpisodeClick, true);
+}
+
+async function onShowPageEpisodeClick(event) {
+  if (!isChromeContextValid()) return;
+  if (!location.href.includes('/show/')) return;
+  if (isShufflrUiClickTarget(event.target)) return;
+
+  const clickedEpisodeUrl = findClickedEpisodeWatchLink(event.target);
+  if (!clickedEpisodeUrl) return;
+
+  if (!isShufflrOnForShowPageIntercept()) return;
+  if (orderedEpisodesCached) return;
+
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  if (settings.orderedEpisodes) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+
+  console.log(`[Shufflr] Intercepted show-page episode click: ${clickedEpisodeUrl}`);
+  await redirectShowPageEpisodeClickToRandom(clickedEpisodeUrl);
+}
+
 function normalizeEpisodeUrl(url) {
   try {
     const u = new URL(url);
@@ -4826,6 +4917,7 @@ async function maybeAutoClickShowPageResume() {
 
 // ── INIT ────────────────────────────────────────────────────────────────────
 if (!IS_SHUFFLR_WEB_APP) {
+installShowPageEpisodeClickIntercept();
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;
 });
