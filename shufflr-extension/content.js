@@ -2916,7 +2916,7 @@ function injectShufflrStyles() {
       max-width: 280px;
       max-height: 320px;
       overflow-y: auto;
-      background: rgba(15, 15, 20, 0.85);
+      background: rgba(15, 15, 20, 0.75);
       border: 2px solid rgba(0, 140, 255, 0.5);
       border-radius: 10px;
       padding: 6px;
