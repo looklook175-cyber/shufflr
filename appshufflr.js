@@ -49,6 +49,11 @@ function installExtensionPlaylistSync(){
 }
 
 installExtensionPlaylistSync();
+
+window.addEventListener('shufflr-playlists-merged',(event)=>{
+  handleExtensionPlaylistSync(event.detail);
+});
+
 function savePlaylists(){
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
   window.dispatchEvent(new CustomEvent('shufflr-playlists-sync',{detail:playlists}));
@@ -58,6 +63,9 @@ function savePlaylists(){
       chrome.storage.local.set({[SHUFFLR_PLAYLISTS_KEY]:playlists});
     }
   }catch(e){}
+  if(typeof window.shufflrSyncPlaylistsToCloud==='function'){
+    window.shufflrSyncPlaylistsToCloud(playlists);
+  }
 }
 let highlightedEps=[];
 let cameFromFree=false,freeScrollPos=0;
