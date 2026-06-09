@@ -4861,7 +4861,8 @@ async function handleShowPageEpisodeClick(e) {
 
   const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
   beginShufflrNavigation(episodeId);
-  location.href = pick;
+  console.log('[Shufflr] Show-page intercept fired, navigating to:', pick.id);
+  beginShufflrNavigation(pick.id);
 }
 
 // Capture-phase listener so we intercept episode clicks before Max navigates.
