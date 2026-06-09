@@ -2863,7 +2863,6 @@ function injectShufflrStyles() {
       box-shadow: 0 0 20px rgba(26,107,255,0.4);
       transition: all 0.2s ease;
       backdrop-filter: blur(8px);
-      opacity: 0.75;
     }
     #shufflr-btn:hover #shufflr-inner {
       background: #1a6bff;
@@ -2875,6 +2874,7 @@ function injectShufflrStyles() {
     #shufflr-btn.active #shufflr-inner {
       background: #23A8E0;
       color: #000;
+      opacity: 0.90;
       box-shadow: 0 0 30px rgba(35,168,224,0.8);
       animation: shufflr-pulse 2s infinite;
     }
@@ -2887,7 +2887,7 @@ function injectShufflrStyles() {
       justify-content: center;
       min-width: 34px;
       padding: 0 10px;
-      opacity: 0.75;
+      opacity: 0.90;
       background: rgba(0,0,0,0.85);
       border: 2px solid #1a6bff;
       border-left: none;
