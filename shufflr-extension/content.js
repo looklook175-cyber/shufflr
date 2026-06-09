@@ -706,6 +706,8 @@ function installFullscreenListener() {
   }
 }
 
+// shufflr_navigating flag: set true before any Shufflr-initiated navigation so shuffle cop
+// ignores that URL change; cleared automatically after 3 seconds.
 function beginShufflrNavigation(episodeId) {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
@@ -720,10 +722,15 @@ function beginShufflrNavigation(episodeId) {
   shufflrIsNavigatingTimer = setTimeout(() => {
     if (!isChromeContextValid()) return;
     shufflrIsNavigating = false;
+    shufflrNavigating = false;
     shufflrIsNavigatingTimer = null;
   }, SHUFFLR_NAVIGATION_FLAG_MS);
 
   void setPendingEpisodeIdInStorage(normalized);
+}
+
+function isVideoWatchUrl(url) {
+  return String(url).includes('/video/') || String(url).includes('/play/');
 }
 
 function cancelScheduledShuffleCop() {
@@ -784,10 +791,21 @@ async function runShuffleCopCheck(prevUrl) {
   if (prevUrl === location.href) return;
 
   const active = await getActivePlaylistFromStorage();
-  if (!active?.armed) return;
-
   const settings = await readShuffleSettings();
   orderedEpisodesCached = !!settings.orderedEpisodes;
+
+  if (!active?.armed) {
+    const standaloneOn = shufflrActive || await isStandaloneShuffleEnabled();
+    if (!standaloneOn || settings.orderedEpisodes) return;
+    if (!isVideoWatchUrl(prevUrl) || !isVideoWatchUrl(location.href)) return;
+    if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href)) return;
+    if (shufflrNavigating || shufflrIsNavigating) return;
+
+    console.log('[Shufflr] Shuffle cop (standalone): Max hijacked navigation, correcting...');
+    showToast('Shufflr correcting...');
+    await shuffleToRandomEpisode();
+    return;
+  }
 
   if (settings.orderedEpisodes) {
     if (sessionStorage.getItem(SHUFFLR_EPISODE_ENDED_KEY) !== 'true') return;
@@ -845,7 +863,7 @@ async function runShuffleCopCheck(prevUrl) {
     return;
   }
 
-  if (shufflrIsNavigating) return;
+  if (shufflrNavigating || shufflrIsNavigating) return;
 
   console.log('[Shufflr] Shuffle cop: Max hijacked navigation, correcting...');
   showToast('Shufflr correcting...');
@@ -4402,7 +4420,8 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
   if (status) status.textContent = 'SHUFFLING...';
   showToast(`Shuffling to episode ${pickIndex + 1} of ${pool.length}!`);
   shufflrAboutToNavigate = false;
-  captureFullscreenBeforeShufflrNavigation();
+  const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
+  beginShufflrNavigation(episodeId);
   location.href = pick;
 }
 
