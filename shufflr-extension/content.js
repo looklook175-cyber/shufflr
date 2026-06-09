@@ -3035,6 +3035,10 @@ function injectShufflrStyles() {
     .shufflr-pl-row-header.open {
       background: rgba(26,107,255,0.18);
     }
+    .shufflr-pl-shows-toggle,
+    .shufflr-pl-add-btn {
+      font-size: 16px;
+    }
     .shufflr-pl-shows-toggle {
       flex-shrink: 0;
       width: 26px;
@@ -3047,7 +3051,6 @@ function injectShufflrStyles() {
       border-radius: 6px;
       color: #1a6bff;
       font-family: monospace;
-      font-size: 16px;
       line-height: 1;
       cursor: pointer;
       transition: all 0.15s ease;
@@ -3135,7 +3138,6 @@ function injectShufflrStyles() {
       border-radius: 6px;
       color: #1a6bff;
       font-family: monospace;
-      font-size: 16px;
       line-height: 1;
       cursor: pointer;
       transition: all 0.15s ease;
