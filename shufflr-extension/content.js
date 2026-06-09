@@ -2894,7 +2894,7 @@ function injectShufflrStyles() {
       border-radius: 0 12px 12px 0;
       color: #1a6bff;
       font-family: monospace;
-      font-size: 16px;
+      font-size: 20px;
       line-height: 1;
       cursor: pointer;
       box-shadow: 0 0 20px rgba(26,107,255,0.4);
