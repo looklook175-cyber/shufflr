@@ -4769,30 +4769,38 @@ function showToast(message) {
 
 let showPageAutoplayPollTimer = null;
 
-// Returns true when the event target is inside Shufflr's injected UI.
+// Returns true when the click target is inside Shufflr's injected UI.
 function isShufflrUiClick(target) {
   return !!target?.closest('[id^="shufflr"], [class*="shufflr-"]');
 }
 
-// Standalone mode: intercept show-page episode mousedown and redirect to a random episode.
-// mousedown + capture:true runs before HBO Max's click handlers and before navigation starts.
-async function handleShowPageEpisodeMouseDown(e) {
+// Finds the nearest episode watch link from a show-page click target.
+function findEpisodeLinkFromClick(target) {
+  const anchor = target?.closest('a[href*="/video/watch/"], a[href*="/video/"], a[href*="/play/"]');
+  if (!anchor?.href || anchor.href.includes('javascript')) return null;
+  if (!isVideoWatchUrl(anchor.href)) return null;
+  return anchor;
+}
+
+// Sync pre-checks before intercepting a show-page episode click.
+function shouldInterceptShowPageEpisodeClick() {
+  if (!location.href.includes('/show/')) return false;
+  if (!shufflrActive) return false;
+  if (armedPlaylistCached) return false;
+  if (orderedEpisodesCached) return false;
+  return true;
+}
+
+// Standalone mode: intercept show-page episode clicks and redirect to a random episode.
+async function handleShowPageEpisodeClick(e) {
   if (!isChromeContextValid()) return;
-  if (!location.href.includes('/show/')) return;
+  if (!shouldInterceptShowPageEpisodeClick()) return;
   if (isShufflrUiClick(e.target)) return;
 
-  const link = e.target.closest('a[href*="/video/watch/"]');
-  if (!link?.href || link.href.includes('javascript')) return;
+  const anchor = findEpisodeLinkFromClick(e.target);
+  if (!anchor) return;
 
-  const standaloneOn = shufflrActive || await isStandaloneShuffleEnabled();
-  if (!standaloneOn) return;
-
-  const active = await getActivePlaylistFromStorage();
-  if (active?.armed) return;
-
-  const settings = await readShuffleSettings();
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-  if (settings.orderedEpisodes) return;
+  const clickedUrl = normalizeEpisodeUrl(anchor.href);
 
   e.preventDefault();
   e.stopPropagation();
@@ -4800,15 +4808,41 @@ async function handleShowPageEpisodeMouseDown(e) {
     e.stopImmediatePropagation();
   }
 
-  const showId = extractMaxShowUuidFromUrl(location.href);
-  if (!showId) return;
+  const active = await getActivePlaylistFromStorage();
+  if (active?.armed) {
+    location.href = clickedUrl;
+    return;
+  }
 
-  const clickedUrl = normalizeEpisodeUrl(link.href);
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  if (settings.orderedEpisodes) {
+    location.href = clickedUrl;
+    return;
+  }
+
+  if (!shufflrActive && !(await isStandaloneShuffleEnabled())) {
+    location.href = clickedUrl;
+    return;
+  }
+
+  const showId = extractShowId(location.href) || extractMaxShowUuidFromUrl(location.href);
+  if (!showId) {
+    location.href = clickedUrl;
+    return;
+  }
+
   saveShowPageUrl(location.href);
 
-  const episodes = await getCachedEpisodes(showId);
+  let episodes = await getCachedEpisodes(showId);
   if (!episodes?.length) {
-    showToast('Episode list not cached yet — play an episode first.');
+    showToast('Loading episodes...');
+    episodes = await collectEpisodesViaApi(location.href);
+  }
+
+  if (!episodes?.length) {
+    showToast('Could not load episode list.');
+    location.href = clickedUrl;
     return;
   }
 
@@ -4818,21 +4852,24 @@ async function handleShowPageEpisodeMouseDown(e) {
 
   if (!pool.length) {
     showToast('No other episodes to shuffle to.');
+    location.href = clickedUrl;
     return;
   }
 
   const pick = pool[Math.floor(Math.random() * pool.length)];
+  console.log(`[Shufflr] Show-page click shuffle: ${clickedUrl} → ${pick}`);
+
   const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
-  console.log('[Shufflr] Show-page intercept fired, navigating to:', pick);
   beginShufflrNavigation(episodeId);
-  location.href = pick;
+  console.log('[Shufflr] Show-page intercept fired, navigating to:', pick.id);
+  beginShufflrNavigation(pick.id);
 }
 
-// Capture-phase mousedown fires before click and before Max's handlers can navigate away.
+// Capture-phase listener so we intercept episode clicks before Max navigates.
 function installShowPageEpisodeClickInterceptor() {
-  if (window.__shufflrShowPageEpisodeInterceptor) return;
-  window.__shufflrShowPageEpisodeInterceptor = true;
-  document.addEventListener('mousedown', handleShowPageEpisodeMouseDown, true);
+  if (window.__shufflrShowPageClickInterceptor) return;
+  window.__shufflrShowPageClickInterceptor = true;
+  document.addEventListener('click', handleShowPageEpisodeClick, true);
 }
 
 // Warm the CMS episode cache on show pages when standalone shuffle is active.
@@ -4911,7 +4948,6 @@ async function maybeAutoClickShowPageResume() {
 
 // ── INIT ────────────────────────────────────────────────────────────────────
 if (!IS_SHUFFLR_WEB_APP) {
-installShowPageEpisodeClickInterceptor();
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;
 });
@@ -4924,6 +4960,7 @@ setTimeout(() => {
   startShuffleWatchdog();
   installTimeupdateWatcher();
   installArmedUrlGuard();
+  installShowPageEpisodeClickInterceptor();
   void syncShuffleUIFromStorage().then(() => {
     void maybeAutoClickShowPageResume();
     void prefetchShowPageEpisodeCacheIfStandalone();
