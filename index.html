@@ -195,10 +195,10 @@
           <div class="auth-user-email" id="auth-user-email"></div>
           <button type="button" class="connect-btn auth-btn" id="auth-logout-btn">Log Out</button>
         </div>
-        <div id="auth-error" class="auth-error" style="display:none;"></div>
+        <div id="auth-message" class="auth-message" style="display:none;"></div>
       </div>
       <div style="height:1px;background:var(--border);margin-bottom:12px;"></div>
-      <button class="connect-btn" onclick="openConnect()">Connect Your Service</button>
+      <button class="connect-btn" id="service-connect-btn" onclick="openConnect()">Connect Your Service</button>
       <button class="connect-btn" id="feedback-btn" style="margin-top:8px;border-color:var(--muted);color:var(--muted);transition:all 0.2s;" onclick="openFeedback()">Send Feedback</button>
       <button class="connect-btn" id="help-btn" style="margin-top:8px;border-color:var(--muted);color:var(--muted);transition:all 0.2s;" onclick="showHelp()">? Help</button>
     </div>

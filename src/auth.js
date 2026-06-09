@@ -3,11 +3,22 @@ import { supabase } from './supabase.js'
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists'
 let cloudSyncReady = false
 
-function showAuthError(message) {
-  const el = document.getElementById('auth-error')
+function showAuthMessage(message, type = 'error') {
+  const el = document.getElementById('auth-message')
   if (!el) return
   el.textContent = message || ''
+  el.className = 'auth-message'
+  if (message && type === 'success') el.classList.add('auth-success')
+  if (message && type === 'error') el.classList.add('auth-error')
   el.style.display = message ? 'block' : 'none'
+}
+
+function friendlyLoginError(message) {
+  const text = String(message || '').toLowerCase()
+  if (text.includes('invalid login credentials') || text.includes('invalid credentials')) {
+    return 'Invalid credentials'
+  }
+  return message || 'Log in failed. Please try again.'
 }
 
 function updateAuthUI(session) {
@@ -20,7 +31,7 @@ function updateAuthUI(session) {
     loggedOut.style.display = 'none'
     loggedIn.style.display = 'block'
     if (emailEl) emailEl.textContent = session.user.email || 'Logged in'
-    showAuthError('')
+    showAuthMessage('')
   } else {
     loggedOut.style.display = 'block'
     loggedIn.style.display = 'none'
@@ -170,51 +181,54 @@ async function handleSignUp() {
   const email = document.getElementById('auth-email')?.value?.trim()
   const password = document.getElementById('auth-password')?.value
   if (!email || !password) {
-    showAuthError('Enter email and password.')
+    showAuthMessage('Enter email and password.', 'error')
     return
   }
 
   const { data, error } = await supabase.auth.signUp({ email, password })
   if (error) {
-    showAuthError(error.message)
+    showAuthMessage(error.message, 'error')
     return
   }
 
-  showAuthError('')
   if (data.session) {
+    updateAuthUI(data.session)
     await loadAndMergePlaylists(data.session.user.id)
     await syncPlaylistsToCloud(readLocalPlaylists())
     cloudSyncReady = true
-  } else {
-    showAuthError('Check your email to confirm signup, then log in.')
+    showAuthMessage('Account created!', 'success')
+    return
   }
+
+  showAuthMessage('Check your email to confirm signup!', 'success')
 }
 
 async function handleLogIn() {
   const email = document.getElementById('auth-email')?.value?.trim()
   const password = document.getElementById('auth-password')?.value
   if (!email || !password) {
-    showAuthError('Enter email and password.')
+    showAuthMessage('Enter email and password.', 'error')
     return
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error) {
-    showAuthError(error.message)
+    showAuthMessage(friendlyLoginError(error.message), 'error')
     return
   }
 
-  showAuthError('')
   if (data.session) {
+    updateAuthUI(data.session)
     await loadAndMergePlaylists(data.session.user.id)
     cloudSyncReady = true
+    showAuthMessage('')
   }
 }
 
 async function handleLogOut() {
   cloudSyncReady = false
   await supabase.auth.signOut()
-  showAuthError('')
+  showAuthMessage('')
 }
 
 function bindAuthUI() {
