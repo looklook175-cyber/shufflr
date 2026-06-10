@@ -3710,6 +3710,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   if (!session?.access_token || !session?.user?.id) return;
 
   try {
+    console.log('[Shufflr] Watch history log attempted:', showName);
     const response = await fetch(`${SUPABASE_URL}/rest/v1/watch_history`, {
       method: 'POST',
       headers: {
