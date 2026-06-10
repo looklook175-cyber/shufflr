@@ -599,3 +599,62 @@ body::-webkit-scrollbar-corner,
 .main::-webkit-scrollbar-corner {
   background: #0a0a0a;
 }
+
+body.light-mode,
+body.light-mode .sidebar,
+body.light-mode .main,
+body.light-mode .dropdown,
+body.light-mode .playlist-modal-list,
+body.light-mode .shufflr-pl-shows-list,
+body.light-mode #seasons-list,
+body.light-mode #dropdown,
+body.light-mode #ep-sheet,
+body.light-mode .connect-wrap {
+  scrollbar-color: #d1d5db #f5f5f5;
+}
+
+body.light-mode::-webkit-scrollbar-track,
+body.light-mode .sidebar::-webkit-scrollbar-track,
+body.light-mode .main::-webkit-scrollbar-track,
+body.light-mode .dropdown::-webkit-scrollbar-track,
+body.light-mode .playlist-modal-list::-webkit-scrollbar-track,
+body.light-mode .shufflr-pl-shows-list::-webkit-scrollbar-track,
+body.light-mode #seasons-list::-webkit-scrollbar-track,
+body.light-mode #dropdown::-webkit-scrollbar-track,
+body.light-mode #ep-sheet::-webkit-scrollbar-track,
+body.light-mode .connect-wrap::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+body.light-mode::-webkit-scrollbar-thumb,
+body.light-mode .sidebar::-webkit-scrollbar-thumb,
+body.light-mode .main::-webkit-scrollbar-thumb,
+body.light-mode .dropdown::-webkit-scrollbar-thumb,
+body.light-mode .playlist-modal-list::-webkit-scrollbar-thumb,
+body.light-mode .shufflr-pl-shows-list::-webkit-scrollbar-thumb,
+body.light-mode #seasons-list::-webkit-scrollbar-thumb,
+body.light-mode #dropdown::-webkit-scrollbar-thumb,
+body.light-mode #ep-sheet::-webkit-scrollbar-thumb,
+body.light-mode .connect-wrap::-webkit-scrollbar-thumb {
+  background: #e0e0e0;
+  border-radius: 999px;
+}
+
+body.light-mode::-webkit-scrollbar-thumb:hover,
+body.light-mode .sidebar::-webkit-scrollbar-thumb:hover,
+body.light-mode .main::-webkit-scrollbar-thumb:hover,
+body.light-mode .dropdown::-webkit-scrollbar-thumb:hover,
+body.light-mode .playlist-modal-list::-webkit-scrollbar-thumb:hover,
+body.light-mode .shufflr-pl-shows-list::-webkit-scrollbar-thumb:hover,
+body.light-mode #seasons-list::-webkit-scrollbar-thumb:hover,
+body.light-mode #dropdown::-webkit-scrollbar-thumb:hover,
+body.light-mode #ep-sheet::-webkit-scrollbar-thumb:hover,
+body.light-mode .connect-wrap::-webkit-scrollbar-thumb:hover {
+  background: #cccccc;
+}
+
+body.light-mode::-webkit-scrollbar-corner,
+body.light-mode .sidebar::-webkit-scrollbar-corner,
+body.light-mode .main::-webkit-scrollbar-corner {
+  background: #f5f5f5;
+}
