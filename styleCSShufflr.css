@@ -650,7 +650,7 @@ body.light-mode #seasons-list::-webkit-scrollbar-thumb:hover,
 body.light-mode #dropdown::-webkit-scrollbar-thumb:hover,
 body.light-mode #ep-sheet::-webkit-scrollbar-thumb:hover,
 body.light-mode .connect-wrap::-webkit-scrollbar-thumb:hover {
-  background: #cccccc;
+  background: #23A8E0;
 }
 
 body.light-mode::-webkit-scrollbar-corner,
