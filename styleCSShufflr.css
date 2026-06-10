@@ -487,6 +487,12 @@ body.light-mode .playlist-max-notice-dismiss:hover{background:rgba(0,0,0,0.06);}
 
 /* SCROLLBARS — Shufflr theme (page, sidebar, panels) */
 html,
+body {
+  overflow: hidden;
+  height: 100%;
+}
+
+html,
 body,
 .sidebar,
 .main,
