@@ -484,3 +484,99 @@ body.light-mode .playlist-max-notice-dismiss:hover{background:rgba(0,0,0,0.06);}
   .sidebar{padding-bottom:max(16px,env(safe-area-inset-bottom));}
   .main{padding-bottom:max(20px,env(safe-area-inset-bottom));}
 }
+
+/* SCROLLBARS — Shufflr theme (page, sidebar, panels) */
+html,
+body,
+.sidebar,
+.main,
+.dropdown,
+.playlist-modal-list,
+.shufflr-pl-shows-list,
+#seasons-list,
+#dropdown,
+#ep-sheet,
+.connect-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: #23A8E0 #0a0a0a;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar,
+.main::-webkit-scrollbar,
+.dropdown::-webkit-scrollbar,
+.playlist-modal-list::-webkit-scrollbar,
+.shufflr-pl-shows-list::-webkit-scrollbar,
+#seasons-list::-webkit-scrollbar,
+#dropdown::-webkit-scrollbar,
+#ep-sheet::-webkit-scrollbar,
+.connect-wrap::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+.sidebar::-webkit-scrollbar-track,
+.main::-webkit-scrollbar-track,
+.dropdown::-webkit-scrollbar-track,
+.playlist-modal-list::-webkit-scrollbar-track,
+.shufflr-pl-shows-list::-webkit-scrollbar-track,
+#seasons-list::-webkit-scrollbar-track,
+#dropdown::-webkit-scrollbar-track,
+#ep-sheet::-webkit-scrollbar-track,
+.connect-wrap::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb,
+.main::-webkit-scrollbar-thumb,
+.dropdown::-webkit-scrollbar-thumb,
+.playlist-modal-list::-webkit-scrollbar-thumb,
+.shufflr-pl-shows-list::-webkit-scrollbar-thumb,
+#seasons-list::-webkit-scrollbar-thumb,
+#dropdown::-webkit-scrollbar-thumb,
+#ep-sheet::-webkit-scrollbar-thumb,
+.connect-wrap::-webkit-scrollbar-thumb {
+  background: #23A8E0;
+  border-radius: 999px;
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+.sidebar::-webkit-scrollbar-thumb:hover,
+.main::-webkit-scrollbar-thumb:hover,
+.dropdown::-webkit-scrollbar-thumb:hover,
+.playlist-modal-list::-webkit-scrollbar-thumb:hover,
+.shufflr-pl-shows-list::-webkit-scrollbar-thumb:hover,
+#seasons-list::-webkit-scrollbar-thumb:hover,
+#dropdown::-webkit-scrollbar-thumb:hover,
+#ep-sheet::-webkit-scrollbar-thumb:hover,
+.connect-wrap::-webkit-scrollbar-thumb:hover {
+  background: #2fc0ff;
+}
+
+html::-webkit-scrollbar-button,
+body::-webkit-scrollbar-button,
+.sidebar::-webkit-scrollbar-button,
+.main::-webkit-scrollbar-button,
+.dropdown::-webkit-scrollbar-button,
+.playlist-modal-list::-webkit-scrollbar-button,
+.shufflr-pl-shows-list::-webkit-scrollbar-button,
+#seasons-list::-webkit-scrollbar-button,
+#dropdown::-webkit-scrollbar-button,
+#ep-sheet::-webkit-scrollbar-button,
+.connect-wrap::-webkit-scrollbar-button {
+  background: #111;
+  display: none;
+}
+
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner,
+.sidebar::-webkit-scrollbar-corner,
+.main::-webkit-scrollbar-corner {
+  background: #0a0a0a;
+}
