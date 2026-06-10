@@ -408,7 +408,15 @@ body.light-mode .queue-ep-title{color:#111;}
 .playlist-max-notice-dismiss{position:absolute;top:-2px;right:-2px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;border-radius:6px;color:var(--muted);font-size:1rem;line-height:1;cursor:pointer;transition:all 0.15s;}
 .playlist-max-notice-dismiss:hover{color:var(--text);background:rgba(255,255,255,0.06);}
 body.light-mode .playlist-max-notice{background:rgba(26,107,255,0.08);}
-body.light-mode .playlist-max-notice-dismiss:hover{background:rgba(0,0,0,0.06);}
+body.light-mode .playlist-max-notice-body p{color:#111111;}
+body.light-mode .playlist-max-notice-dismiss{color:#666666;}
+body.light-mode .playlist-max-notice-dismiss:hover{color:#111111;background:rgba(0,0,0,0.06);}
+body.light-mode .playlist-card-sub{color:#555555;}
+body.light-mode .playlist-modal-row-name{color:#111111;}
+body.light-mode .playlist-modal-row-count{color:#666666;}
+body.light-mode .new-playlist-input::placeholder{color:#888888;}
+body.light-mode .playlist-card .close-modal-btn{color:#555555;border-color:#cccccc;}
+body.light-mode .playlist-card .close-modal-btn:hover{color:#111111;border-color:#999999;}
 .playlist-modal-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px;max-height:200px;overflow-y:auto;}
 .playlist-modal-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;transition:all 0.2s;}
 .playlist-modal-row:hover{border-color:var(--blue);background:var(--blue-dim);}
