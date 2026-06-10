@@ -9,7 +9,7 @@ const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
-const SHUFFLR_AUTH_SESSION_KEY = 'shufflr_auth_session';
+const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
 const SHUFFLR_EPISODE_ENDED_KEY = 'shufflr_episode_ended';
@@ -3660,7 +3660,7 @@ function onVideoPlaying() {
 // Logs the current Max show to Supabase watch_history when the user is signed in.
 async function getStoredAuthSession() {
   if (!isChromeContextValid()) return null;
-  return storageLocalGet(SHUFFLR_AUTH_SESSION_KEY);
+  return storageLocalGet(SHUFFLR_SUPABASE_SESSION_KEY);
 }
 
 async function resolveWatchHistoryFieldsForCurrentShow() {
@@ -3707,7 +3707,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   if (!showId && !showName) return;
 
   const session = await getStoredAuthSession();
-  if (!session?.access_token || !session?.user?.id) return;
+  if (!session?.accessToken || !session?.userId) return;
 
   try {
     console.log('[Shufflr] Watch history log attempted:', showName);
@@ -3715,12 +3715,12 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
       method: 'POST',
       headers: {
         apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${session.accessToken}`,
         'Content-Type': 'application/json',
         Prefer: 'return=minimal',
       },
       body: JSON.stringify({
-        user_id: session.user.id,
+        user_id: session.userId,
         show_id: showId,
         show_name: showName,
         poster_path: posterPath || null,

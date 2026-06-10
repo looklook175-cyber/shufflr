@@ -60,6 +60,27 @@ window.addEventListener('shufflr-auth-changed',()=>{
   }
 });
 
+const SHUFFLR_SUPABASE_SESSION_KEY='shufflr_supabase_session';
+
+function saveSupabaseSessionForExtension(sessionPayload){
+  if(sessionPayload?.user?.id&&sessionPayload?.access_token){
+    localStorage.setItem(SHUFFLR_SUPABASE_SESSION_KEY,JSON.stringify({
+      userId:sessionPayload.user.id,
+      accessToken:sessionPayload.access_token,
+    }));
+  }else{
+    localStorage.removeItem(SHUFFLR_SUPABASE_SESSION_KEY);
+  }
+  window.postMessage({type:'SHUFFLR_SUPABASE_SESSION_SYNC',source:'shufflr-web'},'*');
+}
+
+window.addEventListener('message',(event)=>{
+  if(event.source!==window)return;
+  if(event.data?.source!=='shufflr-web')return;
+  if(event.data?.type!=='SHUFFLR_AUTH_SESSION')return;
+  saveSupabaseSessionForExtension(event.data.session);
+});
+
 function dedupeWatchHistoryRows(rows){
   const seen=new Set();
   const out=[];
