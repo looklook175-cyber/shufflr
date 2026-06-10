@@ -54,6 +54,59 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
   handleExtensionPlaylistSync(event.detail);
 });
 
+window.addEventListener('shufflr-auth-changed',()=>{
+  if((currentNav==='shows'||currentNav==='movies')&&!currentShow){
+    renderHomeScreen(currentNav);
+  }
+});
+
+function dedupeWatchHistoryRows(rows){
+  const seen=new Set();
+  const out=[];
+  for(const row of rows||[]){
+    const key=String(row.show_id);
+    if(seen.has(key))continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+function watchHistoryRowToShow(row){
+  return{
+    id:row.show_id,
+    name:row.show_name,
+    title:row.show_name,
+    poster_path:row.poster_path||'',
+    first_air_date:(row.watched_at||'').slice(0,4),
+  };
+}
+
+async function getHomeRecentItems(isMovies){
+  if(!isMovies&&typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn()){
+    if(typeof window.shufflrGetWatchHistory==='function'){
+      try{
+        const history=await window.shufflrGetWatchHistory();
+        const deduped=dedupeWatchHistoryRows(history);
+        if(deduped.length){
+          return{
+            items:deduped.map(watchHistoryRowToShow),
+            title:'-- RECENTLY WATCHED --',
+            fromWatchHistory:true,
+          };
+        }
+      }catch(err){
+        console.error('[Shufflr] Failed to load watch history:',err);
+      }
+    }
+  }
+  return{
+    items:recentShows.filter(s=>isMovies?!!s.release_date:!s.release_date),
+    title:'-- RECENTLY SEARCHED --',
+    fromWatchHistory:false,
+  };
+}
+
 function savePlaylists(){
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
   window.dispatchEvent(new CustomEvent('shufflr-playlists-sync',{detail:playlists}));
@@ -1787,8 +1840,8 @@ async function renderHomeScreen(navType){
   const isMovies = homeNavType === 'movies';
   const type = isMovies ? 'movie' : 'tv';
 
-  // Filter recents and playlist items by current tab type
-  const recentFiltered = recentShows.filter(s => isMovies ? !!s.release_date : !s.release_date);
+  const recentSection = await getHomeRecentItems(isMovies);
+  const recentFiltered = recentSection.items;
 
   let html=`<div class="home-wrap">
     <div class="empty-state" style="padding:30px 0 20px;">
@@ -1797,10 +1850,10 @@ async function renderHomeScreen(navType){
     </div>`;
 
   if(recentFiltered.length){
-    html+=`<div class="genre-section"><div class="genre-title">-- RECENTLY SEARCHED --</div><div class="h-scroll-wrap">`;
+    html+=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
     recentFiltered.slice(0,5).forEach(s=>{
       const t=s.release_date?'movie':'tv';
-      html+=`<div class="ep-card-h" onclick="homeTileClick(${s.id},'${t}')">
+      html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'${t}')">
         <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
         <div class="ep-card-h-body">
           <div class="ep-card-h-name">${s.name||s.title||''}</div>
@@ -1844,7 +1897,11 @@ async function renderHomeScreen(navType){
   if(recentFiltered.length){
     const seed = recentFiltered[0];
     const seedType = seed.release_date ? 'movie' : 'tv';
-    const recentIds = new Set(recentFiltered.map(s=>s.id));
+    const recentIds = new Set(recentFiltered.map(s=>String(s.id)));
+    if(recentSection.fromWatchHistory && !/^\d+$/.test(String(seed.id))){
+      document.getElementById('recs-section')&&document.getElementById('recs-section').remove();
+      return;
+    }
     try{
       const r = await fetch(`https://api.themoviedb.org/3/${seedType}/${seed.id}/recommendations?api_key=${KEY}&language=en-US&page=1`);
       const d = await r.json();

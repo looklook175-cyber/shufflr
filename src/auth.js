@@ -1,7 +1,51 @@
-import { supabase } from './supabase.js'
+import { supabase, getWatchHistory, logWatchHistory } from './supabase.js'
 
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists'
+const SHUFFLR_AUTH_SESSION_KEY = 'shufflr_auth_session'
 let cloudSyncReady = false
+
+async function persistAuthSessionForExtension(session) {
+  const payload = session
+    ? {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        user: { id: session.user.id, email: session.user.email },
+        expires_at: session.expires_at,
+      }
+    : null
+
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await new Promise(resolve => {
+        if (payload) {
+          chrome.storage.local.set({ [SHUFFLR_AUTH_SESSION_KEY]: payload }, resolve)
+        } else {
+          chrome.storage.local.remove(SHUFFLR_AUTH_SESSION_KEY, resolve)
+        }
+      })
+    }
+  } catch {}
+
+  window.postMessage({
+    type: 'SHUFFLR_AUTH_SESSION',
+    source: 'shufflr-web',
+    session: payload,
+  }, '*')
+}
+
+function notifyAuthChanged(session) {
+  window.dispatchEvent(new CustomEvent('shufflr-auth-changed', {
+    detail: { loggedIn: !!session?.user },
+  }))
+}
+
+window.shufflrIsLoggedIn = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  return !!session?.user
+}
+
+window.shufflrGetWatchHistory = getWatchHistory
+window.shufflrLogWatchHistory = logWatchHistory
 
 function showAuthMessage(message, type = 'error') {
   const el = document.getElementById('auth-message')
@@ -253,11 +297,15 @@ bindAuthUI()
 
 supabase.auth.onAuthStateChange(async (event, session) => {
   updateAuthUI(session)
+  await persistAuthSessionForExtension(session)
+  notifyAuthChanged(session)
   if (event === 'SIGNED_OUT') cloudSyncReady = false
 })
 
 supabase.auth.getSession().then(async ({ data: { session } }) => {
   updateAuthUI(session)
+  await persistAuthSessionForExtension(session)
+  notifyAuthChanged(session)
   if (session?.user) {
     try {
       await loadAndMergePlaylists(session.user.id)

@@ -11,7 +11,8 @@
     "https://www.hbomax.com/*",
     "https://shufflr-app.netlify.app/*",
     "https://*.api.hbomax.com/*",
-    "https://*.api.max.com/*"
+    "https://*.api.max.com/*",
+    "https://bzrwekraevbflypxahan.supabase.co/*"
   ],
   "content_scripts": [
     {

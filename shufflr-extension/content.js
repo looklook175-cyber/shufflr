@@ -9,6 +9,7 @@ const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
+const SHUFFLR_AUTH_SESSION_KEY = 'shufflr_auth_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
 const SHUFFLR_EPISODE_ENDED_KEY = 'shufflr_episode_ended';
@@ -104,6 +105,8 @@ function maxWatchUrlsRepresentSameEpisode(urlA, urlB, showMaxIdHint = null) {
 const CMS_CAPTURE_KEY = 'shufflr_cms_template';
 const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
 const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const SUPABASE_URL = 'https://bzrwekraevbflypxahan.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_kNuk_g4uMWvhrexbh2MBmw_zxJ_7pFz';
 const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
 
@@ -132,6 +135,7 @@ let shufflrButtonLastActivityAt = 0;
 let shufflrAutoHideMouseMoveHandler = null;
 let shufflrAutoHideEnterHandler = null;
 let shufflrAutoHideLeaveHandler = null;
+let lastWatchHistoryLogKey = null;
 
 function isChromeContextValid() {
   try { return !!chrome.runtime?.id; } catch { return false; }
@@ -3647,9 +3651,104 @@ function onVideoPlaying() {
   installTimeupdateWatcher();
   prefetchEpisodeList();
   showFullscreenRestorePrompt();
+  void maybeLogWatchHistoryOnPlay();
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
+}
+
+// Logs the current Max show to Supabase watch_history when the user is signed in.
+async function getStoredAuthSession() {
+  if (!isChromeContextValid()) return null;
+  return storageLocalGet(SHUFFLR_AUTH_SESSION_KEY);
+}
+
+async function resolveWatchHistoryFieldsForCurrentShow() {
+  let showName = getCurrentShowTitle();
+  const maxId = getCurrentMaxShowUuid();
+  let showId = maxId;
+  let posterPath = null;
+  let cacheEntry = null;
+
+  if (maxId) {
+    cacheEntry = await getCachedEpisodeEntry(maxId);
+    if (cacheEntry?.tmdbId) showId = cacheEntry.tmdbId;
+    if (cacheEntry?.showName && (!showName || showName === 'Unknown Show')) {
+      showName = cacheEntry.showName;
+    }
+  }
+
+  const playlists = await readPlaylistsFromStorage();
+  for (const playlist of playlists) {
+    for (const show of playlist?.shows || []) {
+      const showMaxId = show.maxId || show.maxShowId || show.max_id;
+      if (maxId && showMaxId && normalizeMaxId(showMaxId) !== normalizeMaxId(maxId)) continue;
+      if (show.poster_path) posterPath = show.poster_path;
+      if (show.id) showId = show.id;
+      if (show.title || show.name) {
+        return {
+          showId,
+          showName: show.title || show.name || showName,
+          posterPath: posterPath || show.poster_path || null,
+        };
+      }
+    }
+  }
+
+  return {
+    showId,
+    showName: cacheEntry?.showName || showName,
+    posterPath,
+  };
+}
+
+async function logWatchHistoryToSupabase(showId, showName, posterPath) {
+  if (!isChromeContextValid()) return;
+  if (!showId && !showName) return;
+
+  const session = await getStoredAuthSession();
+  if (!session?.access_token || !session?.user?.id) return;
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/watch_history`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        user_id: session.user.id,
+        show_id: showId,
+        show_name: showName,
+        poster_path: posterPath || null,
+        watched_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      console.log('[Shufflr] watch_history insert failed:', response.status);
+      return;
+    }
+
+    console.log('[Shufflr] Logged watch history:', showName);
+  } catch (err) {
+    console.error('[Shufflr] watch_history insert error:', err);
+  }
+}
+
+async function maybeLogWatchHistoryOnPlay() {
+  if (!isChromeContextValid()) return;
+  if (!isVideoWatchUrl(location.href)) return;
+
+  const logKey = location.href.split('?')[0];
+  if (lastWatchHistoryLogKey === logKey) return;
+  lastWatchHistoryLogKey = logKey;
+
+  const fields = await resolveWatchHistoryFieldsForCurrentShow();
+  if (!fields.showId && !fields.showName) return;
+  await logWatchHistoryToSupabase(fields.showId, fields.showName, fields.posterPath);
 }
 
 // ── TOGGLE ─────────────────────────────────────────────────────────────────
