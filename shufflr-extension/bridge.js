@@ -18,7 +18,14 @@
         return;
       }
 
-      chrome.storage.local.set({ [SHUFFLR_SUPABASE_SESSION_KEY]: session }, () => {
+      chrome.storage.local.set({
+        [SHUFFLR_SUPABASE_SESSION_KEY]: {
+          userId: session.userId,
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken || null,
+          expiresAt: session.expiresAt || null,
+        },
+      }, () => {
         if (chrome.runtime.lastError) {
           console.log('[Shufflr] bridge.js — session sync skipped:', chrome.runtime.lastError.message);
           return;
@@ -40,6 +47,8 @@
       [SHUFFLR_SUPABASE_SESSION_KEY]: {
         userId: session.user.id,
         accessToken: session.access_token,
+        refreshToken: session.refresh_token || null,
+        expiresAt: session.expires_at || null,
       },
     }, () => {
       if (chrome.runtime.lastError) {

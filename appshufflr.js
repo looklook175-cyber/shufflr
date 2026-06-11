@@ -67,6 +67,8 @@ function saveSupabaseSessionForExtension(sessionPayload){
     localStorage.setItem(SHUFFLR_SUPABASE_SESSION_KEY,JSON.stringify({
       userId:sessionPayload.user.id,
       accessToken:sessionPayload.access_token,
+      refreshToken:sessionPayload.refresh_token||null,
+      expiresAt:sessionPayload.expires_at||null,
     }));
   }else{
     localStorage.removeItem(SHUFFLR_SUPABASE_SESSION_KEY);
@@ -109,14 +111,61 @@ function setWatchHistoryView(mode){
 }
 window.setWatchHistoryView=setWatchHistoryView;
 
+// Strip streaming-service suffixes from Max page titles stored in watch history.
+function normalizeWatchHistoryShowName(title){
+  if(!title)return'';
+  let text=String(title).trim();
+  if(!text||text==='Unknown Show')return'';
+  text=text.split('|')[0].trim();
+  text=text.replace(/\s*[•·]\s*(HBO Max|Max|Netflix|Hulu|Disney\+|Prime Video).*$/i,'').trim();
+  text=text.replace(/\s*-\s*(HBO Max|Max)\s*$/i,'').trim();
+  text=text.replace(/\s+on\s+(HBO Max|Max)$/i,'').trim();
+  return text;
+}
+
+// Build a TMDB poster URL from a path, full URL, or bare filename.
+function buildPosterUrl(posterPath,size='w185'){
+  if(!posterPath)return'';
+  const text=String(posterPath).trim();
+  if(!text)return'';
+  if(/^https?:\/\//i.test(text)){
+    const tmdbMatch=text.match(/\/t\/p\/(?:original|w\d+)\/(.+)$/);
+    if(tmdbMatch)return `${IMG}${size}/${tmdbMatch[1]}`;
+    return text;
+  }
+  const path=text.startsWith('/')?text:`/${text}`;
+  return IMG+size+path;
+}
+
 function watchHistoryRowToShow(row){
+  const showName=normalizeWatchHistoryShowName(row.show_name)||row.show_name||'';
   return{
     id:row.show_id,
-    name:row.show_name,
-    title:row.show_name,
+    name:showName,
+    title:showName,
     poster_path:row.poster_path||'',
     first_air_date:(row.watched_at||'').slice(0,4),
   };
+}
+
+// Fill missing poster_path values from TMDB when watch history only has a numeric show id.
+async function enrichWatchHistoryRows(rows){
+  const enriched=(rows||[]).map(row=>({
+    ...row,
+    show_name:normalizeWatchHistoryShowName(row.show_name)||row.show_name||'',
+  }));
+  await Promise.all(enriched.map(async(row,idx)=>{
+    if(row.poster_path)return;
+    const sid=row.show_id;
+    if(!sid||!/^\d+$/.test(String(sid)))return;
+    try{
+      const r=await fetch(`https://api.themoviedb.org/3/tv/${sid}?api_key=${KEY}`);
+      if(!r.ok)return;
+      const d=await r.json();
+      if(d.poster_path)enriched[idx]={...row,poster_path:d.poster_path};
+    }catch{}
+  }));
+  return enriched;
 }
 
 function formatWatchHistoryEntryTitle(watchedAt){
@@ -136,7 +185,7 @@ function formatWatchHistoryEntryTitle(watchedAt){
 }
 
 function getWatchHistoryEpisodeDisplay(row){
-  const showName=row.show_name||'';
+  const showName=normalizeWatchHistoryShowName(row.show_name)||row.show_name||'';
   const episodeTitle=row.episode_name||row.episode_title;
   if(episodeTitle){
     return{title:episodeTitle,subtitle:showName};
@@ -166,7 +215,7 @@ function buildWatchHistorySectionHtml(recentSection,viewMode){
   if(viewMode==='episode'){
     rows.forEach(row=>{
       const display=getWatchHistoryEpisodeDisplay(row);
-      const poster=row.poster_path?IMG+'w185'+row.poster_path:'';
+      const poster=buildPosterUrl(row.poster_path,'w185');
       html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(row.show_id)},'tv')">
         <img src="${poster}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
         <div class="ep-card-h-body">
@@ -178,7 +227,7 @@ function buildWatchHistorySectionHtml(recentSection,viewMode){
   }else{
     showItems.slice(0,5).forEach(s=>{
       html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'tv')">
-        <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+        <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
         <div class="ep-card-h-body">
           <div class="ep-card-h-name">${s.name||s.title||''}</div>
           <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
@@ -195,7 +244,7 @@ async function getHomeRecentItems(isMovies){
   if(!isMovies&&typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn()){
     if(typeof window.shufflrGetWatchHistory==='function'){
       try{
-        const history=await window.shufflrGetWatchHistory();
+        const history=await enrichWatchHistoryRows(await window.shufflrGetWatchHistory());
         const deduped=dedupeWatchHistoryRows(history);
         if(deduped.length){
           return{

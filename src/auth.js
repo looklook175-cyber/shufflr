@@ -295,6 +295,42 @@ window.shufflrSyncPlaylistsToCloud = async (playlists) => {
 
 bindAuthUI()
 
+// Refresh the Supabase session when the tab wakes up so Recently Watched stays signed in.
+async function refreshSessionIfStale() {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return null
+
+  const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0
+  const expiringSoon = !expiresAtMs || Date.now() >= expiresAtMs - 60_000
+  if (!expiringSoon) return session
+
+  const { data, error } = await supabase.auth.refreshSession()
+  if (error || !data.session) {
+    console.warn('[Shufflr] Session refresh failed:', error?.message)
+    if (expiresAtMs && Date.now() >= expiresAtMs) {
+      await supabase.auth.signOut()
+      return null
+    }
+    return session
+  }
+
+  updateAuthUI(data.session)
+  await persistAuthSessionForExtension(data.session)
+  notifyAuthChanged(data.session)
+  return data.session
+}
+
+function bindSessionWakeRefresh() {
+  const refresh = () => { refreshSessionIfStale() }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh()
+  })
+  window.addEventListener('focus', refresh)
+  window.addEventListener('pageshow', refresh)
+}
+
+bindSessionWakeRefresh()
+
 supabase.auth.onAuthStateChange(async (event, session) => {
   updateAuthUI(session)
   await persistAuthSessionForExtension(session)
@@ -303,12 +339,13 @@ supabase.auth.onAuthStateChange(async (event, session) => {
 })
 
 supabase.auth.getSession().then(async ({ data: { session } }) => {
-  updateAuthUI(session)
-  await persistAuthSessionForExtension(session)
-  notifyAuthChanged(session)
-  if (session?.user) {
+  const activeSession = session ? await refreshSessionIfStale() : null
+  updateAuthUI(activeSession)
+  await persistAuthSessionForExtension(activeSession)
+  notifyAuthChanged(activeSession)
+  if (activeSession?.user) {
     try {
-      await loadAndMergePlaylists(session.user.id)
+      await loadAndMergePlaylists(activeSession.user.id)
       cloudSyncReady = true
     } catch (err) {
       console.error('[Shufflr] Failed to load cloud playlists:', err)

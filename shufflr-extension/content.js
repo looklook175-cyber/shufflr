@@ -3663,6 +3663,44 @@ async function getStoredAuthSession() {
   return storageLocalGet(SHUFFLR_SUPABASE_SESSION_KEY);
 }
 
+// Refresh the extension's Supabase access token after sleep when it has expired.
+async function getValidAuthSession() {
+  const session = await getStoredAuthSession();
+  if (!session?.accessToken || !session?.userId) return null;
+
+  const expiresAtMs = session.expiresAt ? Number(session.expiresAt) * 1000 : 0;
+  const expiringSoon = !expiresAtMs || Date.now() >= expiresAtMs - 60_000;
+  if (!expiringSoon) return session;
+
+  const refreshToken = session.refreshToken || session.refresh_token;
+  if (!refreshToken) return session;
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const updated = {
+      userId: session.userId,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || refreshToken,
+      expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
+    };
+    await storageLocalSet(SHUFFLR_SUPABASE_SESSION_KEY, updated);
+    return updated;
+  } catch (err) {
+    console.error('[Shufflr] Supabase session refresh failed:', err);
+    return null;
+  }
+}
+
 function normalizeWatchHistoryShowName(title) {
   if (!title) return '';
   let text = String(title).trim();
@@ -3786,7 +3824,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   if (!isChromeContextValid()) return;
   if (!showId && !showName) return;
 
-  const session = await getStoredAuthSession();
+  const session = await getValidAuthSession();
   if (!session?.accessToken || !session?.userId) return;
 
   try {
