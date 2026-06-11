@@ -138,6 +138,7 @@ let shufflrAutoHideMouseMoveHandler = null;
 let shufflrAutoHideEnterHandler = null;
 let shufflrAutoHideLeaveHandler = null;
 let lastWatchHistoryLogKey = null;
+let lastWatchHistoryCurrentEpisode = null;
 
 function isChromeContextValid() {
   try { return !!chrome.runtime?.id; } catch { return false; }
@@ -3879,19 +3880,119 @@ function findPlaylistShowTitleByMaxId(playlists, maxId) {
   return null;
 }
 
+// Match the current Max watch URL against cached episode details or URL list.
+function findCachedEpisodeDetailMatchingUrl(cacheEntry, pageUrl, showMaxIdHint = null) {
+  if (!cacheEntry) return null;
+
+  const details = episodeDetailsFromCacheEntry(cacheEntry);
+  const currentKeys = buildCurrentEpisodeKeys(pageUrl, showMaxIdHint);
+
+  for (const ep of details) {
+    if (ep.watchUrl && isCurrentEpisode(ep.watchUrl, currentKeys, showMaxIdHint)) return ep;
+    if (ep.alternateId && currentKeys.has(normalizeMaxId(ep.alternateId))) return ep;
+  }
+
+  for (const url of cacheEntry.episodes || []) {
+    if (!isCurrentEpisode(url, currentKeys, showMaxIdHint)) continue;
+    const alternateId = extractAlternateIdFromWatchUrl(url, showMaxIdHint);
+    if (!alternateId) continue;
+    const norm = normalizeMaxId(alternateId);
+    const fromDetails = details.find(ep => normalizeMaxId(ep.alternateId) === norm);
+    if (fromDetails) return fromDetails;
+    return {
+      alternateId,
+      watchUrl: url.startsWith('http') ? url : `https://play.max.com/video/watch/${alternateId}`,
+    };
+  }
+
+  const episodeId = getMaxEpisodeIdFromUrl(pageUrl, showMaxIdHint);
+  if (episodeId) {
+    const norm = normalizeMaxId(episodeId);
+    const fromDetails = details.find(ep => normalizeMaxId(ep.alternateId) === norm);
+    if (fromDetails) return fromDetails;
+  }
+
+  return null;
+}
+
+// Build a currentEpisode object for watch history from a cache match.
+function buildWatchHistoryCurrentEpisode(cachedEp, cacheEntry, showMaxId, active, playlists) {
+  const allShows = (playlists || []).flatMap(pl => pl.shows || []);
+  const showName = normalizeWatchHistoryShowName(
+    cacheEntry?.showName
+    || findPlaylistShowTitleByMaxId([{ shows: allShows }], showMaxId)
+    || active?.currentShow?.showName
+    || active?.currentEpisode?.showName
+    || '',
+  );
+  const showId = cacheEntry?.tmdbId || showMaxId;
+  const posterPath = active?.currentEpisode?.posterPath
+    || findPlaylistShowPosterPathInActive(active, showMaxId)
+    || findPlaylistShowPosterPathInActive({ shows: allShows }, showMaxId);
+
+  return {
+    showId,
+    showName,
+    posterPath,
+    alternateId: cachedEp.alternateId || getMaxEpisodeIdFromUrl(location.href, showMaxId),
+    seasonNum: cachedEp.seasonNum,
+    episode_number: cachedEp.episode_number,
+    name: cachedEp.name || '',
+  };
+}
+
+// Populate currentEpisode from the episode cache when shuffle has not set it yet.
+async function ensureCurrentEpisodeForWatchHistory() {
+  const active = await getActivePlaylistFromStorage();
+  const maxId = getCurrentMaxShowUuid();
+  if (!maxId) return active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+
+  if (active?.currentEpisode?.showId && active?.currentEpisode?.showName) {
+    lastWatchHistoryCurrentEpisode = active.currentEpisode;
+    return active.currentEpisode;
+  }
+
+  const cacheEntry = await getCachedEpisodeEntry(maxId);
+  if (!cacheEntry) return active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+
+  const cachedEp = findCachedEpisodeDetailMatchingUrl(cacheEntry, location.href, maxId);
+  if (!cachedEp) {
+    console.log('[Shufflr] No cache match for current URL:', location.href);
+    return active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+  }
+
+  const playlists = await readPlaylistsFromStorage();
+  const currentEpisode = buildWatchHistoryCurrentEpisode(cachedEp, cacheEntry, maxId, active, playlists);
+  lastWatchHistoryCurrentEpisode = currentEpisode;
+
+  if (active) {
+    await chromeStorageLocalSet({
+      [SHUFFLR_ACTIVE_PLAYLIST_KEY]: {
+        ...active,
+        currentEpisode,
+        currentEpisodeUrl: location.href.split('?')[0],
+      },
+    });
+  }
+
+  return currentEpisode;
+}
+
 async function resolveWatchHistoryFieldsForCurrentShow() {
   const active = await getActivePlaylistFromStorage();
   const maxId = getCurrentMaxShowUuid();
   const cacheEntry = maxId ? await getCachedEpisodeEntry(maxId) : null;
   const playlists = await readPlaylistsFromStorage();
 
-  const episodeTmdbId = active?.currentEpisode?.showId
-    && /^\d+$/.test(String(active.currentEpisode.showId))
-    ? String(active.currentEpisode.showId)
+  const currentEpisode = active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+
+  const episodeTmdbId = currentEpisode?.showId
+    && /^\d+$/.test(String(currentEpisode.showId))
+    ? String(currentEpisode.showId)
     : null;
   const tmdbId = cacheEntry?.tmdbId || episodeTmdbId || null;
 
-  let showId = tmdbId || maxId || active?.currentShow?.showId || active?.currentEpisode?.showId || null;
+  let showId = tmdbId || maxId || active?.currentShow?.showId || currentEpisode?.showId || null;
   if (maxId) {
     for (const playlist of playlists) {
       for (const show of playlist?.shows || []) {
@@ -3904,17 +4005,16 @@ async function resolveWatchHistoryFieldsForCurrentShow() {
     }
   }
 
-  let showName = active?.currentEpisode?.showName || null;
+  let showName = currentEpisode?.showName || null;
   if (showName) {
     showName = normalizeWatchHistoryShowName(showName);
   }
 
-  const currentEpisode = active?.currentEpisode;
   let posterPath = currentEpisode?.posterPath
     ? 'https://image.tmdb.org/t/p/w300' + currentEpisode.posterPath
     : null;
 
-  return { showId, showName, posterPath };
+  return { showId, showName, posterPath, currentEpisode };
 }
 
 async function logWatchHistoryToSupabase(showId, showName, posterPath) {
@@ -3922,10 +4022,17 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   if (!isChromeContextValid()) return;
 
   const active = await getActivePlaylistFromStorage();
-  const currentEpisode = active?.currentEpisode || null;
+  const currentEpisode = active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+
+  if (!currentEpisode || !currentEpisode.showId) {
+    console.log('[Shufflr] Skipping watch history — currentEpisode not ready');
+    return;
+  }
+
+  console.log('[Shufflr] currentEpisode at log time:', JSON.stringify(currentEpisode));
   console.log('[Shufflr] saving watch history:', currentEpisode);
 
-  const resolvedShowName = currentEpisode?.showName
+  const resolvedShowName = currentEpisode.showName
     ? normalizeWatchHistoryShowName(currentEpisode.showName)
     : null;
   if (!showId && !resolvedShowName) return;
@@ -3933,6 +4040,12 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   const session = await getValidAuthSession();
   console.log('[Shufflr] Session found:', !!session);
   if (!session?.accessToken || !session?.userId) return;
+
+  const resolvedShowId = showId || currentEpisode.showId;
+  const resolvedPosterPath = posterPath
+    || (currentEpisode.posterPath
+      ? 'https://image.tmdb.org/t/p/w300' + currentEpisode.posterPath
+      : null);
 
   try {
     console.log('[Shufflr] Watch history log attempted:', resolvedShowName);
@@ -3946,9 +4059,9 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
       },
       body: JSON.stringify({
         user_id: session.userId,
-        show_id: showId,
+        show_id: resolvedShowId,
         show_name: resolvedShowName,
-        poster_path: posterPath || null,
+        poster_path: resolvedPosterPath || null,
         watched_at: new Date().toISOString(),
       }),
     });
@@ -3975,6 +4088,7 @@ async function maybeLogWatchHistoryOnPlay() {
   if (lastWatchHistoryLogKey === logKey) return;
   lastWatchHistoryLogKey = logKey;
 
+  await ensureCurrentEpisodeForWatchHistory();
   const fields = await resolveWatchHistoryFieldsForCurrentShow();
   if (!fields.showId && !fields.showName) return;
   await logWatchHistoryToSupabase(fields.showId, fields.showName, fields.posterPath);
