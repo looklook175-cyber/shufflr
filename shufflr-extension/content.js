@@ -3782,40 +3782,15 @@ async function resolveWatchHistoryFieldsForCurrentShow() {
     }
   }
 
-  let showName = active?.currentShow?.showName
-    || active?.currentEpisode?.showName
-    || cacheEntry?.showName
-    || null;
-
-  if (!showName && maxId) {
-    const routeJson = await fetchShowRoute(maxId);
-    showName = getShowNameFromRouteJson(routeJson);
-  }
-
-  if (!showName) {
-    showName = findPlaylistShowTitleByMaxId(playlists, maxId);
-  }
-
-  if (!showName && maxId && active?.shows?.length) {
-    showName = findPlaylistShowTitleByMaxId([{ shows: active.shows }], maxId);
-  }
-
-  if (!showName) {
-    showName = normalizeWatchHistoryShowName(getCurrentShowTitle());
-  } else {
+  let showName = active?.currentEpisode?.showName || null;
+  if (showName) {
     showName = normalizeWatchHistoryShowName(showName);
   }
 
-  let posterPath = findPosterPathInPlaylists(playlists, { tmdbId: showId, maxId });
-  if (!posterPath && active?.shows?.length) {
-    posterPath = findPosterPathInPlaylists(
-      [{ shows: active.shows, episodes: active.episodes }],
-      { tmdbId: showId || episodeTmdbId, maxId },
-    );
-  }
-  if (!posterPath && episodeTmdbId) {
-    posterPath = findPosterPathInPlaylists(playlists, { tmdbId: episodeTmdbId, maxId });
-  }
+  const currentEpisode = active?.currentEpisode;
+  let posterPath = currentEpisode?.posterPath
+    ? 'https://image.tmdb.org/t/p/w300' + currentEpisode.posterPath
+    : null;
 
   return { showId, showName, posterPath };
 }
