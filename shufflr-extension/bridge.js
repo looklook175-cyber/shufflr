@@ -30,11 +30,53 @@
     }
   }
 
-  syncSupabaseSessionToExtension();
+  function pushAuthSessionPayloadToExtension(session) {
+    if (!session?.user?.id || !session?.access_token) {
+      chrome.storage.local.remove(SHUFFLR_SUPABASE_SESSION_KEY);
+      return;
+    }
+
+    chrome.storage.local.set({
+      [SHUFFLR_SUPABASE_SESSION_KEY]: {
+        userId: session.user.id,
+        accessToken: session.access_token,
+      },
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.log('[Shufflr] bridge.js — session sync skipped:', chrome.runtime.lastError.message);
+        return;
+      }
+      console.log('[Shufflr] bridge.js — synced Supabase session to extension');
+    });
+  }
+
+  function scheduleSupabaseSessionSyncOnPageLoad() {
+    syncSupabaseSessionToExtension();
+    window.addEventListener('load', syncSupabaseSessionToExtension);
+    window.addEventListener('pageshow', syncSupabaseSessionToExtension);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        syncSupabaseSessionToExtension();
+      }
+    });
+    window.addEventListener('storage', (event) => {
+      if (event.key === SHUFFLR_SUPABASE_SESSION_KEY) {
+        syncSupabaseSessionToExtension();
+      }
+    });
+    setTimeout(syncSupabaseSessionToExtension, 500);
+    setTimeout(syncSupabaseSessionToExtension, 2000);
+  }
+
+  scheduleSupabaseSessionSyncOnPageLoad();
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     if (event.data?.source !== 'shufflr-web') return;
+    if (event.data?.type === 'SHUFFLR_AUTH_SESSION') {
+      pushAuthSessionPayloadToExtension(event.data.session);
+      return;
+    }
     if (event.data?.type !== 'SHUFFLR_SUPABASE_SESSION_SYNC') return;
     syncSupabaseSessionToExtension();
   });

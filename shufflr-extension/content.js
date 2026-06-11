@@ -3663,43 +3663,123 @@ async function getStoredAuthSession() {
   return storageLocalGet(SHUFFLR_SUPABASE_SESSION_KEY);
 }
 
-async function resolveWatchHistoryFieldsForCurrentShow() {
-  let showName = getCurrentShowTitle();
-  const maxId = getCurrentMaxShowUuid();
-  let showId = maxId;
-  let posterPath = null;
-  let cacheEntry = null;
+function normalizeWatchHistoryShowName(title) {
+  if (!title) return '';
+  let text = String(title).trim();
+  if (!text || text === 'Unknown Show') return '';
+  text = text.split('|')[0].trim();
+  text = text.replace(/\s*[•·]\s*(HBO Max|Max|Netflix|Hulu|Disney\+|Prime Video).*$/i, '').trim();
+  text = text.replace(/\s*-\s*(HBO Max|Max)\s*$/i, '').trim();
+  text = text.replace(/\s+on\s+(HBO Max|Max)$/i, '').trim();
+  return text;
+}
 
-  if (maxId) {
-    cacheEntry = await getCachedEpisodeEntry(maxId);
-    if (cacheEntry?.tmdbId) showId = cacheEntry.tmdbId;
-    if (cacheEntry?.showName && (!showName || showName === 'Unknown Show')) {
-      showName = cacheEntry.showName;
-    }
-  }
+function normalizePosterPathForStorage(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const tmdbMatch = text.match(/\/t\/p\/(?:original|w\d+)\/(.+)$/);
+  if (tmdbMatch?.[1]) return `/${tmdbMatch[1]}`;
+  return text.startsWith('/') ? text : text;
+}
 
-  const playlists = await readPlaylistsFromStorage();
-  for (const playlist of playlists) {
+function findPosterPathInPlaylists(playlists, { tmdbId, maxId } = {}) {
+  const normMax = maxId ? normalizeMaxId(maxId) : '';
+  const normTmdb = tmdbId != null && tmdbId !== '' ? String(tmdbId) : '';
+
+  for (const playlist of playlists || []) {
     for (const show of playlist?.shows || []) {
       const showMaxId = show.maxId || show.maxShowId || show.max_id;
-      if (maxId && showMaxId && normalizeMaxId(showMaxId) !== normalizeMaxId(maxId)) continue;
-      if (show.poster_path) posterPath = show.poster_path;
-      if (show.id) showId = show.id;
-      if (show.title || show.name) {
-        return {
-          showId,
-          showName: show.title || show.name || showName,
-          posterPath: posterPath || show.poster_path || null,
-        };
+      const showTmdbId = show.id || show.tmdbId;
+      const maxMatch = normMax && showMaxId && normalizeMaxId(showMaxId) === normMax;
+      const tmdbMatch = normTmdb && showTmdbId && String(showTmdbId) === normTmdb;
+      if ((maxMatch || tmdbMatch) && show.poster_path) {
+        return normalizePosterPathForStorage(show.poster_path);
+      }
+    }
+    for (const ep of playlist?.episodes || []) {
+      if (!normTmdb || !ep.showId || String(ep.showId) !== normTmdb) continue;
+      if (ep.showPoster) return normalizePosterPathForStorage(ep.showPoster);
+    }
+  }
+  return null;
+}
+
+function findPlaylistShowTitleByMaxId(playlists, maxId) {
+  if (!maxId) return null;
+  const normMax = normalizeMaxId(maxId);
+  for (const playlist of playlists || []) {
+    for (const show of playlist?.shows || []) {
+      const showMaxId = show.maxId || show.maxShowId || show.max_id;
+      if (showMaxId && normalizeMaxId(showMaxId) === normMax) {
+        return getPlaylistShowTitle(show);
+      }
+    }
+  }
+  return null;
+}
+
+async function resolveWatchHistoryFieldsForCurrentShow() {
+  const active = await getActivePlaylistFromStorage();
+  const maxId = getCurrentMaxShowUuid();
+  const cacheEntry = maxId ? await getCachedEpisodeEntry(maxId) : null;
+  const playlists = await readPlaylistsFromStorage();
+
+  const episodeTmdbId = active?.currentEpisode?.showId
+    && /^\d+$/.test(String(active.currentEpisode.showId))
+    ? String(active.currentEpisode.showId)
+    : null;
+  const tmdbId = cacheEntry?.tmdbId || episodeTmdbId || null;
+
+  let showId = tmdbId || maxId || active?.currentShow?.showId || active?.currentEpisode?.showId || null;
+  if (maxId) {
+    for (const playlist of playlists) {
+      for (const show of playlist?.shows || []) {
+        const showMaxId = show.maxId || show.maxShowId || show.max_id;
+        if (showMaxId && normalizeMaxId(showMaxId) === normalizeMaxId(maxId) && show.id) {
+          showId = show.id;
+          break;
+        }
       }
     }
   }
 
-  return {
-    showId,
-    showName: cacheEntry?.showName || showName,
-    posterPath,
-  };
+  let showName = active?.currentShow?.showName
+    || active?.currentEpisode?.showName
+    || cacheEntry?.showName
+    || null;
+
+  if (!showName && maxId) {
+    const routeJson = await fetchShowRoute(maxId);
+    showName = getShowNameFromRouteJson(routeJson);
+  }
+
+  if (!showName) {
+    showName = findPlaylistShowTitleByMaxId(playlists, maxId);
+  }
+
+  if (!showName && maxId && active?.shows?.length) {
+    showName = findPlaylistShowTitleByMaxId([{ shows: active.shows }], maxId);
+  }
+
+  if (!showName) {
+    showName = normalizeWatchHistoryShowName(getCurrentShowTitle());
+  } else {
+    showName = normalizeWatchHistoryShowName(showName);
+  }
+
+  let posterPath = findPosterPathInPlaylists(playlists, { tmdbId: showId, maxId });
+  if (!posterPath && active?.shows?.length) {
+    posterPath = findPosterPathInPlaylists(
+      [{ shows: active.shows, episodes: active.episodes }],
+      { tmdbId: showId || episodeTmdbId, maxId },
+    );
+  }
+  if (!posterPath && episodeTmdbId) {
+    posterPath = findPosterPathInPlaylists(playlists, { tmdbId: episodeTmdbId, maxId });
+  }
+
+  return { showId, showName, posterPath };
 }
 
 async function logWatchHistoryToSupabase(showId, showName, posterPath) {
