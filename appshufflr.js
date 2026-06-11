@@ -83,34 +83,6 @@ window.addEventListener('message',(event)=>{
   saveSupabaseSessionForExtension(event.data.session);
 });
 
-function dedupeWatchHistoryRows(rows){
-  const seen=new Set();
-  const out=[];
-  for(const row of rows||[]){
-    const key=String(row.show_id);
-    if(seen.has(key))continue;
-    seen.add(key);
-    out.push(row);
-  }
-  return out;
-}
-
-const SHUFFLR_WATCH_HISTORY_VIEW_KEY='shufflr_watch_history_view';
-
-function getWatchHistoryViewMode(){
-  const saved=localStorage.getItem(SHUFFLR_WATCH_HISTORY_VIEW_KEY);
-  return saved==='episode'?'episode':'show';
-}
-
-function setWatchHistoryView(mode){
-  if(mode!=='show'&&mode!=='episode')return;
-  localStorage.setItem(SHUFFLR_WATCH_HISTORY_VIEW_KEY,mode);
-  if((currentNav==='shows'||currentNav==='movies')&&!currentShow){
-    renderHomeScreen(currentNav);
-  }
-}
-window.setWatchHistoryView=setWatchHistoryView;
-
 // Strip streaming-service suffixes from Max page titles stored in watch history.
 function normalizeWatchHistoryShowName(title){
   if(!title)return'';
@@ -184,57 +156,24 @@ function formatWatchHistoryEntryTitle(watchedAt){
   return`${date} · ${time}`;
 }
 
-function getWatchHistoryEpisodeDisplay(row){
-  const showName=normalizeWatchHistoryShowName(row.show_name)||row.show_name||'';
-  const episodeTitle=row.episode_name||row.episode_title;
-  if(episodeTitle){
-    return{title:episodeTitle,subtitle:showName};
-  }
-  return{
-    title:formatWatchHistoryEntryTitle(row.watched_at),
-    subtitle:showName,
-  };
-}
-
-function buildWatchHistorySectionHtml(recentSection,viewMode){
+function buildWatchHistorySectionHtml(recentSection){
   const rows=recentSection.rows||[];
   if(!rows.length)return'';
 
-  const showItems=dedupeWatchHistoryRows(rows).map(watchHistoryRowToShow);
-  if(viewMode==='episode'&&!rows.length)return'';
-  if(viewMode!=='episode'&&!showItems.length)return'';
+  let html=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
 
-  let html=`<div class="genre-section"><div class="watch-history-header">
-    <div class="genre-title watch-history-title">${recentSection.title}</div>
-    <div class="watch-history-toggle" role="group" aria-label="Recently watched view">
-      <button type="button" class="watch-history-toggle-btn${viewMode==='show'?' active':''}" onclick="setWatchHistoryView('show')">By Show</button>
-      <button type="button" class="watch-history-toggle-btn${viewMode==='episode'?' active':''}" onclick="setWatchHistoryView('episode')">By Episode</button>
-    </div>
-  </div><div class="h-scroll-wrap">`;
-
-  if(viewMode==='episode'){
-    rows.forEach(row=>{
-      const display=getWatchHistoryEpisodeDisplay(row);
-      const poster=buildPosterUrl(row.poster_path,'w185');
-      html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(row.show_id)},'tv')">
-        <img src="${poster}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
-        <div class="ep-card-h-body">
-          <div class="ep-card-h-name">${display.title}</div>
-          <div class="ep-card-h-meta">${display.subtitle}</div>
-        </div>
-      </div>`;
-    });
-  }else{
-    showItems.slice(0,5).forEach(s=>{
-      html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'tv')">
-        <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
-        <div class="ep-card-h-body">
-          <div class="ep-card-h-name">${s.name||s.title||''}</div>
-          <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
-        </div>
-      </div>`;
-    });
-  }
+  rows.forEach(row=>{
+    const showName=normalizeWatchHistoryShowName(row.show_name)||row.show_name||'';
+    const timeLabel=formatWatchHistoryEntryTitle(row.watched_at);
+    const poster=buildPosterUrl(row.poster_path,'w185');
+    html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(row.show_id)},'tv')">
+      <img src="${poster}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+      <div class="ep-card-h-body">
+        <div class="ep-card-h-name">${timeLabel}</div>
+        <div class="ep-card-h-meta">${showName}</div>
+      </div>
+    </div>`;
+  });
 
   html+=`</div></div>`;
   return html;
@@ -245,10 +184,9 @@ async function getHomeRecentItems(isMovies){
     if(typeof window.shufflrGetWatchHistory==='function'){
       try{
         const history=await enrichWatchHistoryRows(await window.shufflrGetWatchHistory());
-        const deduped=dedupeWatchHistoryRows(history);
-        if(deduped.length){
+        if(history.length){
           return{
-            items:deduped.map(watchHistoryRowToShow),
+            items:history.map(watchHistoryRowToShow),
             rows:history,
             title:'-- RECENTLY WATCHED --',
             fromWatchHistory:true,
@@ -2001,7 +1939,6 @@ async function renderHomeScreen(navType){
 
   const recentSection = await getHomeRecentItems(isMovies);
   const recentFiltered = recentSection.items;
-  const watchHistoryViewMode = recentSection.fromWatchHistory ? getWatchHistoryViewMode() : 'show';
 
   let html=`<div class="home-wrap">
     <div class="empty-state" style="padding:30px 0 20px;">
@@ -2011,7 +1948,7 @@ async function renderHomeScreen(navType){
 
   if(recentFiltered.length){
     if(recentSection.fromWatchHistory){
-      html+=buildWatchHistorySectionHtml(recentSection,watchHistoryViewMode);
+      html+=buildWatchHistorySectionHtml(recentSection);
     }else{
       html+=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
       recentFiltered.slice(0,5).forEach(s=>{

@@ -133,7 +133,7 @@ function mergePlaylists(local, remoteRows) {
     const cloudPl = {
       name: row.name,
       shows: row.shows || [],
-      episodes: row.episodes || [],
+      episodes: [],
       cloudId: row.id,
     }
 
@@ -154,7 +154,7 @@ function mergePlaylists(local, remoteRows) {
 async function loadCloudPlaylists(userId) {
   const { data, error } = await supabase
     .from('playlists')
-    .select('id, name, shows, episodes, updated_at')
+    .select('id, name, shows, created_at, updated_at')
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
 
@@ -185,7 +185,6 @@ async function syncPlaylistsToCloud(allPlaylists) {
       user_id: user.id,
       name: pl.name,
       shows: pl.shows,
-      episodes: pl.episodes,
       updated_at: new Date().toISOString(),
     }
     if (pl.cloudId) row.id = pl.cloudId
