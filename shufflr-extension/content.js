@@ -111,6 +111,8 @@ const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
 
 let extensionContextInvalidated = false;
+let extensionContextHealthCheckTimer = null;
+let armedUrlPopstateHandler = null;
 let armedUrlPollTimer = null;
 let shuffleWatchdogTimer = null;
 let uiRecoveryGraceTimer = null;
@@ -150,6 +152,10 @@ function handleExtensionContextInvalidated() {
   if (extensionContextInvalidated) return;
   extensionContextInvalidated = true;
 
+  if (extensionContextHealthCheckTimer) {
+    clearInterval(extensionContextHealthCheckTimer);
+    extensionContextHealthCheckTimer = null;
+  }
   if (shuffleWatchdogTimer) {
     clearInterval(shuffleWatchdogTimer);
     shuffleWatchdogTimer = null;
@@ -162,7 +168,20 @@ function handleExtensionContextInvalidated() {
     clearTimeout(uiRecoveryGraceTimer);
     uiRecoveryGraceTimer = null;
   }
+  if (showPageAutoplayPollTimer) {
+    clearInterval(showPageAutoplayPollTimer);
+    showPageAutoplayPollTimer = null;
+  }
+  if (shufflrEpisodeEndedClearTimer) {
+    clearTimeout(shufflrEpisodeEndedClearTimer);
+    shufflrEpisodeEndedClearTimer = null;
+  }
   uiMissingSince = null;
+
+  teardownShufflrButtonAutoHide();
+  teardownShufflrButtonHandlers();
+  removeShufflrUI();
+  dismissFullscreenRestorePrompt();
 
   if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
     try {
@@ -173,9 +192,44 @@ function handleExtensionContextInvalidated() {
   timeupdateWatcherHandler = null;
 
   try {
-    const video = document.querySelector('video');
-    if (video) video.removeEventListener('timeupdate', onTimeUpdate);
+    const video = window.__shufflrAttachedVideo || document.querySelector('video');
+    if (video) {
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('ended', onEpisodeEnded);
+      video.removeEventListener('playing', onVideoPlaying);
+    }
   } catch {}
+  window.__shufflrAttachedVideo = null;
+
+  if (window.__shufflrVideoObserver) {
+    try {
+      window.__shufflrVideoObserver.disconnect();
+    } catch {}
+    window.__shufflrVideoObserver = null;
+  }
+
+  if (window.__shufflrFullscreenListener) {
+    try {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+    } catch {}
+    window.__shufflrFullscreenListener = false;
+  }
+
+  if (window.__shufflrShowPageClickInterceptor) {
+    try {
+      document.removeEventListener('click', handleShowPageEpisodeClick, true);
+    } catch {}
+    window.__shufflrShowPageClickInterceptor = false;
+  }
+
+  if (armedUrlPopstateHandler) {
+    try {
+      window.removeEventListener('popstate', armedUrlPopstateHandler);
+    } catch {}
+    armedUrlPopstateHandler = null;
+  }
+  window.__shufflrArmedUrlGuard = false;
 
   teardownMaxAutoNextSuppression();
   cancelScheduledShuffleCop();
@@ -184,6 +238,22 @@ function handleExtensionContextInvalidated() {
     shufflrIsNavigatingTimer = null;
   }
   shufflrIsNavigating = false;
+}
+
+// Polls every 5s so we can tear down UI when the extension reloads mid-page.
+function runExtensionContextHealthCheck() {
+  try {
+    if (!chrome.runtime?.id) {
+      handleExtensionContextInvalidated();
+    }
+  } catch {
+    handleExtensionContextInvalidated();
+  }
+}
+
+function startExtensionContextHealthCheck() {
+  if (extensionContextHealthCheckTimer) return;
+  extensionContextHealthCheckTimer = setInterval(runExtensionContextHealthCheck, 5000);
 }
 
 function handleChromeRuntimeLastError() {
@@ -923,7 +993,7 @@ function installArmedUrlGuard() {
     notifyArmedUrlChange(prevUrl);
   }, ARMED_URL_POLL_MS);
 
-  window.addEventListener('popstate', () => {
+  window.addEventListener('popstate', armedUrlPopstateHandler = () => {
     if (!isChromeContextValid()) return;
     if (location.href === armedUrlPollLastHref) return;
     const prevUrl = armedUrlPollLastHref;
@@ -2718,6 +2788,7 @@ function removeShufflrUI() {
 }
 
 function onShuffleBtnClick(event) {
+  if (!chrome.runtime?.id) return;
   event.preventDefault();
   event.stopPropagation();
   toggleShuffle();
@@ -2813,6 +2884,28 @@ function bindShufflrButtonHandlers() {
   if (!documentClickBound) {
     document.addEventListener('click', closePlaylistDropdown);
     documentClickBound = true;
+  }
+}
+
+function teardownShufflrButtonHandlers() {
+  const shuffleBtn = document.getElementById('shufflr-btn');
+  const playlistToggle = document.getElementById('shufflr-playlist-toggle');
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
+
+  if (shuffleBtn) {
+    shuffleBtn.removeEventListener('click', onShuffleBtnClick);
+  }
+  if (playlistToggle) {
+    playlistToggle.removeEventListener('click', togglePlaylistDropdown);
+  }
+  if (dropdown) {
+    dropdown.removeEventListener('click', onPlaylistDropdownClick);
+    dropdown.removeEventListener('change', onPlaylistDropdownChange);
+    dropdown.removeEventListener('keydown', onPlaylistDropdownKeydown);
+  }
+  if (documentClickBound) {
+    document.removeEventListener('click', closePlaylistDropdown);
+    documentClickBound = false;
   }
 }
 
@@ -5173,6 +5266,7 @@ void readShuffleSettings().then(settings => {
 void maybeAutoClickShowPageResume();
 setTimeout(() => {
   if (!isChromeContextValid()) return;
+  startExtensionContextHealthCheck();
   handleShowPageShuffle();
   tryInjectButton();
   installFullscreenListener();
