@@ -93,6 +93,22 @@ function dedupeWatchHistoryRows(rows){
   return out;
 }
 
+const SHUFFLR_WATCH_HISTORY_VIEW_KEY='shufflr_watch_history_view';
+
+function getWatchHistoryViewMode(){
+  const saved=localStorage.getItem(SHUFFLR_WATCH_HISTORY_VIEW_KEY);
+  return saved==='episode'?'episode':'show';
+}
+
+function setWatchHistoryView(mode){
+  if(mode!=='show'&&mode!=='episode')return;
+  localStorage.setItem(SHUFFLR_WATCH_HISTORY_VIEW_KEY,mode);
+  if((currentNav==='shows'||currentNav==='movies')&&!currentShow){
+    renderHomeScreen(currentNav);
+  }
+}
+window.setWatchHistoryView=setWatchHistoryView;
+
 function watchHistoryRowToShow(row){
   return{
     id:row.show_id,
@@ -101,6 +117,78 @@ function watchHistoryRowToShow(row){
     poster_path:row.poster_path||'',
     first_air_date:(row.watched_at||'').slice(0,4),
   };
+}
+
+function formatWatchHistoryEntryTitle(watchedAt){
+  if(!watchedAt)return'Episode';
+  const d=new Date(watchedAt);
+  if(Number.isNaN(d.getTime()))return'Episode';
+  const now=new Date();
+  const isToday=d.toDateString()===now.toDateString();
+  const time=d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+  if(isToday)return`Today · ${time}`;
+  const date=d.toLocaleDateString(undefined,{
+    month:'short',
+    day:'numeric',
+    year:d.getFullYear()!==now.getFullYear()?'numeric':undefined,
+  });
+  return`${date} · ${time}`;
+}
+
+function getWatchHistoryEpisodeDisplay(row){
+  const showName=row.show_name||'';
+  const episodeTitle=row.episode_name||row.episode_title;
+  if(episodeTitle){
+    return{title:episodeTitle,subtitle:showName};
+  }
+  return{
+    title:formatWatchHistoryEntryTitle(row.watched_at),
+    subtitle:showName,
+  };
+}
+
+function buildWatchHistorySectionHtml(recentSection,viewMode){
+  const rows=recentSection.rows||[];
+  if(!rows.length)return'';
+
+  const showItems=dedupeWatchHistoryRows(rows).map(watchHistoryRowToShow);
+  if(viewMode==='episode'&&!rows.length)return'';
+  if(viewMode!=='episode'&&!showItems.length)return'';
+
+  let html=`<div class="genre-section"><div class="watch-history-header">
+    <div class="genre-title watch-history-title">${recentSection.title}</div>
+    <div class="watch-history-toggle" role="group" aria-label="Recently watched view">
+      <button type="button" class="watch-history-toggle-btn${viewMode==='show'?' active':''}" onclick="setWatchHistoryView('show')">By Show</button>
+      <button type="button" class="watch-history-toggle-btn${viewMode==='episode'?' active':''}" onclick="setWatchHistoryView('episode')">By Episode</button>
+    </div>
+  </div><div class="h-scroll-wrap">`;
+
+  if(viewMode==='episode'){
+    rows.forEach(row=>{
+      const display=getWatchHistoryEpisodeDisplay(row);
+      const poster=row.poster_path?IMG+'w185'+row.poster_path:'';
+      html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(row.show_id)},'tv')">
+        <img src="${poster}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+        <div class="ep-card-h-body">
+          <div class="ep-card-h-name">${display.title}</div>
+          <div class="ep-card-h-meta">${display.subtitle}</div>
+        </div>
+      </div>`;
+    });
+  }else{
+    showItems.slice(0,5).forEach(s=>{
+      html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'tv')">
+        <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+        <div class="ep-card-h-body">
+          <div class="ep-card-h-name">${s.name||s.title||''}</div>
+          <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
+        </div>
+      </div>`;
+    });
+  }
+
+  html+=`</div></div>`;
+  return html;
 }
 
 async function getHomeRecentItems(isMovies){
@@ -112,6 +200,7 @@ async function getHomeRecentItems(isMovies){
         if(deduped.length){
           return{
             items:deduped.map(watchHistoryRowToShow),
+            rows:history,
             title:'-- RECENTLY WATCHED --',
             fromWatchHistory:true,
           };
@@ -1863,6 +1952,7 @@ async function renderHomeScreen(navType){
 
   const recentSection = await getHomeRecentItems(isMovies);
   const recentFiltered = recentSection.items;
+  const watchHistoryViewMode = recentSection.fromWatchHistory ? getWatchHistoryViewMode() : 'show';
 
   let html=`<div class="home-wrap">
     <div class="empty-state" style="padding:30px 0 20px;">
@@ -1871,18 +1961,22 @@ async function renderHomeScreen(navType){
     </div>`;
 
   if(recentFiltered.length){
-    html+=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
-    recentFiltered.slice(0,5).forEach(s=>{
-      const t=s.release_date?'movie':'tv';
-      html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'${t}')">
-        <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
-        <div class="ep-card-h-body">
-          <div class="ep-card-h-name">${s.name||s.title||''}</div>
-          <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
-        </div>
-      </div>`;
-    });
-    html+=`</div></div>`;
+    if(recentSection.fromWatchHistory){
+      html+=buildWatchHistorySectionHtml(recentSection,watchHistoryViewMode);
+    }else{
+      html+=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
+      recentFiltered.slice(0,5).forEach(s=>{
+        const t=s.release_date?'movie':'tv';
+        html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'${t}')">
+          <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+          <div class="ep-card-h-body">
+            <div class="ep-card-h-name">${s.name||s.title||''}</div>
+            <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
+          </div>
+        </div>`;
+      });
+      html+=`</div></div>`;
+    }
 
     // Recommendations placeholder — loaded async below
     html+=`<div class="genre-section" id="recs-section" style="margin-top:4px;">

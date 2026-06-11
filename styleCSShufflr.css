@@ -332,7 +332,15 @@ body.light-mode .queue-ep-title{color:#111;}
 .home-wrap{padding:4px 0;}
 .genre-section{margin-bottom:20px;}
 .genre-title{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
-
+.watch-history-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+.watch-history-title{margin-bottom:0;}
+.watch-history-toggle{display:inline-flex;background:#111;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0;}
+.watch-history-toggle-btn{font-family:'DM Sans',sans-serif;font-size:0.62rem;padding:4px 9px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all 0.15s;line-height:1.2;}
+.watch-history-toggle-btn:hover{color:#23A8E0;}
+.watch-history-toggle-btn.active{background:rgba(35,168,224,0.12);color:#23A8E0;box-shadow:inset 0 0 0 1px #23A8E0;}
+body.light-mode .watch-history-toggle{background:#1a1a1a;border-color:#333;}
+body.light-mode .watch-history-toggle-btn{color:#888;}
+body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15);color:#23A8E0;box-shadow:inset 0 0 0 1px #23A8E0;}
 
 /* HISTORY */
 .history-header{font-family:'Press Start 2P',monospace;font-size:0.65rem;color:var(--blue);margin-bottom:20px;text-shadow:0 0 8px var(--blue-glow);display:flex;align-items:center;justify-content:space-between;}
