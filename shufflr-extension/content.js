@@ -3918,6 +3918,7 @@ async function resolveWatchHistoryFieldsForCurrentShow() {
 }
 
 async function logWatchHistoryToSupabase(showId, showName, posterPath) {
+  console.log('[Shufflr] Watch history function called');
   if (!isChromeContextValid()) return;
 
   const active = await getActivePlaylistFromStorage();
@@ -3930,6 +3931,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   if (!showId && !resolvedShowName) return;
 
   const session = await getValidAuthSession();
+  console.log('[Shufflr] Session found:', !!session);
   if (!session?.accessToken || !session?.userId) return;
 
   try {
@@ -3950,6 +3952,9 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
         watched_at: new Date().toISOString(),
       }),
     });
+
+    const result = { ok: response.ok, status: response.status };
+    console.log('[Shufflr] Supabase response:', result);
 
     if (!response.ok) {
       console.log('[Shufflr] watch_history insert failed:', response.status);
