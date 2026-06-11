@@ -93,81 +93,32 @@ function readLocalPlaylists() {
   }
 }
 
-function showKey(item) {
-  return item?.maxId || item?.id || item?.title || item?.name || JSON.stringify(item)
-}
-
-function mergeShows(local = [], remote = []) {
-  const merged = [...local]
-  const seen = new Set(local.map(showKey))
-  for (const show of remote) {
-    const key = showKey(show)
-    if (!seen.has(key)) {
-      seen.add(key)
-      merged.push(show)
-    }
-  }
-  return merged
-}
-
-function mergeEpisodes(local = [], remote = []) {
-  const merged = [...local]
-  const seen = new Set(
-    local.map(ep => `${ep.showId}-${ep.seasonNum}-${ep.episode_number}`)
-  )
-  for (const ep of remote) {
-    const key = `${ep.showId}-${ep.seasonNum}-${ep.episode_number}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      merged.push(ep)
-    }
-  }
-  return merged
-}
-
-// Merge cloud playlists into local storage without dropping local-only entries.
-function mergePlaylists(local, remoteRows) {
-  const merged = local.map(pl => ({ ...pl, shows: [...(pl.shows || [])], episodes: [...(pl.episodes || [])] }))
-
-  for (const row of remoteRows) {
-    const cloudPl = {
-      name: row.name,
-      shows: row.shows || [],
-      episodes: [],
-      cloudId: row.id,
-    }
-
-    let target = merged.find(p => p.cloudId === row.id)
-    if (!target) target = merged.find(p => p.name === row.name && !p.cloudId)
-    if (target) {
-      target.cloudId = row.id
-      target.shows = mergeShows(target.shows, cloudPl.shows)
-      target.episodes = mergeEpisodes(target.episodes, cloudPl.episodes)
-    } else {
-      merged.push(cloudPl)
-    }
-  }
-
-  return merged
+function cloudRowsToPlaylists(remoteRows) {
+  return (remoteRows || []).map(row => ({
+    name: row.name,
+    shows: Array.isArray(row.shows) ? row.shows : [],
+    episodes: [],
+    cloudId: row.id,
+  }))
 }
 
 async function loadCloudPlaylists(userId) {
   const { data, error } = await supabase
     .from('playlists')
-    .select('id, name, shows, created_at, updated_at')
+    .select('id, name, shows')
     .eq('user_id', userId)
-    .order('updated_at', { ascending: false })
 
   if (error) throw error
   return data || []
 }
 
-async function loadAndMergePlaylists(userId) {
-  const local = readLocalPlaylists()
+// Logged-in users: cloud playlists replace localStorage (extension syncs via merged event).
+async function loadPlaylistsFromCloud(userId) {
   const remote = await loadCloudPlaylists(userId)
-  const merged = mergePlaylists(local, remote)
-  window.dispatchEvent(new CustomEvent('shufflr-playlists-merged', { detail: merged }))
-  return merged
+  const playlists = cloudRowsToPlaylists(remote)
+  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY, JSON.stringify(playlists))
+  window.dispatchEvent(new CustomEvent('shufflr-playlists-merged', { detail: playlists }))
+  return playlists
 }
 
 async function syncPlaylistsToCloud(allPlaylists) {
@@ -185,7 +136,6 @@ async function syncPlaylistsToCloud(allPlaylists) {
       user_id: user.id,
       name: pl.name,
       shows: pl.shows,
-      updated_at: new Date().toISOString(),
     }
     if (pl.cloudId) row.id = pl.cloudId
 
@@ -236,9 +186,8 @@ async function handleSignUp() {
 
   if (data.session) {
     updateAuthUI(data.session)
-    await loadAndMergePlaylists(data.session.user.id)
-    await syncPlaylistsToCloud(readLocalPlaylists())
     cloudSyncReady = true
+    await syncPlaylistsToCloud(readLocalPlaylists())
     showAuthMessage('Account created!', 'success')
     return
   }
@@ -262,8 +211,8 @@ async function handleLogIn() {
 
   if (data.session) {
     updateAuthUI(data.session)
-    await loadAndMergePlaylists(data.session.user.id)
     cloudSyncReady = true
+    await loadPlaylistsFromCloud(data.session.user.id)
     showAuthMessage('')
   }
 }
@@ -344,8 +293,8 @@ supabase.auth.getSession().then(async ({ data: { session } }) => {
   notifyAuthChanged(activeSession)
   if (activeSession?.user) {
     try {
-      await loadAndMergePlaylists(activeSession.user.id)
       cloudSyncReady = true
+      await loadPlaylistsFromCloud(activeSession.user.id)
     } catch (err) {
       console.error('[Shufflr] Failed to load cloud playlists:', err)
     }

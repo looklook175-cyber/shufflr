@@ -26,6 +26,12 @@ let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
 function handleExtensionPlaylistSync(payload){
   playlists=Array.isArray(payload)?payload:[];
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
+  window.postMessage({type:'SHUFFLR_SYNC_PLAYLISTS',source:'shufflr-web',playlists},'*');
+  try{
+    if(typeof chrome!=='undefined'&&chrome.storage&&chrome.storage.local){
+      chrome.storage.local.set({[SHUFFLR_PLAYLISTS_KEY]:playlists});
+    }
+  }catch(e){}
   if(currentNav==='playlist')renderPlaylistPage();
   const modal=document.getElementById('playlist-modal');
   if(modal?.classList.contains('open'))renderPlaylistModal();
