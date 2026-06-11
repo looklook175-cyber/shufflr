@@ -20,6 +20,7 @@ let minRating=0,searchTimer=null,isLightMode=false;
 let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
+const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
 
 function handleExtensionPlaylistSync(payload){
@@ -83,18 +84,6 @@ window.addEventListener('message',(event)=>{
   saveSupabaseSessionForExtension(event.data.session);
 });
 
-// Strip streaming-service suffixes from Max page titles stored in watch history.
-function normalizeWatchHistoryShowName(title){
-  if(!title)return'';
-  let text=String(title).trim();
-  if(!text||text==='Unknown Show')return'';
-  text=text.split('|')[0].trim();
-  text=text.replace(/\s*[•·]\s*(HBO Max|Max|Netflix|Hulu|Disney\+|Prime Video).*$/i,'').trim();
-  text=text.replace(/\s*-\s*(HBO Max|Max)\s*$/i,'').trim();
-  text=text.replace(/\s+on\s+(HBO Max|Max)$/i,'').trim();
-  return text;
-}
-
 // Build a TMDB poster URL from a path, full URL, or bare filename.
 function buildPosterUrl(posterPath,size='w185'){
   if(!posterPath)return'';
@@ -109,99 +98,49 @@ function buildPosterUrl(posterPath,size='w185'){
   return IMG+size+path;
 }
 
-function watchHistoryRowToShow(row){
-  const showName=normalizeWatchHistoryShowName(row.show_name)||row.show_name||'';
-  return{
-    id:row.show_id,
-    name:showName,
-    title:showName,
-    poster_path:row.poster_path||'',
-    first_air_date:(row.watched_at||'').slice(0,4),
-  };
-}
-
-// Fill missing poster_path values from TMDB when watch history only has a numeric show id.
-async function enrichWatchHistoryRows(rows){
-  const enriched=(rows||[]).map(row=>({
-    ...row,
-    show_name:normalizeWatchHistoryShowName(row.show_name)||row.show_name||'',
-  }));
-  await Promise.all(enriched.map(async(row,idx)=>{
-    if(row.poster_path)return;
-    const sid=row.show_id;
-    if(!sid||!/^\d+$/.test(String(sid)))return;
-    try{
-      const r=await fetch(`https://api.themoviedb.org/3/tv/${sid}?api_key=${KEY}`);
-      if(!r.ok)return;
-      const d=await r.json();
-      if(d.poster_path)enriched[idx]={...row,poster_path:d.poster_path};
-    }catch{}
-  }));
-  return enriched;
-}
-
-function formatWatchHistoryEntryTitle(watchedAt){
-  if(!watchedAt)return'Episode';
-  const d=new Date(watchedAt);
-  if(Number.isNaN(d.getTime()))return'Episode';
-  const now=new Date();
-  const isToday=d.toDateString()===now.toDateString();
-  const time=d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
-  if(isToday)return`Today · ${time}`;
-  const date=d.toLocaleDateString(undefined,{
-    month:'short',
-    day:'numeric',
-    year:d.getFullYear()!==now.getFullYear()?'numeric':undefined,
-  });
-  return`${date} · ${time}`;
-}
-
-function buildWatchHistorySectionHtml(recentSection){
-  const rows=recentSection.rows||[];
-  if(!rows.length)return'';
-
-  let html=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
-
-  rows.forEach(row=>{
-    const showName=normalizeWatchHistoryShowName(row.show_name)||row.show_name||'';
-    const timeLabel=formatWatchHistoryEntryTitle(row.watched_at);
-    const poster=buildPosterUrl(row.poster_path,'w185');
-    html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(row.show_id)},'tv')">
-      <img src="${poster}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
-      <div class="ep-card-h-body">
-        <div class="ep-card-h-name">${timeLabel}</div>
-        <div class="ep-card-h-meta">${showName}</div>
-      </div>
-    </div>`;
-  });
-
-  html+=`</div></div>`;
-  return html;
-}
-
-async function getHomeRecentItems(isMovies){
-  if(!isMovies&&typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn()){
-    if(typeof window.shufflrGetWatchHistory==='function'){
-      try{
-        const history=await enrichWatchHistoryRows(await window.shufflrGetWatchHistory());
-        if(history.length){
-          return{
-            items:history.map(watchHistoryRowToShow),
-            rows:history,
-            title:'-- RECENTLY WATCHED --',
-            fromWatchHistory:true,
-          };
-        }
-      }catch(err){
-        console.error('[Shufflr] Failed to load watch history:',err);
+function getActivePlaylistShowsForHome(isMovies){
+  if(isMovies)return{shows:[],playlistIndex:-1};
+  let shows=[];
+  let playlistIndex=-1;
+  try{
+    const raw=localStorage.getItem(SHUFFLR_ACTIVE_PLAYLIST_KEY);
+    if(raw){
+      const active=JSON.parse(raw);
+      if(active?.shows?.length){
+        shows=(active.shows||[]).filter(s=>!s.release_date);
+        playlistIndex=active.playlistIndex??0;
+      }
+    }
+  }catch{}
+  if(!shows.length&&playlists.length){
+    for(let i=0;i<playlists.length;i++){
+      const plShows=(playlists[i]?.shows||[]).filter(s=>!s.release_date);
+      if(plShows.length){
+        shows=plShows;
+        playlistIndex=i;
+        break;
       }
     }
   }
-  return{
-    items:recentShows.filter(s=>isMovies?!!s.release_date:!s.release_date),
-    title:'-- RECENTLY SEARCHED --',
-    fromWatchHistory:false,
-  };
+  return{shows,playlistIndex};
+}
+
+function buildYourShowsSectionHtml(section){
+  const shows=section.shows||[];
+  const pi=section.playlistIndex;
+  if(!shows.length||pi<0)return'';
+
+  let html=`<div class="genre-section"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
+  shows.forEach((s,si)=>{
+    html+=`<div class="ep-card-h" onclick="shufflePlaylistShow(${pi},${si})">
+      <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+      <div class="ep-card-h-body">
+        <div class="ep-card-h-name">${s.name||s.title||''}</div>
+      </div>
+    </div>`;
+  });
+  html+=`</div></div>`;
+  return html;
 }
 
 function savePlaylists(){
@@ -967,7 +906,6 @@ function removeEpFromPlaylist(pi,ei){
 }
 
 // ── SMART SHUFFLE + EXTENSION HANDOFF ───────────────────────────────────────
-const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 const SHUFFLR_EPISODE_STATE_KEY='shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY='shufflr_shuffle_settings';
 
@@ -1369,6 +1307,33 @@ async function shufflePlaylist(pi){
     });
     renderMovieMain(show);
   } else {
+    currentType='tv';currentShow=show;
+    currentNav='shows';
+    blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
+    document.getElementById('search-input').value=show.name||'';
+    ['shows','movies','playlist','history','free'].forEach(n=>{
+      const el=document.getElementById('nav-'+n);
+      if(el) el.classList.toggle('active',n==='shows');
+    });
+    await loadSeasons(show.id);
+    renderMain(true);
+  }
+}
+
+async function shufflePlaylistShow(pi,si){
+  const show=playlists[pi]?.shows?.[si];
+  if(!show)return;
+  showToast('SHUFFLING '+((show.name||show.title||'').toUpperCase()).slice(0,15)+'...');
+  const type=show.release_date?'movie':'tv';
+  if(type==='movie'){
+    currentType='movie';currentShow=show;
+    currentNav='movies';
+    ['shows','movies','playlist','history','free'].forEach(n=>{
+      const el=document.getElementById('nav-'+n);
+      if(el) el.classList.toggle('active',n==='movies');
+    });
+    renderMovieMain(show);
+  }else{
     currentType='tv';currentShow=show;
     currentNav='shows';
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
@@ -1937,8 +1902,8 @@ async function renderHomeScreen(navType){
   const isMovies = homeNavType === 'movies';
   const type = isMovies ? 'movie' : 'tv';
 
-  const recentSection = await getHomeRecentItems(isMovies);
-  const recentFiltered = recentSection.items;
+  const yourShowsSection = getActivePlaylistShowsForHome(isMovies);
+  const yourShows = yourShowsSection.shows;
 
   let html=`<div class="home-wrap">
     <div class="empty-state" style="padding:30px 0 20px;">
@@ -1946,27 +1911,11 @@ async function renderHomeScreen(navType){
       <div class="empty-sub">${isMovies ? 'Search above to find a movie,<br>then hit the shuffle arrows.' : 'Search above to find a show,<br>then hit the shuffle arrows.'}</div>
     </div>`;
 
-  if(recentFiltered.length){
-    if(recentSection.fromWatchHistory){
-      html+=buildWatchHistorySectionHtml(recentSection);
-    }else{
-      html+=`<div class="genre-section"><div class="genre-title">${recentSection.title}</div><div class="h-scroll-wrap">`;
-      recentFiltered.slice(0,5).forEach(s=>{
-        const t=s.release_date?'movie':'tv';
-        html+=`<div class="ep-card-h" onclick="homeTileClick(${JSON.stringify(s.id)},'${t}')">
-          <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
-          <div class="ep-card-h-body">
-            <div class="ep-card-h-name">${s.name||s.title||''}</div>
-            <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
-          </div>
-        </div>`;
-      });
-      html+=`</div></div>`;
-    }
+  if(yourShows.length){
+    html+=buildYourShowsSectionHtml(yourShowsSection);
 
-    // Recommendations placeholder — loaded async below
     html+=`<div class="genre-section" id="recs-section" style="margin-top:4px;">
-      <div class="genre-title">-- BECAUSE YOU WATCHED <span id="recs-title" style="color:var(--blue);">${(recentFiltered[0].name||recentFiltered[0].title||'').toUpperCase()}</span> --</div>
+      <div class="genre-title">-- BECAUSE YOU WATCHED <span id="recs-title" style="color:var(--blue);">${(yourShows[0].name||yourShows[0].title||'').toUpperCase()}</span> --</div>
       <div class="h-scroll-wrap" id="recs-wrap">
         ${[1,2,3,4].map(()=>`<div class="ep-card-h" style="background:var(--surface);border-color:var(--border);"><div style="width:100%;height:220px;background:var(--surface2);border-radius:0;"></div><div class="ep-card-h-body"><div style="height:10px;background:var(--border);border-radius:4px;margin-bottom:6px;width:80%;"></div><div style="height:8px;background:var(--border);border-radius:4px;width:50%;"></div></div></div>`).join('')}
       </div>
@@ -1994,12 +1943,12 @@ async function renderHomeScreen(navType){
   showMain(html);
   setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
 
-  // Load recommendations async for the most recent item
-  if(recentFiltered.length){
-    const seed = recentFiltered[0];
+  // Load recommendations async for the first show in Your Shows
+  if(yourShows.length){
+    const seed = yourShows[0];
     const seedType = seed.release_date ? 'movie' : 'tv';
-    const recentIds = new Set(recentFiltered.map(s=>String(s.id)));
-    if(recentSection.fromWatchHistory && !/^\d+$/.test(String(seed.id))){
+    const recentIds = new Set(yourShows.map(s=>String(s.id)));
+    if(!/^\d+$/.test(String(seed.id))){
       document.getElementById('recs-section')&&document.getElementById('recs-section').remove();
       return;
     }
