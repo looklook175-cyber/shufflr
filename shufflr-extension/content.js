@@ -1463,6 +1463,28 @@ function getPlaylistShowTitle(show) {
   return show?.title || show?.name || show?.original_name || 'Untitled';
 }
 
+// Returns a TMDB-relative poster path (e.g. /abc.jpg) from a playlist show entry.
+function getPlaylistShowPosterPath(show) {
+  const raw = show?.poster_path || show?.posterPath || show?.showPoster || '';
+  if (!raw) return null;
+  const text = String(raw).trim();
+  if (!text) return null;
+  const tmdbMatch = text.match(/\/t\/p\/(?:original|w\d+)\/(.+)$/);
+  if (tmdbMatch?.[1]) return `/${tmdbMatch[1]}`;
+  return text.startsWith('/') ? text : `/${text}`;
+}
+
+function findPlaylistShowPosterPathInActive(active, showId) {
+  if (!showId) return null;
+  const norm = normalizeMaxId(showId);
+  for (const show of active?.shows || []) {
+    if (normalizeMaxId(getPlaylistShowMaxId(show)) === norm) {
+      return getPlaylistShowPosterPath(show);
+    }
+  }
+  return null;
+}
+
 function getPlaylistMaxIds(playlist) {
   return new Set(
     (playlist?.shows || [])
@@ -1595,6 +1617,8 @@ async function updateOrderedCurrentEpisodeFromUrl(active, url) {
     currentEpisode: {
       showId,
       showName: active.currentEpisode?.showName || active.currentShow?.showName || '',
+      posterPath: active.currentEpisode?.posterPath
+        || findPlaylistShowPosterPathInActive(active, showId),
       alternateId: episodeId,
     },
     currentEpisodeUrl: String(url).split('?')[0],
@@ -1783,6 +1807,7 @@ function mapEpisodeDetailsToShuffleEpisodes(show, details) {
       id,
       showId: maxId,
       showName: getPlaylistShowTitle(show),
+      posterPath: getPlaylistShowPosterPath(show),
       seasonNum: ep.seasonNum,
       episode_number: ep.episode_number,
       alternateId: String(ep.alternateId),
@@ -2260,6 +2285,7 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
     currentEpisode: {
       showId: pick.showId,
       showName: pick.showName,
+      posterPath: pick.posterPath || null,
       seasonNum: pick.seasonNum,
       episode_number: pick.episode_number,
       name: pick.name,
