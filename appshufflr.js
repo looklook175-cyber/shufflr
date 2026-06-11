@@ -1898,7 +1898,7 @@ const MOVIE_GENRES = [
   { name: 'SCI-FI',               ids: [27205,157336,49026,24428,76341,87101,329,475557], type:'movie' },
   { name: 'ANIMATION',            ids: [862,585,920,12,14,585,12444,10193],   type:'movie' },
   { name: 'THRILLER',             ids: [680,550,274,807,539,949,78,106],      type:'movie' },
-  { name: 'ROMANCE',              ids: [19404,tt,105864,111,401478,508965,396535,522627], type:'movie' },
+  { name: 'ROMANCE',              ids: [19404,597,105864,111,401478,508965,396535,522627], type:'movie' },
   { name: 'DOCUMENTARY',          ids: [284052,12444,98,106,246655,49596,70,244786], type:'movie' },
   { name: 'CLASSICS',             ids: [238,425,769,637,389,240,429,11],      type:'movie' },
   { name: 'SUPERHERO',            ids: [299536,24428,49026,99861,284053,271110,284054,209112], type:'movie' },

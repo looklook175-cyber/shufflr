@@ -1686,7 +1686,10 @@ async function updateOrderedCurrentEpisodeFromUrl(active, url) {
     ...active,
     currentEpisode: {
       showId,
-      showName: active.currentEpisode?.showName || active.currentShow?.showName || '',
+      showName: active.currentEpisode?.showName
+        || findPlaylistShowTitleByMaxId([{ shows: active?.shows || [] }], showId)
+        || active.currentShow?.showName
+        || '',
       posterPath: active.currentEpisode?.posterPath
         || findPlaylistShowPosterPathInActive(active, showId),
       alternateId: episodeId,
@@ -3916,13 +3919,21 @@ async function resolveWatchHistoryFieldsForCurrentShow() {
 
 async function logWatchHistoryToSupabase(showId, showName, posterPath) {
   if (!isChromeContextValid()) return;
-  if (!showId && !showName) return;
+
+  const active = await getActivePlaylistFromStorage();
+  const currentEpisode = active?.currentEpisode || null;
+  console.log('[Shufflr] saving watch history:', currentEpisode);
+
+  const resolvedShowName = currentEpisode?.showName
+    ? normalizeWatchHistoryShowName(currentEpisode.showName)
+    : null;
+  if (!showId && !resolvedShowName) return;
 
   const session = await getValidAuthSession();
   if (!session?.accessToken || !session?.userId) return;
 
   try {
-    console.log('[Shufflr] Watch history log attempted:', showName);
+    console.log('[Shufflr] Watch history log attempted:', resolvedShowName);
     const response = await fetch(`${SUPABASE_URL}/rest/v1/watch_history`, {
       method: 'POST',
       headers: {
@@ -3934,7 +3945,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
       body: JSON.stringify({
         user_id: session.userId,
         show_id: showId,
-        show_name: showName,
+        show_name: resolvedShowName,
         poster_path: posterPath || null,
         watched_at: new Date().toISOString(),
       }),
@@ -3945,7 +3956,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
       return;
     }
 
-    console.log('[Shufflr] Logged watch history:', showName);
+    console.log('[Shufflr] Logged watch history:', resolvedShowName);
   } catch (err) {
     console.error('[Shufflr] watch_history insert error:', err);
   }
