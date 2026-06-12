@@ -4028,7 +4028,11 @@ function getMaxPlayerShowName() {
     const el = document.querySelector(selector);
     if (!el) continue;
     const text = (el.getAttribute?.('aria-label') || el.textContent || '').trim();
-    if (text && text.length > 1) return text.split('|')[0].trim();
+    if (text && text.length > 1) {
+      const result = text.split('|')[0].trim();
+      console.log('[Shufflr] getMaxPlayerShowName result:', result || null);
+      return result;
+    }
   }
 
   const showMaxId = getCurrentMaxShowUuid();
@@ -4039,7 +4043,10 @@ function getMaxPlayerShowName() {
     if (!linkShowId) continue;
     if (showMaxId && normalizeMaxId(linkShowId) !== normalizeMaxId(showMaxId)) continue;
     const text = (link.textContent || '').trim();
-    if (text && text.length > 1 && text.length < 80) return text;
+    if (text && text.length > 1 && text.length < 80) {
+      console.log('[Shufflr] getMaxPlayerShowName result:', text || null);
+      return text;
+    }
   }
 
   const episodeSelectors = [
@@ -4068,7 +4075,9 @@ function getMaxPlayerShowName() {
     while (sibling) {
       const text = (sibling.textContent || '').trim();
       if (text && text.length > 1 && text.length < 80 && text !== episodeTitle) {
-        return text.split('|')[0].trim();
+        const result = text.split('|')[0].trim();
+        console.log('[Shufflr] getMaxPlayerShowName result:', result || null);
+        return result;
       }
       sibling = sibling.previousElementSibling;
     }
@@ -4079,12 +4088,16 @@ function getMaxPlayerShowName() {
         if (child === episodeEl || child.contains(episodeEl)) continue;
         const text = (child.textContent || '').trim();
         if (!text || text.length > 80 || text === episodeTitle) continue;
-        return text.split('|')[0].trim();
+        const result = text.split('|')[0].trim();
+        console.log('[Shufflr] getMaxPlayerShowName result:', result || null);
+        return result;
       }
     }
   }
 
-  return getShowNameFromPageMetadata();
+  const result = getShowNameFromPageMetadata();
+  console.log('[Shufflr] getMaxPlayerShowName result:', result || null);
+  return result;
 }
 
 function posterPathToWatchHistoryUrl(relativePoster) {
@@ -4267,6 +4280,7 @@ async function buildWatchHistoryPayloadFromCache() {
 
   const poster_path = posterPathToWatchHistoryUrl(relativePoster);
 
+  console.log('[Shufflr] payload debug:', JSON.stringify({ show_id, show_name, poster_path }));
   return { show_id, show_name, poster_path };
 }
 
