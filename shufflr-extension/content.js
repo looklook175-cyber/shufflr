@@ -1592,7 +1592,7 @@ function getPlaylistShowTitle(show) {
 
 // Returns a TMDB-relative poster path (e.g. /abc.jpg) from a playlist show entry.
 function getPlaylistShowPosterPath(show) {
-  const raw = show?.poster_path || show?.posterPath || show?.showPoster || '';
+  const raw = show?.poster_path || show?.posterPath || show?.showPoster || show?.poster || '';
   if (!raw) return null;
   const text = String(raw).trim();
   if (!text) return null;
@@ -3900,7 +3900,7 @@ function normalizePosterPathForStorage(value) {
   return text.startsWith('/') ? text : text;
 }
 
-function findPosterPathInPlaylists(playlists, { tmdbId, maxId } = {}) {
+function findPlaylistShowEntry(playlists, { tmdbId, maxId } = {}) {
   const normMax = maxId ? normalizeMaxId(maxId) : '';
   const normTmdb = tmdbId != null && tmdbId !== '' ? String(tmdbId) : '';
 
@@ -3910,10 +3910,21 @@ function findPosterPathInPlaylists(playlists, { tmdbId, maxId } = {}) {
       const showTmdbId = show.id || show.tmdbId;
       const maxMatch = normMax && showMaxId && normalizeMaxId(showMaxId) === normMax;
       const tmdbMatch = normTmdb && showTmdbId && String(showTmdbId) === normTmdb;
-      if ((maxMatch || tmdbMatch) && show.poster_path) {
-        return normalizePosterPathForStorage(show.poster_path);
-      }
+      if (maxMatch || tmdbMatch) return show;
     }
+  }
+  return null;
+}
+
+function findPosterPathInPlaylists(playlists, { tmdbId, maxId } = {}) {
+  const show = findPlaylistShowEntry(playlists, { tmdbId, maxId });
+  if (show) {
+    const fromShow = getPlaylistShowPosterPath(show);
+    if (fromShow) return normalizePosterPathForStorage(fromShow);
+  }
+
+  const normTmdb = tmdbId != null && tmdbId !== '' ? String(tmdbId) : '';
+  for (const playlist of playlists || []) {
     for (const ep of playlist?.episodes || []) {
       if (!normTmdb || !ep.showId || String(ep.showId) !== normTmdb) continue;
       if (ep.showPoster) return normalizePosterPathForStorage(ep.showPoster);
@@ -3923,17 +3934,123 @@ function findPosterPathInPlaylists(playlists, { tmdbId, maxId } = {}) {
 }
 
 function findPlaylistShowTitleByMaxId(playlists, maxId) {
-  if (!maxId) return null;
-  const normMax = normalizeMaxId(maxId);
-  for (const playlist of playlists || []) {
-    for (const show of playlist?.shows || []) {
-      const showMaxId = show.maxId || show.maxShowId || show.max_id;
-      if (showMaxId && normalizeMaxId(showMaxId) === normMax) {
-        return getPlaylistShowTitle(show);
-      }
-    }
+  const show = findPlaylistShowEntry(playlists, { maxId });
+  return show ? getPlaylistShowTitle(show) : null;
+}
+
+function findPlaylistShowTitleByIds(playlists, { tmdbId, maxId } = {}) {
+  const show = findPlaylistShowEntry(playlists, { tmdbId, maxId });
+  return show ? getPlaylistShowTitle(show) : null;
+}
+
+function extractShowNameFromCacheEntry(cacheEntry) {
+  if (!cacheEntry) return '';
+  const direct = cacheEntry.showName
+    || cacheEntry.show?.name
+    || cacheEntry.show?.title
+    || cacheEntry.meta?.name
+    || cacheEntry.meta?.title;
+  if (direct) return String(direct).trim();
+
+  for (const ep of cacheEntry.episodeDetails || []) {
+    if (ep.showName) return String(ep.showName).trim();
+  }
+  return '';
+}
+
+function extractPosterFromCacheEntry(cacheEntry) {
+  if (!cacheEntry) return null;
+  const direct = cacheEntry.posterPath
+    || cacheEntry.poster_path
+    || cacheEntry.poster
+    || cacheEntry.show?.poster_path
+    || cacheEntry.show?.posterPath
+    || cacheEntry.show?.poster;
+  if (direct) return normalizePosterPathForStorage(direct);
+  return null;
+}
+
+function getPosterFromRouteJson(json) {
+  if (!json) return null;
+  const attrs = json.data?.attributes || {};
+  const imageCandidates = [
+    attrs.defaultImage?.url,
+    attrs.coverImage?.url,
+    attrs.posterImage?.url,
+    attrs.image?.url,
+    attrs.images?.default?.url,
+    attrs.images?.cover?.url,
+  ];
+  for (const url of imageCandidates) {
+    if (url) return normalizePosterPathForStorage(url);
+  }
+
+  for (const item of json.included || []) {
+    const type = (item.type || '').toLowerCase();
+    if (!type.includes('image')) continue;
+    const url = item.attributes?.url || item.attributes?.src;
+    if (url) return normalizePosterPathForStorage(url);
   }
   return null;
+}
+
+function getShowNameFromPageMetadata() {
+  const candidates = [
+    document.querySelector('meta[property="og:title"]')?.getAttribute('content'),
+    document.title,
+  ];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const parts = String(raw).split('|').map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1];
+      if (last && !/^(max|hbo max)$/i.test(last)) return last;
+    }
+  }
+  return '';
+}
+
+// Series/show title on the Max player (distinct from episode title in h1).
+function getMaxPlayerShowName() {
+  const selectors = [
+    '[data-testid="series-title"]',
+    '[data-testid="show-title"]',
+    '[data-testid="breadcrumb"] a[href*="/show/"]',
+    '[class*="SeriesTitle"]',
+    '[class*="series-title"]',
+    '[class*="ShowTitle"]',
+    '[class*="show-title"]',
+    'a[href*="/show/"][class*="title"]',
+  ];
+
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    if (!el) continue;
+    const text = (el.getAttribute?.('aria-label') || el.textContent || '').trim();
+    if (text && text.length > 1) return text.split('|')[0].trim();
+  }
+
+  const showMaxId = getCurrentMaxShowUuid();
+  const showLinks = document.querySelectorAll('a[href*="/show/"]');
+  for (const link of showLinks) {
+    const href = link.getAttribute('href') || '';
+    const linkShowId = extractMaxShowUuidFromUrl(href);
+    if (!linkShowId) continue;
+    if (showMaxId && normalizeMaxId(linkShowId) !== normalizeMaxId(showMaxId)) continue;
+    const text = (link.textContent || '').trim();
+    if (text && text.length > 1 && text.length < 80) return text;
+  }
+
+  return getShowNameFromPageMetadata();
+}
+
+function posterPathToWatchHistoryUrl(relativePoster) {
+  if (!relativePoster) return null;
+  const normalized = normalizePosterPathForStorage(relativePoster);
+  if (!normalized) return null;
+  return normalized.startsWith('http')
+    ? normalized
+    : `https://image.tmdb.org/t/p/w300${normalized.startsWith('/') ? normalized : '/' + normalized}`;
 }
 
 // Match the current Max watch URL against cached episode details or URL list.
@@ -3973,10 +4090,10 @@ function findCachedEpisodeDetailMatchingUrl(cacheEntry, pageUrl, showMaxIdHint =
 
 // Build a currentEpisode object for watch history from a cache match.
 function buildWatchHistoryCurrentEpisode(cachedEp, cacheEntry, showMaxId, active, playlists) {
-  const allShows = (playlists || []).flatMap(pl => pl.shows || []);
   const showName = normalizeWatchHistoryShowName(
-    cacheEntry?.showName
-    || findPlaylistShowTitleByMaxId([{ shows: allShows }], showMaxId)
+    extractShowNameFromCacheEntry(cacheEntry)
+    || findPlaylistShowTitleByIds(playlists, { maxId: showMaxId, tmdbId: cacheEntry?.tmdbId })
+    || getMaxPlayerShowName()
     || active?.currentShow?.showName
     || active?.currentEpisode?.showName
     || '',
@@ -3984,7 +4101,8 @@ function buildWatchHistoryCurrentEpisode(cachedEp, cacheEntry, showMaxId, active
   const showId = cacheEntry?.tmdbId || showMaxId;
   const posterPath = active?.currentEpisode?.posterPath
     || findPlaylistShowPosterPathInActive(active, showMaxId)
-    || findPlaylistShowPosterPathInActive({ shows: allShows }, showMaxId);
+    || findPosterPathInPlaylists(playlists, { maxId: showMaxId, tmdbId: cacheEntry?.tmdbId })
+    || extractPosterFromCacheEntry(cacheEntry);
 
   return {
     showId,
@@ -4083,36 +4201,42 @@ async function buildWatchHistoryPayloadFromCache() {
   }
   if (show_id) show_id = String(show_id);
 
-  let show_name = '';
-  if (cacheEntry?.showName) {
-    show_name = normalizeWatchHistoryShowName(cacheEntry.showName);
-  }
+  let show_name = normalizeWatchHistoryShowName(extractShowNameFromCacheEntry(cacheEntry));
   if (!show_name && currentEpisode?.showName) {
     show_name = normalizeWatchHistoryShowName(currentEpisode.showName);
   }
-  if (!show_name && showMaxId) {
-    const fromPlaylist = findPlaylistShowTitleByMaxId(playlists, showMaxId);
-    if (fromPlaylist) show_name = normalizeWatchHistoryShowName(fromPlaylist);
+  if (!show_name) {
+    show_name = normalizeWatchHistoryShowName(
+      findPlaylistShowTitleByIds(playlists, { maxId: showMaxId, tmdbId: show_id || tmdbId })
+    );
   }
   if (!show_name) {
-    show_name = normalizeWatchHistoryShowName(getCurrentShowTitle());
+    show_name = normalizeWatchHistoryShowName(getMaxPlayerShowName());
   }
-  if (!show_name && active?.currentShow?.showName) {
-    show_name = normalizeWatchHistoryShowName(active.currentShow.showName);
+  if (!show_name) {
+    show_name = normalizeWatchHistoryShowName(active?.currentShow?.showName);
   }
 
-  let poster_path = null;
-  const relativePoster = currentEpisode?.posterPath
+  if (!show_name && cacheEntry) {
+    console.log('[Shufflr] cache entry keys:', Object.keys(cacheEntry));
+  }
+
+  let relativePoster = currentEpisode?.posterPath
     || findPlaylistShowPosterPathInActive(active, showMaxId)
-    || findPosterPathInPlaylists(playlists, { tmdbId: show_id, maxId: showMaxId });
-  if (relativePoster) {
-    const normalized = normalizePosterPathForStorage(relativePoster);
-    if (normalized) {
-      poster_path = normalized.startsWith('http')
-        ? normalized
-        : `https://image.tmdb.org/t/p/w300${normalized.startsWith('/') ? normalized : '/' + normalized}`;
+    || findPosterPathInPlaylists(playlists, { tmdbId: show_id, maxId: showMaxId })
+    || extractPosterFromCacheEntry(cacheEntry);
+
+  if (!show_name || !relativePoster) {
+    const routeJson = showMaxId ? await fetchShowRoute(showMaxId) : null;
+    if (!show_name) {
+      show_name = normalizeWatchHistoryShowName(getShowNameFromRouteJson(routeJson));
+    }
+    if (!relativePoster) {
+      relativePoster = getPosterFromRouteJson(routeJson);
     }
   }
+
+  const poster_path = posterPathToWatchHistoryUrl(relativePoster);
 
   return { show_id, show_name, poster_path };
 }
@@ -4123,8 +4247,9 @@ async function logWatchHistoryToSupabase(payload) {
 
   const show_id = payload?.show_id ? String(payload.show_id).trim() : '';
   const show_name = payload?.show_name ? String(payload.show_name).trim() : '';
+  const poster_path = payload?.poster_path ? String(payload.poster_path).trim() : '';
 
-  if (!show_id || !show_name) {
+  if (!show_id || !show_name || !poster_path) {
     console.log('[Shufflr] Skipping watch history — missing show data');
     return;
   }
@@ -4137,7 +4262,7 @@ async function logWatchHistoryToSupabase(payload) {
     user_id: session.userId,
     show_id,
     show_name,
-    poster_path: payload.poster_path || null,
+    poster_path,
     watched_at: new Date().toISOString(),
   };
 
