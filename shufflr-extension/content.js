@@ -4342,6 +4342,7 @@ async function maybeLogWatchHistoryOnPlay() {
   if (!isVideoWatchUrl(location.href)) return;
 
   const logKey = location.href.split('?')[0];
+  console.log('[Shufflr] maybeLogWatchHistoryOnPlay called for', logKey, '— already attempted:', lastWatchHistoryLogKey === logKey);
   if (lastWatchHistoryLogKey === logKey) return;
   lastWatchHistoryLogKey = logKey;
 
