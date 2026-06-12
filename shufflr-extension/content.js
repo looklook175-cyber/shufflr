@@ -139,6 +139,7 @@ let shufflrAutoHideEnterHandler = null;
 let shufflrAutoHideLeaveHandler = null;
 let lastWatchHistoryLogKey = null;
 let lastWatchHistoryCurrentEpisode = null;
+let domDebugLogged = false;
 
 function isChromeContextValid() {
   try { return !!chrome.runtime?.id; } catch { return false; }
@@ -4010,6 +4011,15 @@ function getShowNameFromPageMetadata() {
   return '';
 }
 
+function logDomDebugForShowNameOnce() {
+  if (domDebugLogged) return;
+  domDebugLogged = true;
+  console.log('[Shufflr] DOM debug - h1 elements:', Array.from(document.querySelectorAll('h1')).map(e => e.textContent.trim()));
+  console.log('[Shufflr] DOM debug - data-testid elements:', Array.from(document.querySelectorAll('[data-testid]')).map(e => ({ testid: e.getAttribute('data-testid'), text: e.textContent.trim().slice(0, 50) })).filter(x => x.text));
+  console.log('[Shufflr] DOM debug - og:title meta:', document.querySelector('meta[property="og:title"]')?.content);
+  console.log('[Shufflr] DOM debug - document.title:', document.title);
+}
+
 // Series/show title on the Max player (distinct from episode title in h1).
 function getMaxPlayerShowName() {
   const selectors = [
@@ -4095,6 +4105,7 @@ function getMaxPlayerShowName() {
     }
   }
 
+  logDomDebugForShowNameOnce();
   const result = getShowNameFromPageMetadata();
   console.log('[Shufflr] getMaxPlayerShowName result:', result || null);
   return result;
