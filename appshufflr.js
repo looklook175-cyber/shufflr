@@ -211,20 +211,29 @@ function recentlyWatchedMaxCardClick(showId) {
   homeTileClick(showId, 'tv');
 }
 
+function recentlyWatchedMaxCardClickFromCard(el) {
+  const raw = el?.getAttribute?.('data-recently-watched-show-id') || '';
+  try {
+    recentlyWatchedMaxCardClick(decodeURIComponent(raw));
+  } catch {
+    recentlyWatchedMaxCardClick(raw);
+  }
+}
+
 function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const posterUrl = buildPosterUrl(entry.poster_path, 'w300');
   const showName = escapeHtml(entry.show_name || '');
   const episodeLabel = escapeHtml(formatRecentlyWatchedEpisodeLabel(entry));
   const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
   const showId = entry.show_id != null ? String(entry.show_id) : '';
-  const clickHandler = `onclick='recentlyWatchedMaxCardClick(${JSON.stringify(showId)})'`;
+  const showIdAttr = encodeURIComponent(showId);
   const thumbHtml = posterUrl
     ? `<img src="${posterUrl}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;background:#1a1a1a;" />`
     : '';
   const descHtml = description
     ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
     : '';
-  return `<div class="ep-card-h" ${clickHandler} style="width:240px;">
+  return `<div class="ep-card-h" data-recently-watched-show-id="${showIdAttr}" onclick="recentlyWatchedMaxCardClickFromCard(this)" style="width:240px;">
     <div style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;">${thumbHtml}</div>
     <div class="ep-card-h-body">
       <div class="ep-card-h-name">${showName}</div>
