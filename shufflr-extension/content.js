@@ -4306,7 +4306,14 @@ async function buildWatchHistoryPayloadFromCache() {
   const poster_path = posterPathToWatchHistoryUrl(relativePoster);
 
   console.log('[Shufflr] payload debug:', JSON.stringify({ show_id, show_name, poster_path }));
-  return { show_id, show_name, poster_path };
+  return {
+    show_id,
+    show_name,
+    poster_path,
+    episode_name: currentEpisode?.name || null,
+    season_num: currentEpisode?.seasonNum ?? null,
+    episode_number: currentEpisode?.episode_number ?? null,
+  };
 }
 
 async function logWatchHistoryToSupabase(payload) {
@@ -4331,6 +4338,9 @@ async function logWatchHistoryToSupabase(payload) {
     show_id,
     show_name,
     poster_path: poster_path || null,
+    episode_name: payload.episode_name,
+    season_num: payload.season_num,
+    episode_number: payload.episode_number,
     watched_at: new Date().toISOString(),
   };
 
