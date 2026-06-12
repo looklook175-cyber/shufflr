@@ -4014,11 +4014,16 @@ async function ensureCurrentEpisodeForWatchHistory() {
   const cachedEp = findCachedEpisodeDetailMatchingUrl(cacheEntry, location.href, maxId);
   if (!cachedEp) {
     console.log('[Shufflr] No cache match for current URL:', location.href);
-    return active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
   }
 
   const playlists = await readPlaylistsFromStorage();
-  const currentEpisode = buildWatchHistoryCurrentEpisode(cachedEp, cacheEntry, maxId, active, playlists);
+  const currentEpisode = buildWatchHistoryCurrentEpisode(
+    cachedEp || { alternateId: getMaxEpisodeIdFromUrl(location.href, maxId) },
+    cacheEntry,
+    maxId,
+    active,
+    playlists,
+  );
   lastWatchHistoryCurrentEpisode = currentEpisode;
 
   if (active) {
@@ -4034,13 +4039,26 @@ async function ensureCurrentEpisodeForWatchHistory() {
   return currentEpisode;
 }
 
-async function resolveWatchHistoryFieldsForCurrentShow() {
+// Build watch_history row fields from the episode cache keyed by the current Max show ID.
+async function buildWatchHistoryPayloadFromCache() {
+  const showMaxId = getCurrentMaxShowUuid();
   const active = await getActivePlaylistFromStorage();
-  const maxId = getCurrentMaxShowUuid();
-  const cacheEntry = maxId ? await getCachedEpisodeEntry(maxId) : null;
   const playlists = await readPlaylistsFromStorage();
 
-  const currentEpisode = active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+  const cacheEntry = showMaxId ? await getCachedEpisodeEntry(showMaxId) : null;
+
+  let currentEpisode = active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+  if (cacheEntry && showMaxId && (!currentEpisode?.showId || !currentEpisode?.showName)) {
+    const cachedEp = findCachedEpisodeDetailMatchingUrl(cacheEntry, location.href, showMaxId);
+    currentEpisode = buildWatchHistoryCurrentEpisode(
+      cachedEp || { alternateId: getMaxEpisodeIdFromUrl(location.href, showMaxId) },
+      cacheEntry,
+      showMaxId,
+      active,
+      playlists,
+    );
+    lastWatchHistoryCurrentEpisode = currentEpisode;
+  }
 
   const episodeTmdbId = currentEpisode?.showId
     && /^\d+$/.test(String(currentEpisode.showId))
@@ -4048,63 +4066,83 @@ async function resolveWatchHistoryFieldsForCurrentShow() {
     : null;
   const tmdbId = cacheEntry?.tmdbId || episodeTmdbId || null;
 
-  let showId = tmdbId || maxId || active?.currentShow?.showId || currentEpisode?.showId || null;
-  if (maxId) {
+  let show_id = tmdbId || null;
+  if (showMaxId) {
     for (const playlist of playlists) {
       for (const show of playlist?.shows || []) {
-        const showMaxId = show.maxId || show.maxShowId || show.max_id;
-        if (showMaxId && normalizeMaxId(showMaxId) === normalizeMaxId(maxId) && show.id) {
-          showId = show.id;
+        const playlistMaxId = show.maxId || show.maxShowId || show.max_id;
+        if (playlistMaxId && normalizeMaxId(playlistMaxId) === normalizeMaxId(showMaxId) && show.id) {
+          show_id = String(show.id);
           break;
         }
       }
     }
   }
+  if (!show_id) {
+    show_id = showMaxId || active?.currentShow?.showId || currentEpisode?.showId || null;
+  }
+  if (show_id) show_id = String(show_id);
 
-  let showName = currentEpisode?.showName || null;
-  if (showName) {
-    showName = normalizeWatchHistoryShowName(showName);
+  let show_name = '';
+  if (cacheEntry?.showName) {
+    show_name = normalizeWatchHistoryShowName(cacheEntry.showName);
+  }
+  if (!show_name && currentEpisode?.showName) {
+    show_name = normalizeWatchHistoryShowName(currentEpisode.showName);
+  }
+  if (!show_name && showMaxId) {
+    const fromPlaylist = findPlaylistShowTitleByMaxId(playlists, showMaxId);
+    if (fromPlaylist) show_name = normalizeWatchHistoryShowName(fromPlaylist);
+  }
+  if (!show_name) {
+    show_name = normalizeWatchHistoryShowName(getCurrentShowTitle());
+  }
+  if (!show_name && active?.currentShow?.showName) {
+    show_name = normalizeWatchHistoryShowName(active.currentShow.showName);
   }
 
-  let posterPath = currentEpisode?.posterPath
-    ? 'https://image.tmdb.org/t/p/w300' + currentEpisode.posterPath
-    : null;
+  let poster_path = null;
+  const relativePoster = currentEpisode?.posterPath
+    || findPlaylistShowPosterPathInActive(active, showMaxId)
+    || findPosterPathInPlaylists(playlists, { tmdbId: show_id, maxId: showMaxId });
+  if (relativePoster) {
+    const normalized = normalizePosterPathForStorage(relativePoster);
+    if (normalized) {
+      poster_path = normalized.startsWith('http')
+        ? normalized
+        : `https://image.tmdb.org/t/p/w300${normalized.startsWith('/') ? normalized : '/' + normalized}`;
+    }
+  }
 
-  return { showId, showName, posterPath, currentEpisode };
+  return { show_id, show_name, poster_path };
 }
 
-async function logWatchHistoryToSupabase(showId, showName, posterPath) {
+async function logWatchHistoryToSupabase(payload) {
   console.log('[Shufflr] Watch history function called');
   if (!isChromeContextValid()) return;
 
-  const active = await getActivePlaylistFromStorage();
-  const currentEpisode = active?.currentEpisode || lastWatchHistoryCurrentEpisode || null;
+  const show_id = payload?.show_id ? String(payload.show_id).trim() : '';
+  const show_name = payload?.show_name ? String(payload.show_name).trim() : '';
 
-  if (!currentEpisode || !currentEpisode.showId) {
-    console.log('[Shufflr] Skipping watch history — currentEpisode not ready');
+  if (!show_id || !show_name) {
+    console.log('[Shufflr] Skipping watch history — missing show data');
     return;
   }
-
-  console.log('[Shufflr] currentEpisode at log time:', JSON.stringify(currentEpisode));
-  console.log('[Shufflr] saving watch history:', currentEpisode);
-
-  const resolvedShowName = currentEpisode.showName
-    ? normalizeWatchHistoryShowName(currentEpisode.showName)
-    : null;
-  if (!showId && !resolvedShowName) return;
 
   const session = await getValidAuthSession();
   console.log('[Shufflr] Session found:', !!session);
   if (!session?.accessToken || !session?.userId) return;
 
-  const resolvedShowId = showId || currentEpisode.showId;
-  const resolvedPosterPath = posterPath
-    || (currentEpisode.posterPath
-      ? 'https://image.tmdb.org/t/p/w300' + currentEpisode.posterPath
-      : null);
+  const body = {
+    user_id: session.userId,
+    show_id,
+    show_name,
+    poster_path: payload.poster_path || null,
+    watched_at: new Date().toISOString(),
+  };
 
   try {
-    console.log('[Shufflr] Watch history log attempted:', resolvedShowName);
+    console.log('[Shufflr] watch_history payload:', JSON.stringify(body));
     const response = await fetch(`${SUPABASE_URL}/rest/v1/watch_history`, {
       method: 'POST',
       headers: {
@@ -4113,13 +4151,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
         'Content-Type': 'application/json',
         Prefer: 'return=minimal',
       },
-      body: JSON.stringify({
-        user_id: session.userId,
-        show_id: resolvedShowId,
-        show_name: resolvedShowName,
-        poster_path: resolvedPosterPath || null,
-        watched_at: new Date().toISOString(),
-      }),
+      body: JSON.stringify(body),
     });
 
     const result = { ok: response.ok, status: response.status };
@@ -4130,7 +4162,7 @@ async function logWatchHistoryToSupabase(showId, showName, posterPath) {
       return;
     }
 
-    console.log('[Shufflr] Logged watch history:', resolvedShowName);
+    console.log('[Shufflr] Logged watch history:', show_name);
   } catch (err) {
     console.error('[Shufflr] watch_history insert error:', err);
   }
@@ -4145,9 +4177,8 @@ async function maybeLogWatchHistoryOnPlay() {
   lastWatchHistoryLogKey = logKey;
 
   await ensureCurrentEpisodeForWatchHistory();
-  const fields = await resolveWatchHistoryFieldsForCurrentShow();
-  if (!fields.showId && !fields.showName) return;
-  await logWatchHistoryToSupabase(fields.showId, fields.showName, fields.posterPath);
+  const payload = await buildWatchHistoryPayloadFromCache();
+  await logWatchHistoryToSupabase(payload);
 }
 
 // ── TOGGLE ─────────────────────────────────────────────────────────────────
