@@ -319,6 +319,46 @@ function chromeStorageLocalRemove(keys) {
   });
 }
 
+const MAX_TAB_URL_PATTERNS = [
+  'https://play.max.com/*',
+  'https://www.max.com/*',
+  'https://play.hbomax.com/*',
+  'https://www.hbomax.com/*',
+];
+
+// Push cloud-synced playlists from the web app to open Max tabs.
+async function broadcastPlaylistsToMaxTabs(playlists) {
+  if (!isChromeContextValid()) return;
+  if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
+
+  try {
+    const tabs = await chrome.tabs.query({ url: MAX_TAB_URL_PATTERNS });
+    await Promise.all(tabs.map(tab => new Promise(resolve => {
+      try {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'SHUFFLR_SYNC_PLAYLISTS',
+          payload: playlists,
+        }, () => {
+          try {
+            if (handleChromeRuntimeLastError()) {
+              resolve();
+              return;
+            }
+          } catch (err) {
+            if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          }
+          resolve();
+        });
+      } catch (err) {
+        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+        resolve();
+      }
+    })));
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  }
+}
+
 async function syncPlaylistsToWebApp(playlists) {
   if (!isChromeContextValid()) return;
   if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
@@ -364,6 +404,20 @@ async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } 
   if (!ok) return;
   if (syncToWebApp) {
     await syncPlaylistsToWebApp(playlists);
+  }
+}
+
+// Apply playlists from web-app cloud sync into chrome.storage.local (no Supabase upload).
+async function applySyncedPlaylists(playlists, { syncToWebApp = false } = {}) {
+  if (!Array.isArray(playlists)) return;
+  if (!isChromeContextValid()) return;
+  dropdownPlaylists = playlists;
+  await setShufflrPlaylistsInStorage(playlists, { syncToWebApp });
+  if (!IS_SHUFFLR_WEB_APP) {
+    const dropdown = document.getElementById('shufflr-playlist-dropdown');
+    if (dropdown?.classList.contains('open')) {
+      await populatePlaylistDropdown();
+    }
   }
 }
 
@@ -478,8 +532,10 @@ function installWebAppHandoffBridge() {
 
     if (event.data?.type === 'SHUFFLR_SYNC_PLAYLISTS') {
       if (!isChromeContextValid()) return;
-      setShufflrPlaylistsInStorage(event.data.playlists || [], { syncToWebApp: false }).then(() => {
+      const playlists = event.data.playlists || [];
+      applySyncedPlaylists(playlists, { syncToWebApp: false }).then(() => {
         console.log('[Shufflr] Playlists synced to chrome.storage.local');
+        broadcastPlaylistsToMaxTabs(playlists);
       });
       return;
     }
@@ -504,7 +560,7 @@ function installWebAppHandoffBridge() {
 
   window.addEventListener('shufflr-playlists-sync', (event) => {
     if (!isChromeContextValid()) return;
-    setShufflrPlaylistsInStorage(event.detail || [], { syncToWebApp: false });
+    applySyncedPlaylists(event.detail || [], { syncToWebApp: false });
   });
 
   console.log('[Shufflr] Web app handoff bridge ready');
@@ -1235,7 +1291,7 @@ function renderPlaylistShowListItems(playlist) {
     return '<div class="shufflr-pl-show-item">No shows yet</div>';
   }
   return shows.map(show => (
-    `<div class="shufflr-pl-show-item">${escapePlaylistLabel(show.title || 'Untitled')}</div>`
+    `<div class="shufflr-pl-show-item">${escapePlaylistLabel(getPlaylistShowTitle(show))}</div>`
   )).join('');
 }
 
@@ -5388,8 +5444,44 @@ async function maybeAutoClickShowPageResume() {
   }, 300);
 }
 
+// Max tabs: accept SHUFFLR_SYNC_PLAYLISTS from web app and refresh storage-backed UI.
+function installMaxPlaylistSyncListener() {
+  if (IS_SHUFFLR_WEB_APP) return;
+  if (!isChromeContextValid()) return;
+
+  try {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== 'SHUFFLR_SYNC_PLAYLISTS') return;
+      const playlists = message.payload || message.playlists || [];
+      applySyncedPlaylists(playlists, { syncToWebApp: false }).then(() => {
+        console.log('[Shufflr] Playlists updated from web app');
+        sendResponse({ ok: true });
+      });
+      return true;
+    });
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  }
+
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local' || !changes[SHUFFLR_PLAYLISTS_KEY]) return;
+      const newValue = changes[SHUFFLR_PLAYLISTS_KEY].newValue;
+      if (!Array.isArray(newValue)) return;
+      dropdownPlaylists = newValue;
+      const dropdown = document.getElementById('shufflr-playlist-dropdown');
+      if (dropdown?.classList.contains('open')) {
+        populatePlaylistDropdown();
+      }
+    });
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  }
+}
+
 // ── INIT ────────────────────────────────────────────────────────────────────
 if (!IS_SHUFFLR_WEB_APP) {
+installMaxPlaylistSyncListener();
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;
 });
