@@ -37,7 +37,7 @@ export async function getWatchHistory(limit = 10) {
 
   const { data, error } = await supabase
     .from('watch_history')
-    .select('id, show_id, show_name, poster_path, watched_at')
+    .select('id, show_id, show_name, poster_path, watched_at, episode_name, season_num, episode_number')
     .eq('user_id', user.id)
     .order('watched_at', { ascending: false })
     .limit(limit)

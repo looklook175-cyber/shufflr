@@ -178,24 +178,68 @@ function dedupeWatchHistoryByShowId(entries) {
   });
 }
 
-function buildRecentlyWatchedMaxCardHtml(entry) {
-  const posterUrl = buildPosterUrl(entry.poster_path, 'w185');
-  const imgHtml = posterUrl
-    ? `<img src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />`
-    : `<div style="width:100%;height:220px;background:#1a1a1a;"></div>`;
-  const name = escapeHtml(entry.show_name || '');
+function formatRecentlyWatchedEpisodeLabel(entry) {
+  const name = (entry.episode_name || '').trim();
+  const epNum = entry.episode_number;
+  if (epNum != null && name) return `E${epNum}: ${name}`;
+  if (epNum != null) return `Episode ${epNum}`;
+  if (name) return name;
+  return '';
+}
+
+async function fetchTmdbEpisodeOverview(showId, seasonNum, episodeNumber) {
+  if (!/^\d+$/.test(String(showId))) return null;
+  const season = Number(seasonNum);
+  const episode = Number(episodeNumber);
+  if (!Number.isFinite(season) || !Number.isFinite(episode)) return null;
+  try {
+    const r = await fetch(
+      `https://api.themoviedb.org/3/tv/${showId}/season/${season}/episode/${episode}?api_key=${KEY}&language=en-US`
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    const overview = (data.overview || '').trim();
+    return overview || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildRecentlyWatchedMaxCardHtml(entry, description) {
+  const posterUrl = buildPosterUrl(entry.poster_path, 'w300');
+  const showName = escapeHtml(entry.show_name || '');
+  const episodeLabel = escapeHtml(formatRecentlyWatchedEpisodeLabel(entry));
   const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
-  return `<div class="ep-card-h">
-    ${imgHtml}
+  const clickHandler = /^\d+$/.test(String(entry.show_id))
+    ? `onclick="homeTileClick(${entry.show_id},'tv')"`
+    : '';
+  const thumbHtml = posterUrl
+    ? `<img src="${posterUrl}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;background:#1a1a1a;" />`
+    : '';
+  const descHtml = description
+    ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
+    : '';
+  return `<div class="ep-card-h" ${clickHandler} style="width:240px;">
+    <div style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;">${thumbHtml}</div>
     <div class="ep-card-h-body">
-      <div class="ep-card-h-name">${name}</div>
+      <div class="ep-card-h-name">${showName}</div>
+      ${episodeLabel ? `<div class="ep-card-h-code">${episodeLabel}</div>` : ''}
       <div class="ep-card-h-meta">${time}</div>
+      ${descHtml}
     </div>
   </div>`;
 }
 
-function buildRecentlyWatchedMaxCardsHtml(entries) {
-  return (entries || []).map(buildRecentlyWatchedMaxCardHtml).join('');
+async function buildRecentlyWatchedMaxCardsHtml(entries) {
+  const cards = await Promise.all((entries || []).map(async entry => {
+    const description = await fetchTmdbEpisodeOverview(
+      entry.show_id,
+      entry.season_num,
+      entry.episode_number
+    );
+    return buildRecentlyWatchedMaxCardHtml(entry, description);
+  }));
+  return cards.join('');
 }
 
 async function buildRecentlyWatchedOnMaxHtml() {
@@ -210,7 +254,7 @@ async function buildRecentlyWatchedOnMaxHtml() {
     }
     return `<div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
-      <div class="h-scroll-wrap">${buildRecentlyWatchedMaxCardsHtml(entries)}</div>
+      <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div>
     </div>`;
   } catch (e) {
     console.error('[Shufflr] Failed to load watch history:', e);
