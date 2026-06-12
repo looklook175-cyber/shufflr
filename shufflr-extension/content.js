@@ -4027,6 +4027,15 @@ function logDomDebugForShowNameOnce() {
 
 // Series/show title on the Max player (distinct from episode title in h1).
 function getMaxPlayerShowName() {
+  const subtitleEl = document.querySelector('[data-testid="player-ux-asset-subtitle"]');
+  if (subtitleEl) {
+    const text = subtitleEl.textContent.trim();
+    if (text) {
+      console.log('[Shufflr] getMaxPlayerShowName result:', text, '(from player-ux-asset-subtitle)');
+      return text;
+    }
+  }
+
   const selectors = [
     '[data-testid="series-title"]',
     '[data-testid="show-title"]',
