@@ -31,7 +31,7 @@ export async function logWatchHistory(showId, showName, posterPath) {
   return data
 }
 
-export async function getWatchHistory() {
+export async function getWatchHistory(limit = 10) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return []
 
@@ -40,7 +40,7 @@ export async function getWatchHistory() {
     .select('id, show_id, show_name, poster_path, watched_at')
     .eq('user_id', user.id)
     .order('watched_at', { ascending: false })
-    .limit(10)
+    .limit(limit)
 
   if (error) throw error
   return data || []

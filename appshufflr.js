@@ -22,6 +22,7 @@ let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
+let recentlyWatchedMaxView='shows';
 
 function handleExtensionPlaylistSync(payload){
   playlists=Array.isArray(payload)?payload:[];
@@ -168,34 +169,90 @@ function formatRelativeWatchTime(watchedAt) {
   return new Date(watchedAt).toLocaleDateString();
 }
 
+function dedupeWatchHistoryByShowId(entries) {
+  const seen = new Set();
+  return (entries || []).filter(entry => {
+    const key = String(entry.show_id ?? '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildRecentlyWatchedMaxCardHtml(entry) {
+  const posterUrl = buildPosterUrl(entry.poster_path, 'w185');
+  const imgHtml = posterUrl
+    ? `<img src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />`
+    : `<div style="width:100%;height:220px;background:#1a1a1a;"></div>`;
+  const name = escapeHtml(entry.show_name || '');
+  const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
+  return `<div class="ep-card-h">
+    ${imgHtml}
+    <div class="ep-card-h-body">
+      <div class="ep-card-h-name">${name}</div>
+      <div class="ep-card-h-meta">${time}</div>
+    </div>
+  </div>`;
+}
+
+function buildRecentlyWatchedMaxCardsHtml(entries) {
+  return (entries || []).map(buildRecentlyWatchedMaxCardHtml).join('');
+}
+
+function recentlyWatchedMaxToggleLabel(view) {
+  return view === 'shows' ? 'Show Episodes' : 'Show Shows';
+}
+
+function buildRecentlyWatchedMaxHeaderHtml(view) {
+  return `<div class="genre-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <span>-- RECENTLY WATCHED ON MAX --</span>
+    <button type="button" id="recently-watched-max-toggle" class="clear-history-btn" style="font-size:0.65rem;padding:4px 8px;" onclick="toggleRecentlyWatchedMaxView()">${recentlyWatchedMaxToggleLabel(view)}</button>
+  </div>`;
+}
+
+async function loadRecentlyWatchedMaxEntries(view) {
+  const limit = view === 'episodes' ? 20 : 10;
+  const raw = await window.shufflrGetWatchHistory(limit);
+  if (view === 'episodes') return raw || [];
+  return dedupeWatchHistoryByShowId(raw);
+}
+
+async function renderRecentlyWatchedMaxSection(view) {
+  recentlyWatchedMaxView = view;
+  const wrap = document.getElementById('recently-watched-max-wrap');
+  const toggle = document.getElementById('recently-watched-max-toggle');
+  if (!wrap) return;
+  try {
+    const entries = await loadRecentlyWatchedMaxEntries(view);
+    wrap.innerHTML = entries.length
+      ? buildRecentlyWatchedMaxCardsHtml(entries)
+      : `<div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>`;
+    if (toggle) toggle.textContent = recentlyWatchedMaxToggleLabel(view);
+  } catch (e) {
+    console.error('[Shufflr] Failed to load watch history:', e);
+  }
+}
+
+async function toggleRecentlyWatchedMaxView() {
+  const next = recentlyWatchedMaxView === 'shows' ? 'episodes' : 'shows';
+  await renderRecentlyWatchedMaxSection(next);
+}
+
 async function buildRecentlyWatchedOnMaxHtml() {
   if (typeof window.shufflrGetWatchHistory !== 'function') return '';
+  recentlyWatchedMaxView = 'shows';
   try {
-    const entries = await window.shufflrGetWatchHistory();
-    if (!entries?.length) {
+    const entries = await loadRecentlyWatchedMaxEntries('shows');
+    if (!entries.length) {
       return `<div class="genre-section" style="margin-top:16px;">
         <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
         <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>
       </div>`;
     }
-    let html = `<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- RECENTLY WATCHED ON MAX --</div><div class="h-scroll-wrap">`;
-    entries.forEach(entry => {
-      const posterUrl = buildPosterUrl(entry.poster_path, 'w185');
-      const imgHtml = posterUrl
-        ? `<img src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />`
-        : `<div style="width:100%;height:220px;background:#1a1a1a;"></div>`;
-      const name = escapeHtml(entry.show_name || '');
-      const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
-      html += `<div class="ep-card-h">
-        ${imgHtml}
-        <div class="ep-card-h-body">
-          <div class="ep-card-h-name">${name}</div>
-          <div class="ep-card-h-meta">${time}</div>
-        </div>
-      </div>`;
-    });
-    html += `</div></div>`;
-    return html;
+    return `<div class="genre-section" id="recently-watched-max-section" style="margin-top:16px;">
+      ${buildRecentlyWatchedMaxHeaderHtml('shows')}
+      <div class="h-scroll-wrap" id="recently-watched-max-wrap">${buildRecentlyWatchedMaxCardsHtml(entries)}</div>
+    </div>`;
   } catch (e) {
     console.error('[Shufflr] Failed to load watch history:', e);
     return '';
