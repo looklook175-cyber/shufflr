@@ -4015,6 +4015,7 @@ function getMaxPlayerShowName() {
   const selectors = [
     '[data-testid="series-title"]',
     '[data-testid="show-title"]',
+    '[data-testid="play-page-subtitle"]',
     '[data-testid="breadcrumb"] a[href*="/show/"]',
     '[class*="SeriesTitle"]',
     '[class*="series-title"]',
@@ -4039,6 +4040,48 @@ function getMaxPlayerShowName() {
     if (showMaxId && normalizeMaxId(linkShowId) !== normalizeMaxId(showMaxId)) continue;
     const text = (link.textContent || '').trim();
     if (text && text.length > 1 && text.length < 80) return text;
+  }
+
+  const episodeSelectors = [
+    '[data-testid="play-page-title"]',
+    'h1',
+    '[data-testid="title"]',
+    'h2[data-testid]',
+    '[class*="VideoTitle"]',
+    '[class*="video-title"]',
+  ];
+
+  let episodeEl = null;
+  let episodeTitle = '';
+  for (const selector of episodeSelectors) {
+    const el = document.querySelector(selector);
+    const text = (el?.textContent || '').trim();
+    if (text) {
+      episodeEl = el;
+      episodeTitle = text.split('|')[0].trim();
+      break;
+    }
+  }
+
+  if (episodeEl) {
+    let sibling = episodeEl.previousElementSibling;
+    while (sibling) {
+      const text = (sibling.textContent || '').trim();
+      if (text && text.length > 1 && text.length < 80 && text !== episodeTitle) {
+        return text.split('|')[0].trim();
+      }
+      sibling = sibling.previousElementSibling;
+    }
+
+    const parent = episodeEl.parentElement;
+    if (parent) {
+      for (const child of parent.children) {
+        if (child === episodeEl || child.contains(episodeEl)) continue;
+        const text = (child.textContent || '').trim();
+        if (!text || text.length > 80 || text === episodeTitle) continue;
+        return text.split('|')[0].trim();
+      }
+    }
   }
 
   return getShowNameFromPageMetadata();
@@ -4211,30 +4254,16 @@ async function buildWatchHistoryPayloadFromCache() {
     );
   }
   if (!show_name) {
-    show_name = normalizeWatchHistoryShowName(getMaxPlayerShowName());
-  }
-  if (!show_name) {
     show_name = normalizeWatchHistoryShowName(active?.currentShow?.showName);
   }
-
-  if (!show_name && cacheEntry) {
-    console.log('[Shufflr] cache entry keys:', Object.keys(cacheEntry));
+  if (!show_name) {
+    show_name = normalizeWatchHistoryShowName(getMaxPlayerShowName());
   }
 
   let relativePoster = currentEpisode?.posterPath
     || findPlaylistShowPosterPathInActive(active, showMaxId)
     || findPosterPathInPlaylists(playlists, { tmdbId: show_id, maxId: showMaxId })
     || extractPosterFromCacheEntry(cacheEntry);
-
-  if (!show_name || !relativePoster) {
-    const routeJson = showMaxId ? await fetchShowRoute(showMaxId) : null;
-    if (!show_name) {
-      show_name = normalizeWatchHistoryShowName(getShowNameFromRouteJson(routeJson));
-    }
-    if (!relativePoster) {
-      relativePoster = getPosterFromRouteJson(routeJson);
-    }
-  }
 
   const poster_path = posterPathToWatchHistoryUrl(relativePoster);
 
@@ -4247,9 +4276,9 @@ async function logWatchHistoryToSupabase(payload) {
 
   const show_id = payload?.show_id ? String(payload.show_id).trim() : '';
   const show_name = payload?.show_name ? String(payload.show_name).trim() : '';
-  const poster_path = payload?.poster_path ? String(payload.poster_path).trim() : '';
+  const poster_path = payload?.poster_path ? String(payload.poster_path).trim() : null;
 
-  if (!show_id || !show_name || !poster_path) {
+  if (!show_id || !show_name) {
     console.log('[Shufflr] Skipping watch history — missing show data');
     return;
   }
@@ -4262,11 +4291,12 @@ async function logWatchHistoryToSupabase(payload) {
     user_id: session.userId,
     show_id,
     show_name,
-    poster_path,
+    poster_path: poster_path || null,
     watched_at: new Date().toISOString(),
   };
 
   try {
+    console.log('[Shufflr] watch history show_name:', show_name, 'poster_path:', poster_path || null);
     console.log('[Shufflr] watch_history payload:', JSON.stringify(body));
     const response = await fetch(`${SUPABASE_URL}/rest/v1/watch_history`, {
       method: 'POST',
