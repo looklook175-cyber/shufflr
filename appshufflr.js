@@ -217,7 +217,7 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const episodeLabel = escapeHtml(formatRecentlyWatchedEpisodeLabel(entry));
   const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
   const showId = entry.show_id != null ? String(entry.show_id) : '';
-  const clickHandler = `onclick="recentlyWatchedMaxCardClick(${JSON.stringify(showId)})"`;
+  const clickHandler = `onclick='recentlyWatchedMaxCardClick(${JSON.stringify(showId)})'`;
   const thumbHtml = posterUrl
     ? `<img src="${posterUrl}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;background:#1a1a1a;" />`
     : '';
