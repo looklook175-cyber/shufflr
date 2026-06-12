@@ -4015,7 +4015,12 @@ function logDomDebugForShowNameOnce() {
   if (domDebugLogged) return;
   domDebugLogged = true;
   console.log('[Shufflr] DOM debug - h1 elements:', Array.from(document.querySelectorAll('h1')).map(e => e.textContent.trim()));
-  console.log('[Shufflr] DOM debug - data-testid elements:', Array.from(document.querySelectorAll('[data-testid]')).map(e => ({ testid: e.getAttribute('data-testid'), text: e.textContent.trim().slice(0, 50) })).filter(x => x.text));
+  document.querySelectorAll('[data-testid]').forEach(el => {
+    const text = el.textContent.trim();
+    if (text && text.length < 100) {
+      console.log('[Shufflr] testid:', el.getAttribute('data-testid'), '=', text);
+    }
+  });
   console.log('[Shufflr] DOM debug - og:title meta:', document.querySelector('meta[property="og:title"]')?.content);
   console.log('[Shufflr] DOM debug - document.title:', document.title);
 }
