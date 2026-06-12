@@ -205,14 +205,19 @@ async function fetchTmdbEpisodeOverview(showId, seasonNum, episodeNumber) {
   }
 }
 
+function recentlyWatchedMaxCardClick(showId) {
+  console.log('[Shufflr] Recently watched card clicked, show_id:', showId);
+  if (!/^\d+$/.test(String(showId))) return;
+  homeTileClick(showId, 'tv');
+}
+
 function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const posterUrl = buildPosterUrl(entry.poster_path, 'w300');
   const showName = escapeHtml(entry.show_name || '');
   const episodeLabel = escapeHtml(formatRecentlyWatchedEpisodeLabel(entry));
   const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
-  const clickHandler = /^\d+$/.test(String(entry.show_id))
-    ? `onclick="homeTileClick(${entry.show_id},'tv')"`
-    : '';
+  const showId = entry.show_id != null ? String(entry.show_id) : '';
+  const clickHandler = `onclick="recentlyWatchedMaxCardClick(${JSON.stringify(showId)})"`;
   const thumbHtml = posterUrl
     ? `<img src="${posterUrl}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;background:#1a1a1a;" />`
     : '';
