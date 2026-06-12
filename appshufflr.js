@@ -149,6 +149,59 @@ function buildYourShowsSectionHtml(section){
   return html;
 }
 
+function formatRelativeWatchTime(watchedAt) {
+  if (!watchedAt) return '';
+  const then = new Date(watchedAt).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffMs = Date.now() - then;
+  if (diffMs < 0) return 'just now';
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min !== 1 ? 's' : ''} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr !== 1 ? 's' : ''} ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} day${day !== 1 ? 's' : ''} ago`;
+  const week = Math.floor(day / 7);
+  if (week < 5) return `${week} week${week !== 1 ? 's' : ''} ago`;
+  return new Date(watchedAt).toLocaleDateString();
+}
+
+async function buildRecentlyWatchedOnMaxHtml() {
+  if (typeof window.shufflrGetWatchHistory !== 'function') return '';
+  try {
+    const entries = await window.shufflrGetWatchHistory();
+    if (!entries?.length) {
+      return `<div class="genre-section" style="margin-top:16px;">
+        <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
+        <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>
+      </div>`;
+    }
+    let html = `<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- RECENTLY WATCHED ON MAX --</div><div class="h-scroll-wrap">`;
+    entries.forEach(entry => {
+      const posterUrl = buildPosterUrl(entry.poster_path, 'w185');
+      const imgHtml = posterUrl
+        ? `<img src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />`
+        : `<div style="width:100%;height:220px;background:#1a1a1a;"></div>`;
+      const name = escapeHtml(entry.show_name || '');
+      const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
+      html += `<div class="ep-card-h">
+        ${imgHtml}
+        <div class="ep-card-h-body">
+          <div class="ep-card-h-name">${name}</div>
+          <div class="ep-card-h-meta">${time}</div>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+    return html;
+  } catch (e) {
+    console.error('[Shufflr] Failed to load watch history:', e);
+    return '';
+  }
+}
+
 function savePlaylists(){
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY,JSON.stringify(playlists));
   window.dispatchEvent(new CustomEvent('shufflr-playlists-sync',{detail:playlists}));
@@ -1943,6 +1996,10 @@ async function renderHomeScreen(navType){
       </div>`;
     });
     html+=`</div></div>`;
+  }
+
+  if (!isMovies && typeof window.shufflrIsLoggedIn === 'function' && await window.shufflrIsLoggedIn()) {
+    html += await buildRecentlyWatchedOnMaxHtml();
   }
 
   html+=`</div>`;
