@@ -4309,6 +4309,8 @@ async function buildWatchHistoryPayloadFromCache() {
   return {
     show_id,
     show_name,
+    // Store TMDB id for reliable card click navigation in the web app.
+    tmdb_id: tmdbId ?? null,
     poster_path,
     episode_name: currentEpisode?.name || null,
     season_num: currentEpisode?.seasonNum ?? null,
@@ -4337,6 +4339,8 @@ async function logWatchHistoryToSupabase(payload) {
     user_id: session.userId,
     show_id,
     show_name,
+    // Store TMDB id for reliable card click navigation in the web app.
+    tmdb_id: payload.tmdb_id ? String(payload.tmdb_id) : null,
     poster_path: poster_path || null,
     episode_name: payload.episode_name,
     season_num: payload.season_num,
