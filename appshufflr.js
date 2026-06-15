@@ -205,10 +205,65 @@ async function fetchTmdbEpisodeOverview(showId, seasonNum, episodeNumber) {
   }
 }
 
-function recentlyWatchedMaxCardClick(showId) {
+// Resolve a Recently Watched show_id (TMDB id or Max UUID) to a TMDB TV id.
+async function resolveRecentlyWatchedShowTmdbId(showId, showName) {
+  const idStr = String(showId || '').trim();
+  if (/^\d+$/.test(idStr)) return idStr;
+
+  const normMax = idStr.toLowerCase();
+  if (!normMax) return null;
+
+  const storedPlaylists = await readPlaylistsFromChromeStorage();
+  const allPlaylists = storedPlaylists || playlists;
+
+  for (const playlist of allPlaylists || []) {
+    for (const show of playlist?.shows || []) {
+      const showMaxId = getShowMaxId(show);
+      if (!showMaxId || String(showMaxId).toLowerCase() !== normMax) continue;
+      const tmdbId = show.id ?? show.tmdbId;
+      if (tmdbId != null && /^\d+$/.test(String(tmdbId))) return String(tmdbId);
+    }
+  }
+
+  const name = String(showName || '').trim();
+  if (!name) return null;
+  try {
+    const r = await fetch(
+      `https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(name)}&language=en-US`
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    const top = (d.results || [])[0];
+    if (top?.id != null && /^\d+$/.test(String(top.id))) return String(top.id);
+  } catch (e) {
+    console.error('[Shufflr] TMDB search failed for Recently Watched:', e);
+  }
+  return null;
+}
+
+async function recentlyWatchedMaxCardClick(showId, showName) {
   console.log('[Shufflr] Recently watched card clicked, show_id:', showId);
-  if (!/^\d+$/.test(String(showId))) return;
-  homeTileClick(showId, 'tv');
+  const tmdbId = await resolveRecentlyWatchedShowTmdbId(showId, showName);
+  if (!tmdbId) return;
+  homeTileClick(tmdbId, 'tv');
+}
+
+function recentlyWatchedMaxCardClickFromCard(el) {
+  const rawId = el?.getAttribute?.('data-recently-watched-show-id') || '';
+  let showId;
+  try {
+    showId = decodeURIComponent(rawId);
+  } catch {
+    showId = rawId;
+  }
+  const rawName = el?.getAttribute?.('data-recently-watched-show-name') || '';
+  let showName;
+  try {
+    showName = decodeURIComponent(rawName);
+  } catch {
+    showName = rawName;
+  }
+  recentlyWatchedMaxCardClick(showId, showName);
 }
 
 function buildRecentlyWatchedMaxCardHtml(entry, description) {
@@ -217,14 +272,15 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const episodeLabel = escapeHtml(formatRecentlyWatchedEpisodeLabel(entry));
   const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
   const showId = entry.show_id != null ? String(entry.show_id) : '';
-  const clickHandler = `onclick='recentlyWatchedMaxCardClick(${JSON.stringify(showId)})'`;
+  const showIdAttr = encodeURIComponent(showId);
+  const showNameAttr = encodeURIComponent((entry.show_name || '').trim());
   const thumbHtml = posterUrl
     ? `<img src="${posterUrl}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;background:#1a1a1a;" />`
     : '';
   const descHtml = description
     ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
     : '';
-  return `<div class="ep-card-h" ${clickHandler} style="width:240px;">
+  return `<div class="ep-card-h" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" onclick="recentlyWatchedMaxCardClickFromCard(this)" style="width:240px;">
     <div style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;">${thumbHtml}</div>
     <div class="ep-card-h-body">
       <div class="ep-card-h-name">${showName}</div>
@@ -250,7 +306,7 @@ async function buildRecentlyWatchedMaxCardsHtml(entries) {
 async function buildRecentlyWatchedOnMaxHtml() {
   if (typeof window.shufflrGetWatchHistory !== 'function') return '';
   try {
-    const entries = dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(10));
+    const entries = dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(200));
     if (!entries.length) {
       return `<div class="genre-section" style="margin-top:16px;">
         <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
