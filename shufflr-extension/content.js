@@ -4263,7 +4263,7 @@ async function buildWatchHistoryPayloadFromCache() {
     && /^\d+$/.test(String(currentEpisode.showId))
     ? String(currentEpisode.showId)
     : null;
-  const tmdbId = cacheEntry?.tmdbId || episodeTmdbId || null;
+  let tmdbId = cacheEntry?.tmdbId || episodeTmdbId || null;
 
   let show_id = tmdbId || null;
   if (showMaxId) {
@@ -4272,6 +4272,8 @@ async function buildWatchHistoryPayloadFromCache() {
         const playlistMaxId = show.maxId || show.maxShowId || show.max_id;
         if (playlistMaxId && normalizeMaxId(playlistMaxId) === normalizeMaxId(showMaxId) && show.id) {
           show_id = String(show.id);
+          // Also capture the TMDB id from the matched playlist show for watch_history logging.
+          if (!tmdbId && show.id && /^\d+$/.test(String(show.id))) tmdbId = String(show.id);
           break;
         }
       }
