@@ -105,39 +105,29 @@ function buildPosterUrl(posterPath,size='w185'){
 }
 
 function getActivePlaylistShowsForHome(isMovies){
-  if(isMovies)return{shows:[],playlistIndex:-1};
-  let shows=[];
-  let playlistIndex=-1;
-  try{
-    const raw=localStorage.getItem(SHUFFLR_ACTIVE_PLAYLIST_KEY);
-    if(raw){
-      const active=JSON.parse(raw);
-      if(active?.shows?.length){
-        shows=(active.shows||[]).filter(s=>!s.release_date);
-        playlistIndex=active.playlistIndex??0;
-      }
-    }
-  }catch{}
-  if(!shows.length&&playlists.length){
-    for(let i=0;i<playlists.length;i++){
-      const plShows=(playlists[i]?.shows||[]).filter(s=>!s.release_date);
-      if(plShows.length){
-        shows=plShows;
-        playlistIndex=i;
-        break;
-      }
+  if(isMovies)return{items:[]};
+  const seen=new Set();
+  const items=[];
+  for(let pi=0;pi<playlists.length;pi++){
+    const plShows=playlists[pi]?.shows||[];
+    for(let si=0;si<plShows.length;si++){
+      const show=plShows[si];
+      if(show?.release_date)continue;
+      const id=show?.id!=null?String(show.id):'';
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      items.push({show,playlistIndex:pi,showIndex:si});
     }
   }
-  return{shows,playlistIndex};
+  return{items};
 }
 
 function buildYourShowsSectionHtml(section){
-  const shows=section.shows||[];
-  const pi=section.playlistIndex;
-  if(!shows.length||pi<0)return'';
+  const items=section.items||[];
+  if(!items.length)return'';
 
   let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
-  shows.forEach((s,si)=>{
+  items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
     html+=`<div class="ep-card-h" onclick="shufflePlaylistShow(${pi},${si})">
       <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
       <div class="ep-card-h-body">
@@ -2495,7 +2485,7 @@ async function renderHomeScreen(navType){
   const type = isMovies ? 'movie' : 'tv';
 
   const yourShowsSection = getActivePlaylistShowsForHome(isMovies);
-  const yourShows = yourShowsSection.shows;
+  const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
 
