@@ -4037,6 +4037,9 @@ function logDomDebugForShowNameOnce() {
 
 // Series/show title on the Max player (distinct from episode title in h1).
 function getMaxPlayerShowName() {
+  const titleEl = document.querySelector('[class*="Title-Fuse-Web-Play"]');
+  if (titleEl?.innerText?.trim()) return titleEl.innerText.trim();
+
   const subtitleEl = document.querySelector('[data-testid="player-ux-asset-subtitle"]');
   if (subtitleEl) {
     const text = subtitleEl.textContent.trim();
