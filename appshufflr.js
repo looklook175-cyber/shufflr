@@ -136,7 +136,7 @@ function buildYourShowsSectionHtml(section){
   const items=section.items||[];
   if(!items.length)return'';
 
-  let html=`<div class="genre-section" id="your-shows-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
+  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
   items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
     html+=`<div class="ep-card-h" onclick="shufflePlaylistShow(${pi},${si})">
       <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
@@ -147,13 +147,6 @@ function buildYourShowsSectionHtml(section){
   });
   html+=`</div></div>`;
   return html;
-}
-
-function refreshYourShowsSection(){
-  const sectionEl=document.getElementById('your-shows-section');
-  if(!sectionEl)return;
-  const section=getActivePlaylistShowsForHome(false,playlists);
-  sectionEl.outerHTML=buildYourShowsSectionHtml(section);
 }
 
 function formatRelativeWatchTime(watchedAt) {
@@ -1882,15 +1875,6 @@ async function shufflePlaylistShow(pi,si){
         if(el) el.classList.toggle('active',n===currentNav);
       });
       await _loadShow(match);
-      const entry=playlists[pi]?.shows?.[si];
-      if(entry){
-        entry.id=match.id;
-        entry.poster_path=match.poster_path||null;
-        entry.name=match.name||match.title||entry.name||entry.title;
-        savePlaylists();
-        savePlaylistsViaBridge(playlists);
-        refreshYourShowsSection();
-      }
       return;
     }catch(e){
       console.error(e);
