@@ -1477,6 +1477,12 @@ function getCurrentMaxShowUuid() {
 }
 
 function getCurrentShowTitle() {
+  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
+  if (onVideoPage) {
+    const showName = getMaxPlayerShowName();
+    if (showName) return showName;
+  }
+
   const h1 = document.querySelector('h1');
   if (h1?.textContent?.trim()) return h1.textContent.trim();
 
