@@ -373,12 +373,10 @@ async function buildYourPlaylistsHtml() {
   }).join('');
 
   return `
-    <div class="genre-section" style="margin-top:16px;">
+    <div class="genre-section pl-home-section" style="margin-top:16px;">
       <div class="genre-title">-- YOUR PLAYLISTS --</div>
-      <div class="pl-home-row">
-        <div class="h-scroll-wrap pl-home-scroll">${cards}</div>
-        <div class="pl-home-drawer" id="pl-home-drawer" hidden></div>
-      </div>
+      <div class="h-scroll-wrap">${cards}</div>
+      <div class="pl-home-drawer" id="pl-home-drawer" hidden></div>
     </div>`;
 }
 
@@ -1194,11 +1192,11 @@ function savePlaylistsViaBridge(allPl) {
 function positionPlaylistDrawer(index) {
   const drawer = document.getElementById('pl-home-drawer');
   const card = document.querySelector(`.pl-home-card[data-pl-index="${index}"]`);
-  const row = document.querySelector('.pl-home-row');
-  if (!drawer || !card || !row) return;
+  const section = drawer?.closest('.pl-home-section');
+  if (!drawer || !card || !section) return;
   const cardRect = card.getBoundingClientRect();
-  const rowRect = row.getBoundingClientRect();
-  drawer.style.left = `${Math.round(cardRect.right - rowRect.left + 8)}px`;
+  const sectionRect = section.getBoundingClientRect();
+  drawer.style.left = `${Math.round(cardRect.right - sectionRect.left + 8)}px`;
 }
 
 function renderDrawerShowList(playlistIndex, playlist) {

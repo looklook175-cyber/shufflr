@@ -475,15 +475,8 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   margin: 0 0 8px 0;
 }
 
-.pl-home-row {
+.pl-home-section {
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  min-height: 400px;
-}
-.pl-home-scroll {
-  flex: 1;
-  min-width: 0;
 }
 .pl-home-drawer {
   position: absolute;
@@ -497,6 +490,11 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   box-shadow: 0 0 20px rgba(35, 168, 224, 0.15);
   z-index: 20;
   box-sizing: border-box;
+}
+.pl-home-drawer[hidden] {
+  display: none !important;
+}
+.pl-home-drawer:not([hidden]) {
   display: flex;
   flex-direction: column;
   align-items: stretch;
