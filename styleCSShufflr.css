@@ -435,8 +435,10 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   object-fit: cover;
   display: block;
 }
-.recently-watched-card .card-poster-wrap,
-.recently-watched-card .card-poster-placeholder {
+.recently-watched-card {
+  cursor: pointer;
+}
+.recently-watched-card * {
   pointer-events: none;
 }
 .pl-home-camera-btn {

@@ -469,14 +469,14 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
     'width:100%;height:100%;object-fit:cover;background:#1a1a1a;pointer-events:none;'
   );
   const descHtml = description
-    ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
+    ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;pointer-events:none;">${escapeHtml(description)}</div>`
     : '';
-  return `<div class="ep-card-h recently-watched-card" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" style="width:240px;cursor:pointer;">
+  return `<div class="ep-card-h recently-watched-card" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" style="width:240px;">
     <div class="recently-watched-card-thumb" style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;pointer-events:none;">${thumbHtml}</div>
-    <div class="ep-card-h-body">
-      <div class="ep-card-h-name">${showTitle}</div>
-      ${episodeLabel ? `<div class="ep-card-h-code">${episodeLabel}</div>` : ''}
-      <div class="ep-card-h-meta">${time}</div>
+    <div class="ep-card-h-body" style="pointer-events:none;">
+      <div class="ep-card-h-name" style="pointer-events:none;">${showTitle}</div>
+      ${episodeLabel ? `<div class="ep-card-h-code" style="pointer-events:none;">${episodeLabel}</div>` : ''}
+      <div class="ep-card-h-meta" style="pointer-events:none;">${time}</div>
       ${descHtml}
     </div>
   </div>`;
