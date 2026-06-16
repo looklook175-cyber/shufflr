@@ -479,7 +479,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   position: relative;
   display: flex;
   align-items: flex-start;
-  min-height: 300px;
+  min-height: 400px;
 }
 .pl-home-scroll {
   flex: 1;
@@ -489,7 +489,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   position: absolute;
   top: 0;
   width: 260px;
-  min-height: 280px;
+  min-height: 380px;
   background: #0a0a0a;
   border: 1px solid #23A8E0;
   border-radius: 10px;
@@ -616,7 +616,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-height: 190px;
+  max-height: 260px;
   overflow-y: auto;
 }
 .pl-drawer-add-filter {
