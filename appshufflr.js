@@ -1165,7 +1165,7 @@ function openPlaylistFromHomeCard(index) {
 let homePlaylistsCache = [];
 let openDrawerPlaylistIndex = null;
 let drawerAddShowMode = false;
-let drawerAddShowCandidates = [];
+let drawerAddShowAllCandidates = [];
 
 function getPlaylistShowLabel(show) {
   return show?.title || show?.name || 'Untitled';
@@ -1230,7 +1230,7 @@ function updatePlaylistDrawerContent(playlist, playlistIndex) {
   const drawer = document.getElementById('pl-home-drawer');
   if (!drawer) return;
   drawerAddShowMode = false;
-  drawerAddShowCandidates = [];
+  drawerAddShowAllCandidates = [];
 
   drawer.innerHTML = `
     <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="Close">✕</button>
@@ -1261,7 +1261,7 @@ function togglePlaylistDrawer(index) {
 function closePlaylistDrawer() {
   openDrawerPlaylistIndex = null;
   drawerAddShowMode = false;
-  drawerAddShowCandidates = [];
+  drawerAddShowAllCandidates = [];
   const drawer = document.getElementById('pl-home-drawer');
   if (drawer) drawer.hidden = true;
 }
@@ -1314,14 +1314,54 @@ function getCrossPlaylistShowsForAdd(playlistIndex) {
   ));
 }
 
+function getDrawerAddShowPosterHtml(show) {
+  const raw = show?.poster_path || show?.posterPath || show?.showPoster || show?.poster || show?.image || '';
+  const text = String(raw || '').trim();
+  if (!text) {
+    return '<div class="pl-drawer-add-poster pl-drawer-add-poster-placeholder"></div>';
+  }
+  if (/^https?:\/\//i.test(text)) {
+    return `<img class="pl-drawer-add-poster" src="${escapeHtml(text)}" alt="" onerror="this.outerHTML='<div class=\\'pl-drawer-add-poster pl-drawer-add-poster-placeholder\\'></div>'" />`;
+  }
+  const path = text.startsWith('/') ? text : `/${text}`;
+  return `<img class="pl-drawer-add-poster" src="${IMG}w92${escapeHtml(path)}" alt="" onerror="this.outerHTML='<div class=\\'pl-drawer-add-poster pl-drawer-add-poster-placeholder\\'></div>'" />`;
+}
+
+function buildDrawerAddShowRowHtml(playlistIndex, candidateIndex, show) {
+  return `<button type="button" class="pl-drawer-show-row pl-drawer-add-show-row" onclick="addCrossPlaylistShowToDrawer(${playlistIndex}, ${candidateIndex})">
+    ${getDrawerAddShowPosterHtml(show)}
+    <span class="pl-drawer-add-show-name">${escapeHtml(getPlaylistShowLabel(show))}</span>
+  </button>`;
+}
+
+function filterDrawerAddShowPicker(playlistIndex) {
+  const picker = document.getElementById('pl-drawer-add-picker');
+  const input = document.getElementById('pl-drawer-add-filter');
+  if (!picker) return;
+
+  const q = (input?.value || '').trim().toLowerCase();
+  const matches = drawerAddShowAllCandidates
+    .map((show, i) => ({ show, i }))
+    .filter(({ show }) => !q || getPlaylistShowLabel(show).toLowerCase().includes(q));
+
+  if (!matches.length) {
+    picker.innerHTML = '<div class="pl-drawer-empty">No matching shows.</div>';
+    return;
+  }
+
+  picker.innerHTML = matches
+    .map(({ show, i }) => buildDrawerAddShowRowHtml(playlistIndex, i, show))
+    .join('');
+}
+
 function renderDrawerAddShowPicker(playlistIndex) {
   const body = document.getElementById('pl-drawer-body');
   if (!body) return;
 
-  drawerAddShowCandidates = getCrossPlaylistShowsForAdd(playlistIndex);
+  drawerAddShowAllCandidates = getCrossPlaylistShowsForAdd(playlistIndex);
   const createBtn = `<button type="button" class="pl-drawer-create-playlist-btn" onclick="createPlaylistFromDrawerAddMode(${playlistIndex})">＋ Create New Playlist</button>`;
 
-  if (!drawerAddShowCandidates.length) {
+  if (!drawerAddShowAllCandidates.length) {
     body.innerHTML = `
       <div class="pl-drawer-add-mode">
         <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
@@ -1331,16 +1371,14 @@ function renderDrawerAddShowPicker(playlistIndex) {
     return;
   }
 
-  const rows = drawerAddShowCandidates.map((show, i) => (
-    `<button type="button" class="pl-drawer-show-row" onclick="addCrossPlaylistShowToDrawer(${playlistIndex}, ${i})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
-  )).join('');
-
   body.innerHTML = `
     <div class="pl-drawer-add-mode">
       <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
-      <div class="pl-drawer-add-picker">${rows}</div>
+      <input type="text" class="pl-drawer-add-filter" id="pl-drawer-add-filter" placeholder="Filter shows..." oninput="filterDrawerAddShowPicker(${playlistIndex})" autocomplete="off" />
+      <div class="pl-drawer-add-picker" id="pl-drawer-add-picker"></div>
       ${createBtn}
     </div>`;
+  filterDrawerAddShowPicker(playlistIndex);
 }
 
 function createPlaylistFromDrawerAddMode(playlistIndex) {
@@ -1359,20 +1397,20 @@ function createPlaylistFromDrawerAddMode(playlistIndex) {
   savePlaylistsViaBridge(homePlaylistsCache);
 
   drawerAddShowMode = false;
-  drawerAddShowCandidates = [];
+  drawerAddShowAllCandidates = [];
   closePlaylistDrawer();
   renderHomeScreen('shows');
 }
 
 function cancelDrawerAddShowMode(playlistIndex) {
   drawerAddShowMode = false;
-  drawerAddShowCandidates = [];
+  drawerAddShowAllCandidates = [];
   const playlist = homePlaylistsCache[playlistIndex];
   if (playlist) renderDrawerShowList(playlistIndex, playlist);
 }
 
 function addCrossPlaylistShowToDrawer(playlistIndex, candidateIndex) {
-  const show = drawerAddShowCandidates[candidateIndex];
+  const show = drawerAddShowAllCandidates[candidateIndex];
   const playlist = homePlaylistsCache[playlistIndex];
   if (!show || !playlist) return;
   if (!playlist.shows) playlist.shows = [];

@@ -612,6 +612,49 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   max-height: 140px;
   overflow-y: auto;
 }
+.pl-drawer-add-filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.74rem;
+  outline: none;
+}
+.pl-drawer-add-filter:focus {
+  border-color: #23A8E0;
+}
+.pl-drawer-add-show-row {
+  display: flex;
+  align-items: center;
+}
+.pl-drawer-add-poster {
+  width: 28px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 3px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  background: #222;
+}
+.pl-drawer-add-poster-placeholder {
+  width: 28px;
+  height: 40px;
+  border-radius: 3px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  background: #222;
+}
+.pl-drawer-add-show-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pl-drawer-create-playlist-btn {
   align-self: flex-start;
   margin-top: 10px;
