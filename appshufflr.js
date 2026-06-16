@@ -1319,11 +1319,15 @@ function renderDrawerAddShowPicker(playlistIndex) {
   if (!body) return;
 
   drawerAddShowCandidates = getCrossPlaylistShowsForAdd(playlistIndex);
+  const createBtn = `<button type="button" class="pl-drawer-create-playlist-btn" onclick="createPlaylistFromDrawerAddMode(${playlistIndex})">＋ Create New Playlist</button>`;
 
   if (!drawerAddShowCandidates.length) {
     body.innerHTML = `
-      <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
-      <div class="pl-drawer-empty">Add shows from Max using the Shufflr button</div>`;
+      <div class="pl-drawer-add-mode">
+        <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+        <div class="pl-drawer-empty">Add shows from Max using the Shufflr button</div>
+        ${createBtn}
+      </div>`;
     return;
   }
 
@@ -1332,8 +1336,32 @@ function renderDrawerAddShowPicker(playlistIndex) {
   )).join('');
 
   body.innerHTML = `
-    <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
-    <div class="pl-drawer-add-picker">${rows}</div>`;
+    <div class="pl-drawer-add-mode">
+      <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+      <div class="pl-drawer-add-picker">${rows}</div>
+      ${createBtn}
+    </div>`;
+}
+
+function createPlaylistFromDrawerAddMode(playlistIndex) {
+  const name = prompt('Playlist name:');
+  if (!name || !name.trim()) return;
+
+  const newPlaylist = {
+    name: name.trim(),
+    shows: [],
+    service: 'max',
+  };
+
+  homePlaylistsCache.push(newPlaylist);
+  playlists = homePlaylistsCache;
+  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY, JSON.stringify(playlists));
+  savePlaylistsViaBridge(homePlaylistsCache);
+
+  drawerAddShowMode = false;
+  drawerAddShowCandidates = [];
+  closePlaylistDrawer();
+  renderHomeScreen('shows');
 }
 
 function cancelDrawerAddShowMode(playlistIndex) {

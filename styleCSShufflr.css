@@ -597,7 +597,13 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   text-align: left;
 }
 .pl-drawer-cancel-add:hover {
-  color: #23A8E0;
+  color: #e53935;
+  cursor: pointer;
+}
+.pl-drawer-add-mode {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .pl-drawer-add-picker {
   display: flex;
@@ -605,6 +611,24 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   gap: 6px;
   max-height: 140px;
   overflow-y: auto;
+}
+.pl-drawer-create-playlist-btn {
+  align-self: flex-start;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pl-drawer-create-playlist-btn:hover {
+  border-color: #23A8E0;
+  color: #23A8E0;
 }
 
 /* CONNECT MODAL */
