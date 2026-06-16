@@ -151,7 +151,23 @@ function yourShowNeedsPosterLookup(show){
 }
 
 function getRecentlyWatchedPosterKey(showName){
-  return String(showName||'').trim().toLowerCase();
+  return stripServiceSuffixFromShowName(showName).toLowerCase();
+}
+
+function stripServiceSuffixFromShowName(showName){
+  const text=String(showName||'').trim();
+  const bulletIdx=text.indexOf(' • ');
+  return bulletIdx>=0?text.slice(0,bulletIdx).trim():text;
+}
+
+function getRecentlyWatchedServiceLabel(){
+  return 'HBO Max';
+}
+
+function formatRecentlyWatchedCardTitle(entry){
+  const name=stripServiceSuffixFromShowName(entry?.show_name);
+  const service=getRecentlyWatchedServiceLabel();
+  return name?`${name} • ${service}`:service;
 }
 
 function buildDeferredPosterHtml(showKey,posterUrl,imgStyle){
@@ -176,14 +192,16 @@ function applyPosterToDomByShowKey(showKey,posterUrl){
 
 async function resolveCardPostersFromTmdb(lookupMap,size='w185'){
   for(const [showKey,query] of lookupMap){
+    const searchQuery=stripServiceSuffixFromShowName(query);
+    if(!searchQuery)continue;
     try{
-      const r=await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(query)}`);
+      const r=await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(searchQuery)}`);
       const d=await r.json();
       const match=(d.results||[]).find(result=>result.poster_path)||(d.results||[])[0];
       if(!match?.poster_path)continue;
       applyPosterToDomByShowKey(showKey,buildPosterUrl(match.poster_path,size));
     }catch(e){
-      console.error('[Shufflr] Poster lookup failed:',query,e);
+      console.error('[Shufflr] Poster lookup failed:',searchQuery,e);
     }
   }
 }
@@ -214,7 +232,7 @@ async function resolveRecentlyWatchedPosters(entries){
   const lookupMap=new Map();
   for(const entry of (entries||[])){
     if(buildPosterUrl(entry.poster_path,'w300'))continue;
-    const query=(entry.show_name||'').trim();
+    const query=stripServiceSuffixFromShowName(entry.show_name);
     const showKey=getRecentlyWatchedPosterKey(query);
     if(!showKey||!query)continue;
     lookupMap.set(showKey,query);
@@ -345,13 +363,14 @@ function recentlyWatchedMaxCardClickFromCard(el) {
 
 function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const posterUrl = buildPosterUrl(entry.poster_path, 'w300');
-  const showName = escapeHtml(entry.show_name || '');
+  const rawShowName = stripServiceSuffixFromShowName(entry.show_name);
+  const showTitle = escapeHtml(formatRecentlyWatchedCardTitle(entry));
   const episodeLabel = escapeHtml(formatRecentlyWatchedEpisodeLabel(entry));
   const time = escapeHtml(formatRelativeWatchTime(entry.watched_at));
   const showId = entry.show_id != null ? String(entry.show_id) : '';
   const showIdAttr = encodeURIComponent(showId);
-  const showNameAttr = encodeURIComponent((entry.show_name || '').trim());
-  const showKey = getRecentlyWatchedPosterKey(entry.show_name);
+  const showNameAttr = encodeURIComponent(rawShowName);
+  const showKey = getRecentlyWatchedPosterKey(rawShowName);
   const thumbHtml = buildDeferredPosterHtml(
     showKey,
     posterUrl,
@@ -363,7 +382,7 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
   return `<div class="ep-card-h" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" onclick="recentlyWatchedMaxCardClickFromCard(this)" style="width:240px;">
     <div style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;">${thumbHtml}</div>
     <div class="ep-card-h-body">
-      <div class="ep-card-h-name">${showName}</div>
+      <div class="ep-card-h-name">${showTitle}</div>
       ${episodeLabel ? `<div class="ep-card-h-code">${episodeLabel}</div>` : ''}
       <div class="ep-card-h-meta">${time}</div>
       ${descHtml}
