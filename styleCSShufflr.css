@@ -464,6 +464,17 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   box-shadow: 0 0 12px rgba(35, 168, 224, 0.2);
 }
 
+.pl-empty-state {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #555;
+  line-height: 1.8;
+  padding: 12px 4px;
+}
+.pl-empty-state p {
+  margin: 0 0 8px 0;
+}
+
 /* CONNECT MODAL */
 #connect-modal{position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:8888;display:none;align-items:center;justify-content:center;}
 #connect-modal.open{display:flex;}

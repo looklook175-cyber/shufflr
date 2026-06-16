@@ -308,7 +308,14 @@ async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
   const allPlaylists = playlists || [];
   const filtered = allPlaylists.filter(p => (p.service || 'max') === connectedService);
-  if (!filtered.length) return '';
+  if (!filtered.length) return `
+    <div class="genre-section" style="margin-top:16px;">
+      <div class="genre-title">-- YOUR PLAYLISTS --</div>
+      <div class="pl-empty-state">
+        <p>No playlists yet.</p>
+        <p>On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.</p>
+      </div>
+    </div>`;
 
   const cards = filtered.map((playlist) => {
     const index = allPlaylists.indexOf(playlist);
