@@ -104,18 +104,28 @@ function buildPosterUrl(posterPath,size='w185'){
   return IMG+size+path;
 }
 
-function getActivePlaylistShowsForHome(isMovies){
+function getHomeShowDedupeKey(show){
+  if(show?.id!=null&&show.id!=='')return`id:${show.id}`;
+  const maxId=getShowMaxId(show);
+  if(maxId)return`max:${maxId}`;
+  const nameKey=normalizePlShowName(getShowLabel(show));
+  if(nameKey)return`name:${nameKey}`;
+  return'';
+}
+
+function getActivePlaylistShowsForHome(isMovies,allPlaylists=playlists){
   if(isMovies)return{items:[]};
   const seen=new Set();
   const items=[];
-  for(let pi=0;pi<playlists.length;pi++){
-    const plShows=playlists[pi]?.shows||[];
+  const source=Array.isArray(allPlaylists)?allPlaylists:playlists;
+  for(let pi=0;pi<source.length;pi++){
+    const plShows=source[pi]?.shows||[];
     for(let si=0;si<plShows.length;si++){
       const show=plShows[si];
       if(show?.release_date)continue;
-      const id=show?.id!=null?String(show.id):'';
-      if(!id||seen.has(id))continue;
-      seen.add(id);
+      const key=getHomeShowDedupeKey(show);
+      if(!key||seen.has(key))continue;
+      seen.add(key);
       items.push({show,playlistIndex:pi,showIndex:si});
     }
   }
@@ -2484,7 +2494,17 @@ async function renderHomeScreen(navType){
   const isMovies = homeNavType === 'movies';
   const type = isMovies ? 'movie' : 'tv';
 
-  const yourShowsSection = getActivePlaylistShowsForHome(isMovies);
+  let allPlaylists = playlists;
+  if (!isMovies) {
+    const bridgePlaylists = await getPlaylistsFromBridge();
+    if (bridgePlaylists?.length) {
+      allPlaylists = bridgePlaylists;
+      playlists = bridgePlaylists;
+      homePlaylistsCache = bridgePlaylists;
+    }
+  }
+
+  const yourShowsSection = getActivePlaylistShowsForHome(isMovies, allPlaylists);
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
