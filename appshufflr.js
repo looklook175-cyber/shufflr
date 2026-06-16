@@ -2046,61 +2046,39 @@ async function shufflePlaylist(pi){
   }
 }
 
-async function shufflePlaylistShow(pi,si){
+async function openYourShowDetailPage(pi,si){
   const show=playlists[pi]?.shows?.[si];
   if(!show)return;
-  const type=show.release_date?'movie':'tv';
   const hasTmdbId=show?.id!=null&&/^\d+$/.test(String(show.id));
 
-  if(!hasTmdbId){
-    const query=getShowLabel(show);
-    if(!query){
-      showToast('NO SHOW NAME');
-      return;
-    }
-    showToast('LOADING '+query.toUpperCase().slice(0,15)+'...');
-    try{
-      const r=await fetch(`https://api.themoviedb.org/3/search/${type}?api_key=${KEY}&query=${encodeURIComponent(query)}`);
-      const d=await r.json();
-      const match=(d.results||[])[0];
-      if(!match){
-        showToast('NO TMDB MATCH');
-        return;
-      }
-      currentNav=type==='movie'?'movies':'shows';
-      ['shows','movies','playlist','free'].forEach(n=>{
-        const el=document.getElementById('nav-'+n);
-        if(el) el.classList.toggle('active',n===currentNav);
-      });
-      await _loadShow(match);
-      return;
-    }catch(e){
-      console.error(e);
-      showToast('SEARCH FAILED');
-      return;
-    }
+  if(hasTmdbId){
+    await _loadShow(show);
+    return;
   }
 
-  showToast('SHUFFLING '+((show.name||show.title||'').toUpperCase()).slice(0,15)+'...');
-  if(type==='movie'){
-    currentType='movie';currentShow=show;
-    currentNav='movies';
-    ['shows','movies','playlist','free'].forEach(n=>{
-      const el=document.getElementById('nav-'+n);
-      if(el) el.classList.toggle('active',n==='movies');
-    });
-    renderMovieMain(show);
-  }else{
-    currentType='tv';currentShow=show;
+  const query=stripServiceSuffixFromShowName(getShowLabel(show));
+  if(!query){
+    showToast('NO SHOW NAME');
+    return;
+  }
+  showToast('LOADING '+query.toUpperCase().slice(0,15)+'...');
+  try{
+    const r=await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(query)}`);
+    const d=await r.json();
+    const match=(d.results||[])[0];
+    if(!match){
+      showToast('NO TMDB MATCH');
+      return;
+    }
     currentNav='shows';
-    blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
-    document.getElementById('search-input').value=show.name||'';
     ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
-    await loadSeasons(show.id);
-    renderMain(true);
+    await _loadShow(match);
+  }catch(e){
+    console.error(e);
+    showToast('SEARCH FAILED');
   }
 }
 
@@ -2955,7 +2933,7 @@ document.addEventListener('click',e=>{
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
     const si=parseInt(yourShowCard.dataset.showIndex,10);
-    if(Number.isFinite(pi)&&Number.isFinite(si))shufflePlaylistShow(pi,si);
+    if(Number.isFinite(pi)&&Number.isFinite(si))openYourShowDetailPage(pi,si);
     return;
   }
   const rwCard=e.target.closest('.recently-watched-card');
