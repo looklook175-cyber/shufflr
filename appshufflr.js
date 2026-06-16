@@ -150,47 +150,76 @@ function yourShowNeedsPosterLookup(show){
   return!hasTmdbId||!hasPoster;
 }
 
-function buildYourShowsPosterHtml(show,showKey){
-  const posterUrl=buildPosterUrl(show.poster_path,'w185');
-  const needsLookup=yourShowNeedsPosterLookup(show);
-  if(needsLookup&&!posterUrl){
-    return `<div class="your-show-poster-wrap" style="position:relative;width:100%;height:220px;background:#1a1a1a;">
-      <div class="your-show-poster-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">${YOUR_SHOWS_SMILEY_SVG}</div>
-      <img data-show-key="${escapeHtml(showKey)}" src="" alt="" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;opacity:0;" />
-    </div>`;
-  }
-  return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />`;
+function getRecentlyWatchedPosterKey(showName){
+  return String(showName||'').trim().toLowerCase();
 }
 
-async function resolveYourShowsPosters(items){
-  const pending=new Map();
-  for(const {show} of (items||[])){
-    if(!yourShowNeedsPosterLookup(show))continue;
-    const showKey=getHomeShowDedupeKey(show);
-    const query=getShowLabel(show);
-    if(!showKey||!query)continue;
-    if(!pending.has(query))pending.set(query,[]);
-    pending.get(query).push(showKey);
+function buildDeferredPosterHtml(showKey,posterUrl,imgStyle){
+  if(posterUrl){
+    return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="${imgStyle}" />`;
   }
-  for(const [query,showKeys] of pending){
+  return `<div class="card-poster-wrap" style="position:relative;width:100%;height:100%;background:#1a1a1a;">
+    <div class="card-poster-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">${YOUR_SHOWS_SMILEY_SVG}</div>
+    <img data-show-key="${escapeHtml(showKey)}" src="" alt="" style="${imgStyle}opacity:0;" />
+  </div>`;
+}
+
+function applyPosterToDomByShowKey(showKey,posterUrl){
+  document.querySelectorAll('img[data-show-key]').forEach(img=>{
+    if(img.dataset.showKey!==showKey)return;
+    img.src=posterUrl;
+    img.style.opacity='1';
+    img.style.display='';
+    img.closest('.card-poster-wrap')?.querySelector('.card-poster-placeholder')?.remove();
+  });
+}
+
+async function resolveCardPostersFromTmdb(lookupMap,size='w185'){
+  for(const [showKey,query] of lookupMap){
     try{
       const r=await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(query)}`);
       const d=await r.json();
       const match=(d.results||[]).find(result=>result.poster_path)||(d.results||[])[0];
       if(!match?.poster_path)continue;
-      const posterUrl=buildPosterUrl(match.poster_path,'w185');
-      showKeys.forEach(showKey=>{
-        document.querySelectorAll('img[data-show-key]').forEach(img=>{
-          if(img.dataset.showKey!==showKey)return;
-          img.src=posterUrl;
-          img.style.opacity='1';
-          img.closest('.your-show-poster-wrap')?.querySelector('.your-show-poster-placeholder')?.remove();
-        });
-      });
+      applyPosterToDomByShowKey(showKey,buildPosterUrl(match.poster_path,size));
     }catch(e){
-      console.error('[Shufflr] Your Shows poster lookup failed:',query,e);
+      console.error('[Shufflr] Poster lookup failed:',query,e);
     }
   }
+}
+
+function buildYourShowsPosterHtml(show,showKey){
+  const posterUrl=buildPosterUrl(show.poster_path,'w185');
+  const needsLookup=yourShowNeedsPosterLookup(show);
+  const imgStyle='width:100%;height:220px;object-fit:cover;background:#1a1a1a;';
+  if(needsLookup&&!posterUrl){
+    return buildDeferredPosterHtml(showKey,'',imgStyle);
+  }
+  return buildDeferredPosterHtml(showKey,posterUrl,imgStyle);
+}
+
+async function resolveYourShowsPosters(items){
+  const lookupMap=new Map();
+  for(const {show} of (items||[])){
+    if(!yourShowNeedsPosterLookup(show))continue;
+    const showKey=getHomeShowDedupeKey(show);
+    const query=getShowLabel(show);
+    if(!showKey||!query)continue;
+    lookupMap.set(showKey,query);
+  }
+  await resolveCardPostersFromTmdb(lookupMap,'w185');
+}
+
+async function resolveRecentlyWatchedPosters(entries){
+  const lookupMap=new Map();
+  for(const entry of (entries||[])){
+    if(buildPosterUrl(entry.poster_path,'w300'))continue;
+    const query=(entry.show_name||'').trim();
+    const showKey=getRecentlyWatchedPosterKey(query);
+    if(!showKey||!query)continue;
+    lookupMap.set(showKey,query);
+  }
+  await resolveCardPostersFromTmdb(lookupMap,'w300');
 }
 
 function buildYourShowsSectionHtml(section){
@@ -322,9 +351,12 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const showId = entry.show_id != null ? String(entry.show_id) : '';
   const showIdAttr = encodeURIComponent(showId);
   const showNameAttr = encodeURIComponent((entry.show_name || '').trim());
-  const thumbHtml = posterUrl
-    ? `<img src="${posterUrl}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;background:#1a1a1a;" />`
-    : '';
+  const showKey = getRecentlyWatchedPosterKey(entry.show_name);
+  const thumbHtml = buildDeferredPosterHtml(
+    showKey,
+    posterUrl,
+    'width:100%;height:100%;object-fit:cover;background:#1a1a1a;'
+  );
   const descHtml = description
     ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
     : '';
@@ -442,23 +474,27 @@ async function buildYourPlaylistsHtml() {
     </div>`;
 }
 
-async function buildRecentlyWatchedOnMaxHtml() {
-  if (typeof window.shufflrGetWatchHistory !== 'function') return '';
-  try {
-    const entries = dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(200));
-    if (!entries.length) {
-      return `<div class="genre-section" style="margin-top:16px;">
-        <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
-        <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>
-      </div>`;
-    }
+async function buildRecentlyWatchedOnMaxHtml(entries){
+  if (!entries?.length) {
     return `<div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
-      <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div>
+      <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>
     </div>`;
-  } catch (e) {
-    console.error('[Shufflr] Failed to load watch history:', e);
-    return '';
+  }
+  return `<div class="genre-section" style="margin-top:16px;">
+    <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
+    <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div>
+  </div>`;
+}
+
+async function loadRecentlyWatchedOnMaxSection(){
+  if(typeof window.shufflrGetWatchHistory!=='function')return{html:'',entries:[]};
+  try{
+    const entries=dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(200));
+    return{html:await buildRecentlyWatchedOnMaxHtml(entries),entries};
+  }catch(e){
+    console.error('[Shufflr] Failed to load watch history:',e);
+    return{html:'',entries:[]};
   }
 }
 
@@ -2617,8 +2653,11 @@ async function renderHomeScreen(navType){
     </div>`;
   }
 
+  let recentlyWatchedEntries=[];
   if (!isMovies && typeof window.shufflrIsLoggedIn === 'function' && await window.shufflrIsLoggedIn()) {
-    html += await buildRecentlyWatchedOnMaxHtml();
+    const recentSection=await loadRecentlyWatchedOnMaxSection();
+    html += recentSection.html;
+    recentlyWatchedEntries=recentSection.entries;
   }
 
   html+=`</div>`;
@@ -2627,6 +2666,9 @@ async function renderHomeScreen(navType){
 
   if(yourShows.length){
     resolveYourShowsPosters(yourShowsSection.items);
+  }
+  if(recentlyWatchedEntries.length){
+    resolveRecentlyWatchedPosters(recentlyWatchedEntries);
   }
 
   // Load recommendations async for the first show in Your Shows
