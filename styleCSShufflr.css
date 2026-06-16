@@ -599,33 +599,12 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-cancel-add:hover {
   color: #23A8E0;
 }
-.pl-drawer-search-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.78rem;
-  outline: none;
-}
-.pl-drawer-search-input:focus {
-  border-color: #23A8E0;
-}
-.pl-drawer-search-results {
+.pl-drawer-add-picker {
   display: flex;
   flex-direction: column;
   gap: 6px;
   max-height: 140px;
   overflow-y: auto;
-}
-.pl-drawer-show-year {
-  color: var(--muted);
-  font-size: 0.68rem;
-  margin-left: 4px;
 }
 
 /* CONNECT MODAL */

@@ -1165,8 +1165,7 @@ function openPlaylistFromHomeCard(index) {
 let homePlaylistsCache = [];
 let openDrawerPlaylistIndex = null;
 let drawerAddShowMode = false;
-let drawerSearchTimer = null;
-let drawerSearchResults = [];
+let drawerAddShowCandidates = [];
 
 function getPlaylistShowLabel(show) {
   return show?.title || show?.name || 'Untitled';
@@ -1231,7 +1230,7 @@ function updatePlaylistDrawerContent(playlist, playlistIndex) {
   const drawer = document.getElementById('pl-home-drawer');
   if (!drawer) return;
   drawerAddShowMode = false;
-  drawerSearchResults = [];
+  drawerAddShowCandidates = [];
 
   drawer.innerHTML = `
     <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="Close">✕</button>
@@ -1262,7 +1261,7 @@ function togglePlaylistDrawer(index) {
 function closePlaylistDrawer() {
   openDrawerPlaylistIndex = null;
   drawerAddShowMode = false;
-  drawerSearchResults = [];
+  drawerAddShowCandidates = [];
   const drawer = document.getElementById('pl-home-drawer');
   if (drawer) drawer.hidden = true;
 }
@@ -1291,64 +1290,61 @@ function editPlaylistFromDrawer(index) {
 
 function openDrawerAddShowMode(playlistIndex) {
   drawerAddShowMode = true;
-  drawerSearchResults = [];
-  renderDrawerAddShowSearch(playlistIndex);
+  renderDrawerAddShowPicker(playlistIndex);
 }
 
-function renderDrawerAddShowSearch(playlistIndex) {
+function getCrossPlaylistShowsForAdd(playlistIndex) {
+  const currentPlaylist = homePlaylistsCache[playlistIndex];
+  const seenNames = new Set();
+  const candidates = [];
+
+  homePlaylistsCache.forEach((playlist, pi) => {
+    if (pi === playlistIndex) return;
+    for (const show of playlist.shows || []) {
+      if (isShowInPlaylist(currentPlaylist, show)) continue;
+      const nameKey = normalizePlShowName(getPlaylistShowLabel(show));
+      if (!nameKey || seenNames.has(nameKey)) continue;
+      seenNames.add(nameKey);
+      candidates.push(show);
+    }
+  });
+
+  return candidates.sort((a, b) => (
+    getPlaylistShowLabel(a).localeCompare(getPlaylistShowLabel(b), undefined, { sensitivity: 'base' })
+  ));
+}
+
+function renderDrawerAddShowPicker(playlistIndex) {
   const body = document.getElementById('pl-drawer-body');
   if (!body) return;
+
+  drawerAddShowCandidates = getCrossPlaylistShowsForAdd(playlistIndex);
+
+  if (!drawerAddShowCandidates.length) {
+    body.innerHTML = `
+      <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+      <div class="pl-drawer-empty">Add shows from Max using the Shufflr button</div>`;
+    return;
+  }
+
+  const rows = drawerAddShowCandidates.map((show, i) => (
+    `<button type="button" class="pl-drawer-show-row" onclick="addCrossPlaylistShowToDrawer(${playlistIndex}, ${i})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
+  )).join('');
+
   body.innerHTML = `
     <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
-    <input type="text" class="pl-drawer-search-input" id="pl-drawer-search-input" placeholder="Search shows on Max..." oninput="handleDrawerAddShowSearch(${playlistIndex})" autocomplete="off" />
-    <div class="pl-drawer-search-results" id="pl-drawer-search-results"></div>`;
-  setTimeout(() => document.getElementById('pl-drawer-search-input')?.focus(), 50);
+    <div class="pl-drawer-add-picker">${rows}</div>`;
 }
 
 function cancelDrawerAddShowMode(playlistIndex) {
   drawerAddShowMode = false;
-  drawerSearchResults = [];
-  clearTimeout(drawerSearchTimer);
+  drawerAddShowCandidates = [];
   const playlist = homePlaylistsCache[playlistIndex];
   if (playlist) renderDrawerShowList(playlistIndex, playlist);
 }
 
-function handleDrawerAddShowSearch(playlistIndex) {
-  clearTimeout(drawerSearchTimer);
-  const q = document.getElementById('pl-drawer-search-input')?.value.trim();
-  const resultsEl = document.getElementById('pl-drawer-search-results');
-  if (!q) {
-    if (resultsEl) resultsEl.innerHTML = '';
-    drawerSearchResults = [];
-    return;
-  }
-  drawerSearchTimer = setTimeout(() => doDrawerAddShowSearch(playlistIndex, q), 400);
-}
-
-async function doDrawerAddShowSearch(playlistIndex, q) {
-  const resultsEl = document.getElementById('pl-drawer-search-results');
-  if (!resultsEl) return;
-  try {
-    const r = await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(q)}`);
-    const d = await r.json();
-    let results = (d.results || []).slice(0, 10);
-    drawerSearchResults = results;
-    if (!results.length) {
-      resultsEl.innerHTML = '<div class="pl-drawer-empty">No results found.</div>';
-      return;
-    }
-    resultsEl.innerHTML = results.map((s, i) => (
-      `<button type="button" class="pl-drawer-show-row" onclick="addShowToDrawerPlaylist(${playlistIndex}, ${i})">
-        ${escapeHtml(s.name || s.title)} <span class="pl-drawer-show-year">${((s.first_air_date || s.release_date) || '').slice(0, 4)}</span>
-      </button>`
-    )).join('');
-  } catch (e) {
-    console.error('[Shufflr] Drawer search failed:', e);
-  }
-}
-
-async function addShowToDrawerPlaylist(playlistIndex, resultIndex) {
-  const show = drawerSearchResults[resultIndex];
+function addCrossPlaylistShowToDrawer(playlistIndex, candidateIndex) {
+  const show = drawerAddShowCandidates[candidateIndex];
   const playlist = homePlaylistsCache[playlistIndex];
   if (!show || !playlist) return;
   if (!playlist.shows) playlist.shows = [];
@@ -1357,18 +1353,7 @@ async function addShowToDrawerPlaylist(playlistIndex, resultIndex) {
     return;
   }
 
-  const maxIdEntry = await resolveMaxIdEntryForShow(show);
-  if (maxIdEntry) {
-    playlist.shows.push({ title: maxIdEntry.title, maxId: maxIdEntry.maxId });
-  } else {
-    playlist.shows.push({
-      title: getShowLabel(show),
-      id: show.id,
-      name: show.name || show.title,
-      poster_path: show.poster_path,
-      first_air_date: show.first_air_date,
-    });
-  }
+  playlist.shows.push({ ...show });
   if (!playlist.service) playlist.service = 'max';
 
   homePlaylistsCache[playlistIndex] = playlist;
