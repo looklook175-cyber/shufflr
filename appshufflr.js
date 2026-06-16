@@ -205,47 +205,33 @@ async function fetchTmdbEpisodeOverview(showId, seasonNum, episodeNumber) {
   }
 }
 
-// Resolve a Recently Watched show_id (TMDB id or Max UUID) to a TMDB TV id.
-async function resolveRecentlyWatchedShowTmdbId(showId, showName) {
-  const idStr = String(showId || '').trim();
-  if (/^\d+$/.test(idStr)) return idStr;
-
-  const normMax = idStr.toLowerCase();
-  if (!normMax) return null;
-
+async function resolveShowForRecentlyWatchedClick(showId, showName) {
   const storedPlaylists = await readPlaylistsFromChromeStorage();
-  const allPlaylists = storedPlaylists || playlists;
+  const allPlaylists = storedPlaylists || playlists || [];
+  const normId = String(showId || '').trim();
+  const normName = normalizePlShowName(showName);
 
-  for (const playlist of allPlaylists || []) {
+  for (const playlist of allPlaylists) {
     for (const show of playlist?.shows || []) {
-      const showMaxId = getShowMaxId(show);
-      if (!showMaxId || String(showMaxId).toLowerCase() !== normMax) continue;
-      const tmdbId = show.id ?? show.tmdbId;
-      if (tmdbId != null && /^\d+$/.test(String(tmdbId))) return String(tmdbId);
+      const maxId = getShowMaxId(show);
+      if (maxId && normId && String(maxId).toLowerCase() === normId.toLowerCase()) return show;
+      if (show.id != null && normId && String(show.id) === normId) return show;
+      const label = normalizePlShowName(getPlaylistShowLabel(show));
+      if (normName && label && normName === label) return show;
     }
   }
 
-  const name = String(showName || '').trim();
-  if (!name) return null;
-  try {
-    const r = await fetch(
-      `https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(name)}&language=en-US`
-    );
-    if (!r.ok) return null;
-    const d = await r.json();
-    const top = (d.results || [])[0];
-    if (top?.id != null && /^\d+$/.test(String(top.id))) return String(top.id);
-  } catch (e) {
-    console.error('[Shufflr] TMDB search failed for Recently Watched:', e);
-  }
-  return null;
+  const fallback = { name: showName, title: showName };
+  if (normId && !/^\d+$/.test(normId)) fallback.maxId = normId;
+  else if (normId && /^\d+$/.test(normId)) fallback.id = normId;
+  return fallback;
 }
 
 async function recentlyWatchedMaxCardClick(showId, showName) {
-  console.log('[Shufflr] Recently watched card clicked, show_id:', showId);
-  const tmdbId = await resolveRecentlyWatchedShowTmdbId(showId, showName);
-  if (!tmdbId) return;
-  homeTileClick(tmdbId, 'tv');
+  const show = await resolveShowForRecentlyWatchedClick(showId, showName);
+  const launchUrl = getShowMaxUrlFromPlaylistShow(show);
+  if (!launchUrl) return;
+  window.open(launchUrl, '_blank');
 }
 
 function recentlyWatchedMaxCardClickFromCard(el) {
