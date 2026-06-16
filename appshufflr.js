@@ -1369,8 +1369,8 @@ function renderDrawerAddShowPicker(playlistIndex) {
   filterDrawerAddShowPicker(playlistIndex);
 }
 
-function createPlaylistFromDrawerAddMode(playlistIndex) {
-  const name = prompt('Playlist name:');
+async function createPlaylistFromDrawerAddMode(playlistIndex) {
+  const name = await promptPlaylistName('Playlist name:');
   if (!name || !name.trim()) return;
 
   const newPlaylist = {
@@ -2086,6 +2086,64 @@ async function createPlaylist(){
 }
 
 // UTILS
+function ensurePlaylistNameModal() {
+  if (document.getElementById('shufflr-pl-name-modal')) return;
+  const modal = document.createElement('div');
+  modal.id = 'shufflr-pl-name-modal';
+  modal.className = 'shufflr-pl-name-modal';
+  modal.innerHTML = `
+    <div class="shufflr-pl-name-modal-box" role="dialog" aria-modal="true" aria-labelledby="shufflr-pl-name-title">
+      <div class="shufflr-pl-name-modal-title" id="shufflr-pl-name-title">NEW PLAYLIST</div>
+      <label class="shufflr-pl-name-modal-label" id="shufflr-pl-name-label" for="shufflr-pl-name-input">Playlist name:</label>
+      <input type="text" class="shufflr-pl-name-modal-input" id="shufflr-pl-name-input" autocomplete="off" />
+      <div class="shufflr-pl-name-modal-actions">
+        <button type="button" class="shufflr-pl-name-modal-btn shufflr-pl-name-modal-btn-cancel" id="shufflr-pl-name-cancel">Cancel</button>
+        <button type="button" class="shufflr-pl-name-modal-btn shufflr-pl-name-modal-btn-confirm" id="shufflr-pl-name-confirm">Confirm</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function promptPlaylistName(message = 'Playlist name:') {
+  ensurePlaylistNameModal();
+  const modal = document.getElementById('shufflr-pl-name-modal');
+  const input = document.getElementById('shufflr-pl-name-input');
+  const confirmBtn = document.getElementById('shufflr-pl-name-confirm');
+  const cancelBtn = document.getElementById('shufflr-pl-name-cancel');
+  const label = document.getElementById('shufflr-pl-name-label');
+
+  return new Promise((resolve) => {
+    label.textContent = message;
+    input.value = '';
+    modal.classList.add('open');
+    setTimeout(() => input.focus(), 0);
+
+    const finish = (value) => {
+      modal.classList.remove('open');
+      confirmBtn.onclick = null;
+      cancelBtn.onclick = null;
+      modal.onclick = null;
+      input.onkeydown = null;
+      resolve(value);
+    };
+
+    confirmBtn.onclick = () => finish(input.value);
+    cancelBtn.onclick = () => finish(null);
+    modal.onclick = (e) => {
+      if (e.target === modal) finish(null);
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(input.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(null);
+      }
+    };
+  });
+}
+
 function showMain(html){document.getElementById('main-content').innerHTML=html;}
 
 // ---- WHERE TO WATCH ----
@@ -2441,11 +2499,7 @@ async function renderHomeScreen(navType){
   const yourShowsSection = getActivePlaylistShowsForHome(isMovies);
   const yourShows = yourShowsSection.shows;
 
-  let html=`<div class="home-wrap">
-    <div class="empty-state" style="padding:30px 0 20px;">
-      <div class="empty-title">${isMovies ? 'SEARCH A MOVIE' : 'SEARCH A SHOW'}</div>
-      <div class="empty-sub">${isMovies ? 'Search above to find a movie,<br>then hit the shuffle arrows.' : 'Search above to find a show,<br>then hit the shuffle arrows.'}</div>
-    </div>`;
+  let html=`<div class="home-wrap">`;
 
   if (!isMovies) {
     html += await buildYourPlaylistsHtml();

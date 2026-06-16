@@ -497,6 +497,9 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   box-shadow: 0 0 20px rgba(35, 168, 224, 0.15);
   z-index: 20;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 .pl-drawer-close {
   position: absolute;
@@ -521,6 +524,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   margin: 0 24px 12px 0;
   line-height: 1.5;
   text-shadow: 0 0 8px rgba(35, 168, 224, 0.4);
+  flex-shrink: 0;
 }
 .pl-drawer-actions {
   display: flex;
@@ -528,6 +532,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .pl-drawer-btn {
   font-family: 'DM Sans', sans-serif;
@@ -560,20 +565,28 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-shows {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 6px;
-  max-height: 140px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   overflow-y: auto;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #23A8E0 #0a0a0a;
 }
 .pl-drawer-show-row {
   font-size: 0.78rem;
   color: var(--text);
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   text-align: left;
   width: 100%;
+  box-sizing: border-box;
+  align-self: stretch;
   font-family: 'DM Sans', sans-serif;
   transition: all 0.2s;
 }
@@ -604,7 +617,11 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-add-mode {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  flex: 1;
   min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .pl-drawer-add-toolbar {
   display: flex;
@@ -615,9 +632,15 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-add-picker {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 0;
-  max-height: 260px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   overflow-y: auto;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #23A8E0 #0a0a0a;
 }
 .pl-drawer-add-filter {
   flex: 1;
@@ -638,10 +661,12 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-add-show-row {
   display: flex;
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid #23A8E0;
   border-radius: 4px;
   margin-bottom: 4px;
-  padding: 6px 8px;
+  padding: 8px 10px;
 }
 .pl-drawer-add-show-row:hover {
   background: rgba(35, 168, 224, 0.15);
@@ -688,6 +713,95 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-create-playlist-btn:hover {
   border-color: #23A8E0;
   color: #23A8E0;
+}
+
+/* PLAYLIST NAME MODAL */
+.shufflr-pl-name-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+.shufflr-pl-name-modal.open {
+  display: flex;
+}
+.shufflr-pl-name-modal-box {
+  background: #0a0a0a;
+  border: 2px solid #23A8E0;
+  border-radius: 12px;
+  padding: 22px 20px 18px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 0 40px rgba(35, 168, 224, 0.25);
+  box-sizing: border-box;
+}
+.shufflr-pl-name-modal-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.62rem;
+  color: #23A8E0;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+  text-shadow: 0 0 8px rgba(35, 168, 224, 0.4);
+}
+.shufflr-pl-name-modal-label {
+  display: block;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.shufflr-pl-name-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #fff;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.85rem;
+  outline: none;
+  margin-bottom: 16px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.shufflr-pl-name-modal-input:focus {
+  border-color: #23A8E0;
+  box-shadow: 0 0 0 2px rgba(35, 168, 224, 0.25);
+}
+.shufflr-pl-name-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.shufflr-pl-name-modal-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.shufflr-pl-name-modal-btn-confirm {
+  background: #23A8E0;
+  border: 1px solid #23A8E0;
+  color: #000;
+}
+.shufflr-pl-name-modal-btn-confirm:hover {
+  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
+}
+.shufflr-pl-name-modal-btn-cancel {
+  background: transparent;
+  border: 1px solid #23A8E0;
+  color: #23A8E0;
+}
+.shufflr-pl-name-modal-btn-cancel:hover {
+  background: rgba(35, 168, 224, 0.1);
 }
 
 /* CONNECT MODAL */
@@ -821,6 +935,8 @@ body,
 .dropdown,
 .playlist-modal-list,
 .shufflr-pl-shows-list,
+.pl-drawer-shows,
+.pl-drawer-add-picker,
 #seasons-list,
 #dropdown,
 #ep-sheet,
@@ -836,6 +952,8 @@ body::-webkit-scrollbar,
 .dropdown::-webkit-scrollbar,
 .playlist-modal-list::-webkit-scrollbar,
 .shufflr-pl-shows-list::-webkit-scrollbar,
+.pl-drawer-shows::-webkit-scrollbar,
+.pl-drawer-add-picker::-webkit-scrollbar,
 #seasons-list::-webkit-scrollbar,
 #dropdown::-webkit-scrollbar,
 #ep-sheet::-webkit-scrollbar,
@@ -851,6 +969,8 @@ body::-webkit-scrollbar-track,
 .dropdown::-webkit-scrollbar-track,
 .playlist-modal-list::-webkit-scrollbar-track,
 .shufflr-pl-shows-list::-webkit-scrollbar-track,
+.pl-drawer-shows::-webkit-scrollbar-track,
+.pl-drawer-add-picker::-webkit-scrollbar-track,
 #seasons-list::-webkit-scrollbar-track,
 #dropdown::-webkit-scrollbar-track,
 #ep-sheet::-webkit-scrollbar-track,
@@ -865,6 +985,8 @@ body::-webkit-scrollbar-thumb,
 .dropdown::-webkit-scrollbar-thumb,
 .playlist-modal-list::-webkit-scrollbar-thumb,
 .shufflr-pl-shows-list::-webkit-scrollbar-thumb,
+.pl-drawer-shows::-webkit-scrollbar-thumb,
+.pl-drawer-add-picker::-webkit-scrollbar-thumb,
 #seasons-list::-webkit-scrollbar-thumb,
 #dropdown::-webkit-scrollbar-thumb,
 #ep-sheet::-webkit-scrollbar-thumb,
@@ -880,6 +1002,8 @@ body::-webkit-scrollbar-thumb:hover,
 .dropdown::-webkit-scrollbar-thumb:hover,
 .playlist-modal-list::-webkit-scrollbar-thumb:hover,
 .shufflr-pl-shows-list::-webkit-scrollbar-thumb:hover,
+.pl-drawer-shows::-webkit-scrollbar-thumb:hover,
+.pl-drawer-add-picker::-webkit-scrollbar-thumb:hover,
 #seasons-list::-webkit-scrollbar-thumb:hover,
 #dropdown::-webkit-scrollbar-thumb:hover,
 #ep-sheet::-webkit-scrollbar-thumb:hover,
@@ -894,6 +1018,8 @@ body::-webkit-scrollbar-button,
 .dropdown::-webkit-scrollbar-button,
 .playlist-modal-list::-webkit-scrollbar-button,
 .shufflr-pl-shows-list::-webkit-scrollbar-button,
+.pl-drawer-shows::-webkit-scrollbar-button,
+.pl-drawer-add-picker::-webkit-scrollbar-button,
 #seasons-list::-webkit-scrollbar-button,
 #dropdown::-webkit-scrollbar-button,
 #ep-sheet::-webkit-scrollbar-button,
@@ -915,6 +1041,8 @@ body.light-mode .main,
 body.light-mode .dropdown,
 body.light-mode .playlist-modal-list,
 body.light-mode .shufflr-pl-shows-list,
+body.light-mode .pl-drawer-shows,
+body.light-mode .pl-drawer-add-picker,
 body.light-mode #seasons-list,
 body.light-mode #dropdown,
 body.light-mode #ep-sheet,
@@ -928,6 +1056,8 @@ body.light-mode .main::-webkit-scrollbar-track,
 body.light-mode .dropdown::-webkit-scrollbar-track,
 body.light-mode .playlist-modal-list::-webkit-scrollbar-track,
 body.light-mode .shufflr-pl-shows-list::-webkit-scrollbar-track,
+body.light-mode .pl-drawer-shows::-webkit-scrollbar-track,
+body.light-mode .pl-drawer-add-picker::-webkit-scrollbar-track,
 body.light-mode #seasons-list::-webkit-scrollbar-track,
 body.light-mode #dropdown::-webkit-scrollbar-track,
 body.light-mode #ep-sheet::-webkit-scrollbar-track,
@@ -941,6 +1071,8 @@ body.light-mode .main::-webkit-scrollbar-thumb,
 body.light-mode .dropdown::-webkit-scrollbar-thumb,
 body.light-mode .playlist-modal-list::-webkit-scrollbar-thumb,
 body.light-mode .shufflr-pl-shows-list::-webkit-scrollbar-thumb,
+body.light-mode .pl-drawer-shows::-webkit-scrollbar-thumb,
+body.light-mode .pl-drawer-add-picker::-webkit-scrollbar-thumb,
 body.light-mode #seasons-list::-webkit-scrollbar-thumb,
 body.light-mode #dropdown::-webkit-scrollbar-thumb,
 body.light-mode #ep-sheet::-webkit-scrollbar-thumb,
@@ -955,6 +1087,8 @@ body.light-mode .main::-webkit-scrollbar-thumb:hover,
 body.light-mode .dropdown::-webkit-scrollbar-thumb:hover,
 body.light-mode .playlist-modal-list::-webkit-scrollbar-thumb:hover,
 body.light-mode .shufflr-pl-shows-list::-webkit-scrollbar-thumb:hover,
+body.light-mode .pl-drawer-shows::-webkit-scrollbar-thumb:hover,
+body.light-mode .pl-drawer-add-picker::-webkit-scrollbar-thumb:hover,
 body.light-mode #seasons-list::-webkit-scrollbar-thumb:hover,
 body.light-mode #dropdown::-webkit-scrollbar-thumb:hover,
 body.light-mode #ep-sheet::-webkit-scrollbar-thumb:hover,
