@@ -132,14 +132,76 @@ function getActivePlaylistShowsForHome(isMovies,allPlaylists=playlists){
   return{items};
 }
 
+const YOUR_SHOWS_SMILEY_SVG=`<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="8" y="8" width="8" height="8" fill="#23A8E0"/>
+  <rect x="32" y="8" width="8" height="8" fill="#23A8E0"/>
+  <rect x="4" y="24" width="4" height="4" fill="#23A8E0"/>
+  <rect x="40" y="24" width="4" height="4" fill="#23A8E0"/>
+  <rect x="8" y="32" width="4" height="4" fill="#23A8E0"/>
+  <rect x="12" y="36" width="4" height="4" fill="#23A8E0"/>
+  <rect x="16" y="38" width="16" height="4" fill="#23A8E0"/>
+  <rect x="32" y="36" width="4" height="4" fill="#23A8E0"/>
+  <rect x="36" y="32" width="4" height="4" fill="#23A8E0"/>
+</svg>`;
+
+function yourShowNeedsPosterLookup(show){
+  const hasTmdbId=show?.id!=null&&/^\d+$/.test(String(show.id));
+  const hasPoster=!!(show?.poster_path&&buildPosterUrl(show.poster_path,'w185'));
+  return!hasTmdbId||!hasPoster;
+}
+
+function buildYourShowsPosterHtml(show,showKey){
+  const posterUrl=buildPosterUrl(show.poster_path,'w185');
+  const needsLookup=yourShowNeedsPosterLookup(show);
+  if(needsLookup&&!posterUrl){
+    return `<div class="your-show-poster-wrap" style="position:relative;width:100%;height:220px;background:#1a1a1a;">
+      <div class="your-show-poster-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">${YOUR_SHOWS_SMILEY_SVG}</div>
+      <img data-show-key="${escapeHtml(showKey)}" src="" alt="" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;opacity:0;" />
+    </div>`;
+  }
+  return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />`;
+}
+
+async function resolveYourShowsPosters(items){
+  const pending=new Map();
+  for(const {show} of (items||[])){
+    if(!yourShowNeedsPosterLookup(show))continue;
+    const showKey=getHomeShowDedupeKey(show);
+    const query=getShowLabel(show);
+    if(!showKey||!query)continue;
+    if(!pending.has(query))pending.set(query,[]);
+    pending.get(query).push(showKey);
+  }
+  for(const [query,showKeys] of pending){
+    try{
+      const r=await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(query)}`);
+      const d=await r.json();
+      const match=(d.results||[]).find(result=>result.poster_path)||(d.results||[])[0];
+      if(!match?.poster_path)continue;
+      const posterUrl=buildPosterUrl(match.poster_path,'w185');
+      showKeys.forEach(showKey=>{
+        document.querySelectorAll('img[data-show-key]').forEach(img=>{
+          if(img.dataset.showKey!==showKey)return;
+          img.src=posterUrl;
+          img.style.opacity='1';
+          img.closest('.your-show-poster-wrap')?.querySelector('.your-show-poster-placeholder')?.remove();
+        });
+      });
+    }catch(e){
+      console.error('[Shufflr] Your Shows poster lookup failed:',query,e);
+    }
+  }
+}
+
 function buildYourShowsSectionHtml(section){
   const items=section.items||[];
   if(!items.length)return'';
 
   let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
   items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
+    const showKey=getHomeShowDedupeKey(s);
     html+=`<div class="ep-card-h" onclick="shufflePlaylistShow(${pi},${si})">
-      <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+      ${buildYourShowsPosterHtml(s,showKey)}
       <div class="ep-card-h-body">
         <div class="ep-card-h-name">${s.name||s.title||''}</div>
       </div>
@@ -2562,6 +2624,10 @@ async function renderHomeScreen(navType){
   html+=`</div>`;
   showMain(html);
   setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
+
+  if(yourShows.length){
+    resolveYourShowsPosters(yourShowsSection.items);
+  }
 
   // Load recommendations async for the first show in Your Shows
   if(yourShows.length){
