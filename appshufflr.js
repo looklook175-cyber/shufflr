@@ -303,6 +303,59 @@ async function buildRecentlyWatchedMaxCardsHtml(entries) {
   return cards.join('');
 }
 
+// Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
+async function buildYourPlaylistsHtml() {
+  const connectedService = localStorage.getItem('shufflr_service') || 'max';
+  const allPlaylists = playlists || [];
+  const filtered = allPlaylists.filter(p => (p.service || 'max') === connectedService);
+  if (!filtered.length) return '';
+
+  const cards = filtered.map((playlist) => {
+    const index = allPlaylists.indexOf(playlist);
+    const showCount = (playlist.shows || []).length;
+    const customPoster = localStorage.getItem('shufflr_playlist_poster_' + (playlist.id || playlist.name));
+    const posterHtml = customPoster
+      ? `<img src="${customPoster}" style="width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;">`
+      : `<div class="pl-poster-placeholder">
+           <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+             <rect x="8" y="8" width="8" height="8" fill="#23A8E0"/>
+             <rect x="32" y="8" width="8" height="8" fill="#23A8E0"/>
+             <rect x="4" y="24" width="4" height="4" fill="#23A8E0"/>
+             <rect x="40" y="24" width="4" height="4" fill="#23A8E0"/>
+             <rect x="8" y="32" width="4" height="4" fill="#23A8E0"/>
+             <rect x="12" y="36" width="4" height="4" fill="#23A8E0"/>
+             <rect x="16" y="38" width="16" height="4" fill="#23A8E0"/>
+             <rect x="32" y="36" width="4" height="4" fill="#23A8E0"/>
+             <rect x="36" y="32" width="4" height="4" fill="#23A8E0"/>
+           </svg>
+         </div>`;
+
+    return `
+      <div class="pl-home-card" data-pl-index="${index}" data-pl-id="${playlist.id || ''}" data-pl-name="${encodeURIComponent(playlist.name || '')}">
+        <div class="pl-home-poster" onclick="openPlaylistFromHomeCard(${index})">
+          ${posterHtml}
+          <button class="pl-home-camera-btn" onclick="event.stopPropagation();triggerPlaylistPosterPicker('${playlist.id || playlist.name}')" aria-label="Change playlist poster">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="1" y="4" width="14" height="10" rx="1" stroke="white" stroke-width="1.5" fill="none"/>
+              <circle cx="8" cy="9" r="2.5" stroke="white" stroke-width="1.5" fill="none"/>
+              <rect x="5" y="2" width="6" height="2" rx="1" fill="white"/>
+            </svg>
+          </button>
+        </div>
+        <div class="pl-home-info" onclick="openPlaylistFromHomeCard(${index})">
+          <div class="pl-home-name">${playlist.name || 'Untitled'}</div>
+          <div class="pl-home-count">${showCount} show${showCount !== 1 ? 's' : ''}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="genre-section" style="margin-top:16px;">
+      <div class="genre-title">-- YOUR PLAYLISTS --</div>
+      <div class="h-scroll-wrap">${cards}</div>
+    </div>`;
+}
+
 async function buildRecentlyWatchedOnMaxHtml() {
   if (typeof window.shufflrGetWatchHistory !== 'function') return '';
   try {
@@ -1088,6 +1141,36 @@ function removeEpFromPlaylist(pi,ei){
   if(playlists[pi].episodes) playlists[pi].episodes.splice(ei,1);
   savePlaylists();
   renderPlaylistPage();
+}
+
+// Opens the Playlist tab and highlights the playlist at the given index.
+function openPlaylistFromHomeCard(index) {
+  setNav('playlist');
+  // Small delay to let the playlist screen render before trying to expand.
+  setTimeout(() => {
+    const rows = document.querySelectorAll('.pl-card');
+    if (rows[index]) {
+      rows[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, 150);
+}
+
+// Triggers a file picker to set a custom poster image for a playlist, stored in localStorage as base64.
+function triggerPlaylistPosterPicker(playlistKey) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      localStorage.setItem('shufflr_playlist_poster_' + playlistKey, ev.target.result);
+      renderHomeScreen('shows');
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
 }
 
 // ── SMART SHUFFLE + EXTENSION HANDOFF ───────────────────────────────────────
@@ -2130,8 +2213,11 @@ async function renderHomeScreen(navType){
     html+=`</div></div>`;
   }
 
-  if (!isMovies && typeof window.shufflrIsLoggedIn === 'function' && await window.shufflrIsLoggedIn()) {
-    html += await buildRecentlyWatchedOnMaxHtml();
+  if (!isMovies) {
+    html += await buildYourPlaylistsHtml();
+    if (typeof window.shufflrIsLoggedIn === 'function' && await window.shufflrIsLoggedIn()) {
+      html += await buildRecentlyWatchedOnMaxHtml();
+    }
   }
 
   html+=`</div>`;
