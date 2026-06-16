@@ -5725,6 +5725,53 @@ function installMaxPlaylistSyncListener() {
   }
 }
 
+function normalizePlaylistShowMatchName(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+}
+
+function playlistShowMatchesCurrentPage(show, currentUrl) {
+  const showMaxId = show.maxId || show.maxShowId || show.max_id;
+  if (showMaxId && currentUrl.includes(String(showMaxId))) return true;
+
+  const showName = normalizePlaylistShowMatchName(getPlaylistShowTitle(show));
+  if (!showName) return false;
+
+  const pageTitle = normalizePlaylistShowMatchName(document.title);
+  if (!pageTitle) return false;
+
+  if (pageTitle.includes(showName)) return true;
+  const words = showName.split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.every(word => pageTitle.includes(word));
+}
+
+async function updatePlaylistShowUrl() {
+  if (!isChromeContextValid()) return;
+  const currentUrl = window.location.href.split('?')[0];
+
+  // Only run on show pages (not episode pages, home, search, etc.)
+  if (!currentUrl.includes('/show/')) return;
+
+  const playlists = await readPlaylistsFromStorage();
+  if (!Array.isArray(playlists) || !playlists.length) return;
+
+  let updated = false;
+
+  for (const playlist of playlists) {
+    for (const show of playlist.shows || []) {
+      if (!playlistShowMatchesCurrentPage(show, currentUrl)) continue;
+      if (show.url !== currentUrl) {
+        show.url = currentUrl;
+        updated = true;
+      }
+    }
+  }
+
+  if (updated) {
+    await setShufflrPlaylistsInStorage(playlists, { syncToWebApp: true });
+    console.log('[Shufflr] Updated Max URL for matched playlist show(s)');
+  }
+}
+
 // ── INIT ────────────────────────────────────────────────────────────────────
 async function checkForLaunchPlaylist() {
   if (!isChromeContextValid()) return;
@@ -5779,6 +5826,7 @@ setTimeout(() => {
   if (!isChromeContextValid()) return;
   startExtensionContextHealthCheck();
   handleShowPageShuffle();
+  void updatePlaylistShowUrl();
   tryInjectButton();
   installFullscreenListener();
   startShuffleWatchdog();
