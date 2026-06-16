@@ -449,6 +449,7 @@ window.addEventListener('load',()=>{
       ls.style.display='none';
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
       updateConnectBtnLabel();
+      updateMaxSearchDisclaimer();
       renderHomeScreen('shows');
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
@@ -526,6 +527,7 @@ function selectService(btn, svc){
   btn.classList.add('connected');
   // Update sidebar button label
   updateConnectBtnLabel();
+  updateMaxSearchDisclaimer();
 }
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
@@ -540,6 +542,38 @@ function updateConnectBtnLabel(){
   btn.style.borderColor='';
   btn.style.color='';
   btn.style.boxShadow='';
+  updateMaxSearchDisclaimer();
+}
+
+const MAX_TMDB_PROVIDER_ID = 384;
+
+function isMaxConnected() {
+  return localStorage.getItem('shufflr_service') === 'max';
+}
+
+function updateMaxSearchDisclaimer() {
+  const el = document.getElementById('max-search-disclaimer');
+  if (el) el.hidden = !isMaxConnected();
+}
+
+async function isResultAvailableOnMax(show, mediaType) {
+  try {
+    const r = await fetch(`https://api.themoviedb.org/3/${mediaType}/${show.id}/watch/providers?api_key=${KEY}`);
+    const d = await r.json();
+    const us = (d.results || {}).US || {};
+    const flatrate = us.flatrate || [];
+    return flatrate.some(p => p.provider_id === MAX_TMDB_PROVIDER_ID);
+  } catch {
+    return false;
+  }
+}
+
+async function filterResultsForMax(results, mediaType) {
+  if (!isMaxConnected() || !results?.length) return results || [];
+  const filtered = await Promise.all(results.map(async show => (
+    await isResultAvailableOnMax(show, mediaType) ? show : null
+  )));
+  return filtered.filter(Boolean);
 }
 
 // NAV
@@ -609,7 +643,10 @@ async function doSearch(q){
   try{
     const r=await fetch(`https://api.themoviedb.org/3/search/${type}?api_key=${KEY}&query=${encodeURIComponent(q)}`);
     const d=await r.json();
-    const results=(d.results||[]).slice(0,7);
+    let results=(d.results||[]).slice(0,7);
+    if(isMaxConnected()){
+      results=await filterResultsForMax(results, type);
+    }
     const drop=document.getElementById('dropdown');
     if(!results.length){drop.classList.remove('open');return;}
     drop._results=results;
@@ -1164,6 +1201,9 @@ function openPlaylistFromHomeCard(index) {
 
 let homePlaylistsCache = [];
 let openDrawerPlaylistIndex = null;
+let drawerAddShowMode = false;
+let drawerSearchTimer = null;
+let drawerSearchResults = [];
 
 function getPlaylistShowLabel(show) {
   return show?.title || show?.name || 'Untitled';
@@ -1183,6 +1223,13 @@ function setActivePlaylistViaBridge(playlist, launchUrl) {
   }, '*');
 }
 
+function savePlaylistsViaBridge(allPl) {
+  window.postMessage({
+    type: 'SHUFFLR_SAVE_PLAYLISTS',
+    playlists: allPl,
+  }, '*');
+}
+
 function positionPlaylistDrawer(index) {
   const drawer = document.getElementById('pl-home-drawer');
   const card = document.querySelector(`.pl-home-card[data-pl-index="${index}"]`);
@@ -1193,15 +1240,22 @@ function positionPlaylistDrawer(index) {
   drawer.style.left = `${Math.round(cardRect.right - rowRect.left + 8)}px`;
 }
 
-function updatePlaylistDrawerContent(playlist, playlistIndex) {
-  const drawer = document.getElementById('pl-home-drawer');
-  if (!drawer) return;
+function renderDrawerShowList(playlistIndex, playlist) {
+  const body = document.getElementById('pl-drawer-body');
+  if (!body) return;
   const shows = playlist.shows || [];
-  const showRows = shows.length
+  body.innerHTML = shows.length
     ? shows.map((show, si) => (
       `<button type="button" class="pl-drawer-show-row" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
     )).join('')
     : '<div class="pl-drawer-empty">No shows in this playlist.</div>';
+}
+
+function updatePlaylistDrawerContent(playlist, playlistIndex) {
+  const drawer = document.getElementById('pl-home-drawer');
+  if (!drawer) return;
+  drawerAddShowMode = false;
+  drawerSearchResults = [];
 
   drawer.innerHTML = `
     <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="Close">✕</button>
@@ -1209,10 +1263,10 @@ function updatePlaylistDrawerContent(playlist, playlistIndex) {
     <div class="pl-drawer-actions">
       <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="playRandomShowFromDrawer(${playlistIndex})">▶ Play</button>
       <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})">✎ Edit</button>
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="showDrawerAddHint()">＋ Add Show</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="openDrawerAddShowMode(${playlistIndex})">＋ Add Show</button>
     </div>
-    <span class="pl-drawer-add-hint" id="pl-drawer-add-hint" hidden>Add shows from Max using the Shufflr button</span>
-    <div class="pl-drawer-shows">${showRows}</div>`;
+    <div class="pl-drawer-shows" id="pl-drawer-body"></div>`;
+  renderDrawerShowList(playlistIndex, playlist);
 }
 
 function togglePlaylistDrawer(index) {
@@ -1231,6 +1285,8 @@ function togglePlaylistDrawer(index) {
 
 function closePlaylistDrawer() {
   openDrawerPlaylistIndex = null;
+  drawerAddShowMode = false;
+  drawerSearchResults = [];
   const drawer = document.getElementById('pl-home-drawer');
   if (drawer) drawer.hidden = true;
 }
@@ -1257,9 +1313,96 @@ function editPlaylistFromDrawer(index) {
   openPlaylistFromHomeCard(index);
 }
 
-function showDrawerAddHint() {
-  const hint = document.getElementById('pl-drawer-add-hint');
-  if (hint) hint.hidden = !hint.hidden;
+function openDrawerAddShowMode(playlistIndex) {
+  drawerAddShowMode = true;
+  drawerSearchResults = [];
+  renderDrawerAddShowSearch(playlistIndex);
+}
+
+function renderDrawerAddShowSearch(playlistIndex) {
+  const body = document.getElementById('pl-drawer-body');
+  if (!body) return;
+  body.innerHTML = `
+    <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+    <input type="text" class="pl-drawer-search-input" id="pl-drawer-search-input" placeholder="Search shows on Max..." oninput="handleDrawerAddShowSearch(${playlistIndex})" autocomplete="off" />
+    <div class="pl-drawer-search-results" id="pl-drawer-search-results"></div>`;
+  setTimeout(() => document.getElementById('pl-drawer-search-input')?.focus(), 50);
+}
+
+function cancelDrawerAddShowMode(playlistIndex) {
+  drawerAddShowMode = false;
+  drawerSearchResults = [];
+  clearTimeout(drawerSearchTimer);
+  const playlist = homePlaylistsCache[playlistIndex];
+  if (playlist) renderDrawerShowList(playlistIndex, playlist);
+}
+
+function handleDrawerAddShowSearch(playlistIndex) {
+  clearTimeout(drawerSearchTimer);
+  const q = document.getElementById('pl-drawer-search-input')?.value.trim();
+  const resultsEl = document.getElementById('pl-drawer-search-results');
+  if (!q) {
+    if (resultsEl) resultsEl.innerHTML = '';
+    drawerSearchResults = [];
+    return;
+  }
+  drawerSearchTimer = setTimeout(() => doDrawerAddShowSearch(playlistIndex, q), 400);
+}
+
+async function doDrawerAddShowSearch(playlistIndex, q) {
+  const resultsEl = document.getElementById('pl-drawer-search-results');
+  if (!resultsEl) return;
+  try {
+    const r = await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    let results = (d.results || []).slice(0, 10);
+    if (isMaxConnected()) {
+      results = await filterResultsForMax(results, 'tv');
+    }
+    drawerSearchResults = results;
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="pl-drawer-empty">No Max results found.</div>';
+      return;
+    }
+    resultsEl.innerHTML = results.map((s, i) => (
+      `<button type="button" class="pl-drawer-show-row" onclick="addShowToDrawerPlaylist(${playlistIndex}, ${i})">
+        ${escapeHtml(s.name || s.title)} <span class="pl-drawer-show-year">${((s.first_air_date || s.release_date) || '').slice(0, 4)}</span>
+      </button>`
+    )).join('');
+  } catch (e) {
+    console.error('[Shufflr] Drawer search failed:', e);
+  }
+}
+
+async function addShowToDrawerPlaylist(playlistIndex, resultIndex) {
+  const show = drawerSearchResults[resultIndex];
+  const playlist = homePlaylistsCache[playlistIndex];
+  if (!show || !playlist) return;
+  if (!playlist.shows) playlist.shows = [];
+  if (isShowInPlaylist(playlist, show)) {
+    cancelDrawerAddShowMode(playlistIndex);
+    return;
+  }
+
+  const maxIdEntry = await resolveMaxIdEntryForShow(show);
+  if (maxIdEntry) {
+    playlist.shows.push({ title: maxIdEntry.title, maxId: maxIdEntry.maxId });
+  } else {
+    playlist.shows.push({
+      title: getShowLabel(show),
+      id: show.id,
+      name: show.name || show.title,
+      poster_path: show.poster_path,
+      first_air_date: show.first_air_date,
+    });
+  }
+  if (!playlist.service) playlist.service = 'max';
+
+  homePlaylistsCache[playlistIndex] = playlist;
+  playlists = homePlaylistsCache;
+  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY, JSON.stringify(playlists));
+  savePlaylistsViaBridge(homePlaylistsCache);
+  cancelDrawerAddShowMode(playlistIndex);
 }
 
 // Triggers a file picker to set a custom poster image for a playlist, stored in localStorage as base64.

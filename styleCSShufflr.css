@@ -45,6 +45,8 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
 .theme-btn{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);padding:8px 10px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .theme-btn:hover{border-color:var(--blue);color:var(--blue);}
 .dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--surface2);border:1px solid #222233;border-radius:10px;z-index:1001;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,0.8);display:none;}
+.max-search-disclaimer{font-size:0.62rem;color:#888;margin-top:5px;line-height:1.4;}
+.max-search-disclaimer[hidden]{display:none;}
 .dropdown.open{display:block;}
 .result-item{display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;transition:background 0.15s;border-bottom:1px solid var(--border);}
 .result-item:last-child{border-bottom:none;}
@@ -557,13 +559,6 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-btn-outline:hover {
   background: rgba(35, 168, 224, 0.1);
 }
-.pl-drawer-add-hint {
-  display: block;
-  font-size: 0.68rem;
-  color: var(--muted);
-  line-height: 1.4;
-  padding: 0 4px 8px;
-}
 .pl-drawer-shows {
   display: flex;
   flex-direction: column;
@@ -592,6 +587,47 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   font-size: 0.72rem;
   color: var(--muted);
   padding: 8px 0;
+}
+.pl-drawer-cancel-add {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.68rem;
+  cursor: pointer;
+  padding: 0 0 8px;
+  text-align: left;
+}
+.pl-drawer-cancel-add:hover {
+  color: #23A8E0;
+}
+.pl-drawer-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  outline: none;
+}
+.pl-drawer-search-input:focus {
+  border-color: #23A8E0;
+}
+.pl-drawer-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.pl-drawer-show-year {
+  color: var(--muted);
+  font-size: 0.68rem;
+  margin-left: 4px;
 }
 
 /* CONNECT MODAL */

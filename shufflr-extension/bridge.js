@@ -120,6 +120,10 @@
       });
       return;
     }
+    if (event.data?.type === 'SHUFFLR_SAVE_PLAYLISTS') {
+      chrome.storage.local.set({ shufflr_playlists: event.data.playlists || [] });
+      return;
+    }
     if (event.data?.source !== 'shufflr-web') return;
     if (event.data?.type === 'SHUFFLR_AUTH_SESSION') {
       pushAuthSessionPayloadToExtension(event.data.session);
