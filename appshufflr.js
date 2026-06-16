@@ -452,34 +452,6 @@ async function resolveShowForRecentlyWatchedClick(showId, showName) {
   return fallback;
 }
 
-function recentlyWatchedMaxCardClickFromCard(el) {
-  const card=el?.closest?.('.recently-watched-card')||el;
-  const rawId=card?.getAttribute?.('data-recently-watched-show-id')||'';
-  let showId;
-  try{
-    showId=decodeURIComponent(rawId);
-  }catch{
-    showId=rawId;
-  }
-  const rawName=card?.getAttribute?.('data-recently-watched-show-name')||'';
-  let showName;
-  try{
-    showName=decodeURIComponent(rawName);
-  }catch{
-    showName=rawName;
-  }
-  const rawMaxUrl=card?.getAttribute?.('data-recently-watched-max-url')||'';
-  let maxUrl;
-  try{
-    maxUrl=decodeURIComponent(rawMaxUrl);
-  }catch{
-    maxUrl=rawMaxUrl;
-  }
-  const launchUrl=getRecentlyWatchedLaunchUrl(showId,showName,maxUrl);
-  if(!launchUrl)return;
-  window.open(launchUrl,'_blank');
-}
-
 function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const posterUrl = buildPosterUrl(entry.poster_path, 'w300');
   const rawShowName = stripServiceSuffixFromShowName(entry.show_name);
@@ -499,7 +471,7 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const descHtml = description
     ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
     : '';
-  return `<div class="ep-card-h recently-watched-card" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" onclick="recentlyWatchedMaxCardClickFromCard(this)" style="width:240px;cursor:pointer;">
+  return `<div class="ep-card-h recently-watched-card" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" style="width:240px;cursor:pointer;">
     <div class="recently-watched-card-thumb" style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;pointer-events:none;">${thumbHtml}</div>
     <div class="ep-card-h-body">
       <div class="ep-card-h-name">${showTitle}</div>
@@ -2977,8 +2949,18 @@ function closeSearch(){
   document.getElementById('search-overlay').style.display='none';
   document.getElementById('search-input').blur();
 }
-// Desktop: click outside closes dropdown
+// Desktop: click outside closes dropdown; delegated recently watched card clicks
 document.addEventListener('click',e=>{
+  const rwCard=e.target.closest('.recently-watched-card');
+  if(rwCard){
+    let url=rwCard.dataset.recentlyWatchedMaxUrl||'';
+    if(!url)return;
+    try{
+      url=decodeURIComponent(url);
+    }catch{}
+    window.open(url,'_blank');
+    return;
+  }
   if(!e.target.closest('.search-wrap')&&!e.target.closest('#search-overlay')) closeSearch();
 });
 
