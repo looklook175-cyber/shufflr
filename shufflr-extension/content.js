@@ -9,6 +9,7 @@ const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
+const SHUFFLR_LAUNCH_SHOW_URL_KEY = 'shufflr_launch_show_url';
 const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
@@ -5725,8 +5726,51 @@ function installMaxPlaylistSyncListener() {
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────
+async function checkForLaunchPlaylist() {
+  if (!isChromeContextValid()) return;
+  const result = await chrome.storage.local.get([
+    SHUFFLR_ACTIVE_PLAYLIST_KEY,
+    SHUFFLR_LAUNCH_SHOW_URL_KEY,
+  ]);
+  const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
+  const storedPlaylist = result[SHUFFLR_ACTIVE_PLAYLIST_KEY];
+  if (!storedPlaylist || !launchUrl) return;
+
+  const currentUrl = window.location.href.split('?')[0];
+  let launchPath = '';
+  try {
+    launchPath = new URL(launchUrl).pathname;
+  } catch {
+    return;
+  }
+  if (!launchPath || !currentUrl.includes(launchPath)) return;
+
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
+
+  const playlists = await readPlaylistsFromStorage();
+  let playlistIndex = playlists.findIndex(p => (
+    (storedPlaylist.id && p.id === storedPlaylist.id)
+    || (storedPlaylist.name && p.name === storedPlaylist.name)
+  ));
+  if (playlistIndex < 0) playlistIndex = 0;
+
+  const prepared = preparePlaylistForShuffle(storedPlaylist);
+  if (!prepared.shows.length) return;
+
+  await saveArmedActivePlaylist(prepared, playlistIndex);
+  await setStandaloneShuffleEnabled(true);
+  shufflrActive = true;
+  armedPlaylistCached = true;
+
+  setTimeout(() => {
+    if (!isChromeContextValid()) return;
+    tryInjectButton();
+  }, 1500);
+}
+
 if (!IS_SHUFFLR_WEB_APP) {
 installMaxPlaylistSyncListener();
+void checkForLaunchPlaylist();
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;
 });

@@ -336,6 +336,7 @@ async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
   const bridgePlaylists = await getPlaylistsFromBridge();
   const allPlaylists = bridgePlaylists || playlists || [];
+  homePlaylistsCache = allPlaylists;
   const filtered = allPlaylists.filter(p => (p.service || 'max') === connectedService);
   if (!filtered.length) return `
     <div class="genre-section" style="margin-top:16px;">
@@ -368,7 +369,7 @@ async function buildYourPlaylistsHtml() {
 
     return `
       <div class="pl-home-card" data-pl-index="${index}" data-pl-id="${playlist.id || ''}" data-pl-name="${encodeURIComponent(playlist.name || '')}">
-        <div class="pl-home-poster" onclick="openPlaylistFromHomeCard(${index})">
+        <div class="pl-home-poster" onclick="togglePlaylistDrawer(${index})">
           ${posterHtml}
           <button class="pl-home-camera-btn" onclick="event.stopPropagation();triggerPlaylistPosterPicker('${playlist.id || playlist.name}')" aria-label="Change playlist poster">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -378,7 +379,7 @@ async function buildYourPlaylistsHtml() {
             </svg>
           </button>
         </div>
-        <div class="pl-home-info" onclick="openPlaylistFromHomeCard(${index})">
+        <div class="pl-home-info" onclick="togglePlaylistDrawer(${index})">
           <div class="pl-home-name">${playlist.name || 'Untitled'}</div>
           <div class="pl-home-count">${showCount} show${showCount !== 1 ? 's' : ''}</div>
         </div>
@@ -388,7 +389,10 @@ async function buildYourPlaylistsHtml() {
   return `
     <div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">-- YOUR PLAYLISTS --</div>
-      <div class="h-scroll-wrap">${cards}</div>
+      <div class="pl-home-row">
+        <div class="h-scroll-wrap pl-home-scroll">${cards}</div>
+        <div class="pl-home-drawer" id="pl-home-drawer" hidden></div>
+      </div>
     </div>`;
 }
 
@@ -541,7 +545,7 @@ function updateConnectBtnLabel(){
 // NAV
 function setNav(nav){
   currentNav=nav;
-  ['shows','movies','playlist','history','free'].forEach(n=>{
+  ['shows','movies','playlist','free'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
   });
@@ -556,7 +560,6 @@ function setNav(nav){
     if(freeNav){freeNav.style.color='';}
   }
   if(nav==='playlist') renderPlaylistPage();
-  else if(nav==='history') renderHistoryPanel();
   else if(nav==='free') renderFreeTab();
   else if(nav==='shows'||nav==='movies'){
     currentType=nav==='movies'?'movie':'tv';
@@ -1029,37 +1032,6 @@ function shareEp(e,url){
   navigator.clipboard.writeText(url).then(()=>showToast('LINK COPIED'));
 }
 
-// HISTORY
-function renderHistoryPanel(){
-  if(!watchHistory.length){
-    showMain(`<div class="history-header"><span>WATCH HISTORY</span></div>
-      <div class="empty-state"><div class="empty-sub">No watched episodes yet.<br>Click any episode to mark it as watched.</div></div>`);
-    return;
-  }
-  showMain(`<div class="history-header">
-    <span>WATCH HISTORY</span>
-    <button class="clear-history-btn" onclick="clearHistory()">Clear All</button>
-  </div>
-  <div style="display:flex;flex-direction:column;gap:8px;">
-    ${watchHistory.slice().reverse().map(h=>`
-      <div class="ep-row" style="cursor:default;">
-        <img class="ep-still" src="${h.poster?IMG+'w300'+h.poster:''}" onerror="this.style.background='#1a1a1a'" />
-        <div class="ep-info">
-          <div class="ep-code">${h.showName||''}</div>
-          <div class="ep-name">S${String(h.season||'?').padStart(2,'0')} E${String(h.epNum||'?').padStart(2,'0')} — ${h.epName||''}</div>
-          <div class="ep-meta"><span>${h.date||''}</span></div>
-        </div>
-        <span class="watched-badge">Watched</span>
-      </div>`).join('')}
-  </div>`);
-}
-
-function clearHistory(){
-  watchHistory=[];
-  localStorage.setItem('shufflr_history',JSON.stringify(watchHistory));
-  renderHistoryPanel();
-}
-
 // PLAYLISTS PAGE
 function getPlaylistAddShowSection(){
   return `<div class="pl-add-show-section">
@@ -1188,6 +1160,107 @@ function openPlaylistFromHomeCard(index) {
       rows[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, 150);
+}
+
+let homePlaylistsCache = [];
+let openDrawerPlaylistIndex = null;
+
+function getPlaylistShowLabel(show) {
+  return show?.title || show?.name || 'Untitled';
+}
+
+function getShowMaxUrlFromPlaylistShow(show) {
+  const id = show?.maxId || show?.maxShowId || show?.max_id || show?.slug || show?.id;
+  if (!id) return null;
+  return `https://play.max.com/show/${String(id)}`;
+}
+
+function setActivePlaylistViaBridge(playlist, launchUrl) {
+  window.postMessage({
+    type: 'SHUFFLR_SET_ACTIVE_PLAYLIST',
+    playlist,
+    launchUrl,
+  }, '*');
+}
+
+function positionPlaylistDrawer(index) {
+  const drawer = document.getElementById('pl-home-drawer');
+  const card = document.querySelector(`.pl-home-card[data-pl-index="${index}"]`);
+  const row = document.querySelector('.pl-home-row');
+  if (!drawer || !card || !row) return;
+  const cardRect = card.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  drawer.style.left = `${Math.round(cardRect.right - rowRect.left + 8)}px`;
+}
+
+function updatePlaylistDrawerContent(playlist, playlistIndex) {
+  const drawer = document.getElementById('pl-home-drawer');
+  if (!drawer) return;
+  const shows = playlist.shows || [];
+  const showRows = shows.length
+    ? shows.map(show => `<div class="pl-drawer-show-row">${escapeHtml(getPlaylistShowLabel(show))}</div>`).join('')
+    : '<div class="pl-drawer-empty">No shows in this playlist.</div>';
+  const playOptions = shows.map((show, si) => (
+    `<button type="button" class="pl-drawer-play-option" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
+  )).join('');
+
+  drawer.innerHTML = `
+    <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="Close">✕</button>
+    <div class="pl-drawer-title">${escapeHtml(playlist.name || 'Untitled')}</div>
+    <div class="pl-drawer-shows">${showRows}</div>
+    <div class="pl-drawer-actions">
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="toggleDrawerPlayPicker(${playlistIndex})">▶ Play</button>
+      <div class="pl-drawer-play-picker" id="pl-drawer-play-picker" hidden>${playOptions}</div>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})">✎ Edit</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="showDrawerAddHint()">＋ Add Show</button>
+      <span class="pl-drawer-add-hint" id="pl-drawer-add-hint" hidden>Add shows from Max using the Shufflr button</span>
+    </div>`;
+}
+
+function togglePlaylistDrawer(index) {
+  if (openDrawerPlaylistIndex === index) {
+    closePlaylistDrawer();
+    return;
+  }
+  openDrawerPlaylistIndex = index;
+  const drawer = document.getElementById('pl-home-drawer');
+  const playlist = homePlaylistsCache[index];
+  if (!drawer || !playlist) return;
+  updatePlaylistDrawerContent(playlist, index);
+  drawer.hidden = false;
+  positionPlaylistDrawer(index);
+}
+
+function closePlaylistDrawer() {
+  openDrawerPlaylistIndex = null;
+  const drawer = document.getElementById('pl-home-drawer');
+  if (drawer) drawer.hidden = true;
+}
+
+function toggleDrawerPlayPicker() {
+  const picker = document.getElementById('pl-drawer-play-picker');
+  if (picker) picker.hidden = !picker.hidden;
+}
+
+function launchShowFromDrawer(playlistIndex, showIndex) {
+  const playlist = homePlaylistsCache[playlistIndex];
+  const show = (playlist?.shows || [])[showIndex];
+  if (!playlist || !show) return;
+  const launchUrl = getShowMaxUrlFromPlaylistShow(show);
+  if (!launchUrl) return;
+  setActivePlaylistViaBridge(playlist, launchUrl);
+  window.open(launchUrl, '_blank');
+  closePlaylistDrawer();
+}
+
+function editPlaylistFromDrawer(index) {
+  closePlaylistDrawer();
+  openPlaylistFromHomeCard(index);
+}
+
+function showDrawerAddHint() {
+  const hint = document.getElementById('pl-drawer-add-hint');
+  if (hint) hint.hidden = !hint.hidden;
 }
 
 // Triggers a file picker to set a custom poster image for a playlist, stored in localStorage as base64.
@@ -1591,7 +1664,7 @@ async function shufflePlaylist(pi){
     const fullEp=allEpisodes[ep.seasonNum].find(e=>e.episode_number===ep.episode_number);
     highlightedEps=fullEp?[{...fullEp,seasonNum:ep.seasonNum}]:[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -1604,7 +1677,7 @@ async function shufflePlaylist(pi){
   if(type==='movie'){
     currentType='movie';currentShow=show;
     currentNav='movies';
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='movies');
     });
@@ -1614,7 +1687,7 @@ async function shufflePlaylist(pi){
     currentNav='shows';
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -1631,7 +1704,7 @@ async function shufflePlaylistShow(pi,si){
   if(type==='movie'){
     currentType='movie';currentShow=show;
     currentNav='movies';
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='movies');
     });
@@ -1641,7 +1714,7 @@ async function shufflePlaylistShow(pi,si){
     currentNav='shows';
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -1991,7 +2064,7 @@ async function loadFreeShow(id, type){
     const show=await r.json();
     currentType='movie';currentShow=show;
     // Set nav active state without triggering show restore
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='movies');
     });
@@ -2005,7 +2078,7 @@ async function loadFreeShow(id, type){
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
     // Set nav active state without triggering show restore
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2036,7 +2109,7 @@ function goBackHome(){
     // Clear lastShowNav so setNav doesn't restore old show
     lastShowNav={shows:null,movies:null};
     // Manually set active nav without triggering show restore
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='free');
     });
@@ -2052,7 +2125,7 @@ function goBackHome(){
     lastShowNav={shows:null,movies:null};
     const navTarget=homeNavType||currentNav||'shows';
     currentNav=navTarget;
-    ['shows','movies','playlist','history','free'].forEach(n=>{
+    ['shows','movies','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n===navTarget);
     });
