@@ -417,7 +417,6 @@ window.addEventListener('load',()=>{
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
       updateConnectBtnLabel();
       renderHomeScreen('shows');
-      savePlaylists();
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
     },500);
