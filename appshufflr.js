@@ -1198,23 +1198,21 @@ function updatePlaylistDrawerContent(playlist, playlistIndex) {
   if (!drawer) return;
   const shows = playlist.shows || [];
   const showRows = shows.length
-    ? shows.map(show => `<div class="pl-drawer-show-row">${escapeHtml(getPlaylistShowLabel(show))}</div>`).join('')
+    ? shows.map((show, si) => (
+      `<button type="button" class="pl-drawer-show-row" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
+    )).join('')
     : '<div class="pl-drawer-empty">No shows in this playlist.</div>';
-  const playOptions = shows.map((show, si) => (
-    `<button type="button" class="pl-drawer-play-option" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
-  )).join('');
 
   drawer.innerHTML = `
     <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="Close">✕</button>
     <div class="pl-drawer-title">${escapeHtml(playlist.name || 'Untitled')}</div>
-    <div class="pl-drawer-shows">${showRows}</div>
     <div class="pl-drawer-actions">
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="toggleDrawerPlayPicker(${playlistIndex})">▶ Play</button>
-      <div class="pl-drawer-play-picker" id="pl-drawer-play-picker" hidden>${playOptions}</div>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="playRandomShowFromDrawer(${playlistIndex})">▶ Play</button>
       <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})">✎ Edit</button>
       <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="showDrawerAddHint()">＋ Add Show</button>
-      <span class="pl-drawer-add-hint" id="pl-drawer-add-hint" hidden>Add shows from Max using the Shufflr button</span>
-    </div>`;
+    </div>
+    <span class="pl-drawer-add-hint" id="pl-drawer-add-hint" hidden>Add shows from Max using the Shufflr button</span>
+    <div class="pl-drawer-shows">${showRows}</div>`;
 }
 
 function togglePlaylistDrawer(index) {
@@ -1237,9 +1235,10 @@ function closePlaylistDrawer() {
   if (drawer) drawer.hidden = true;
 }
 
-function toggleDrawerPlayPicker() {
-  const picker = document.getElementById('pl-drawer-play-picker');
-  if (picker) picker.hidden = !picker.hidden;
+function playRandomShowFromDrawer(playlistIndex) {
+  const shows = homePlaylistsCache[playlistIndex]?.shows || [];
+  if (!shows.length) return;
+  launchShowFromDrawer(playlistIndex, Math.floor(Math.random() * shows.length));
 }
 
 function launchShowFromDrawer(playlistIndex, showIndex) {
