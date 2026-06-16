@@ -106,6 +106,13 @@
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (event.data?.type === 'SHUFFLR_GET_PLAYLISTS') {
+      chrome.storage.local.get('shufflr_playlists', (result) => {
+        const playlists = result.shufflr_playlists || [];
+        window.postMessage({ type: 'SHUFFLR_PLAYLISTS_RESPONSE', playlists }, '*');
+      });
+      return;
+    }
     if (event.data?.source !== 'shufflr-web') return;
     if (event.data?.type === 'SHUFFLR_AUTH_SESSION') {
       pushAuthSessionPayloadToExtension(event.data.session);

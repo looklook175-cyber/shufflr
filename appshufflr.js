@@ -303,12 +303,39 @@ async function buildRecentlyWatchedMaxCardsHtml(entries) {
   return cards.join('');
 }
 
+function getPlaylistsFromBridge() {
+  return new Promise((resolve) => {
+    // If bridge has already exposed playlists on window, use them
+    if (window.shufflrPlaylists && Array.isArray(window.shufflrPlaylists)) {
+      return resolve(window.shufflrPlaylists);
+    }
+
+    // Otherwise, send a message to the bridge and wait for the response
+    const handler = (event) => {
+      if (event.source !== window) return;
+      if (event.data && event.data.type === 'SHUFFLR_PLAYLISTS_RESPONSE') {
+        window.removeEventListener('message', handler);
+        resolve(event.data.playlists || []);
+      }
+    };
+    window.addEventListener('message', handler);
+
+    // Request playlists from the bridge
+    window.postMessage({ type: 'SHUFFLR_GET_PLAYLISTS' }, '*');
+
+    // Timeout after 2 seconds in case bridge isn't connected
+    setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve([]);
+    }, 2000);
+  });
+}
+
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
 async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
-  // Read playlists from Chrome storage first so extension-synced playlists are included.
-  const storedPlaylists = await readPlaylistsFromChromeStorage();
-  const allPlaylists = storedPlaylists || playlists || [];
+  const bridgePlaylists = await getPlaylistsFromBridge();
+  const allPlaylists = bridgePlaylists || playlists || [];
   const filtered = allPlaylists.filter(p => (p.service || 'max') === connectedService);
   if (!filtered.length) return `
     <div class="genre-section" style="margin-top:16px;">
