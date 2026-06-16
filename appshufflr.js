@@ -240,6 +240,72 @@ async function resolveRecentlyWatchedPosters(entries){
   await resolveCardPostersFromTmdb(lookupMap,'w300');
 }
 
+function getShowPosterPathFromShow(show){
+  return show?.poster_path||show?.posterPath||show?.showPoster||show?.poster||show?.image||'';
+}
+
+function getPosterLookupKey(show){
+  return getHomeShowDedupeKey(show)||getRecentlyWatchedPosterKey(stripServiceSuffixFromShowName(getShowLabel(show)));
+}
+
+function buildPlaylistCoverPosterHtml(playlist,playlistIndex){
+  const customPoster=localStorage.getItem('shufflr_playlist_poster_'+(playlist.id||playlist.name));
+  if(customPoster){
+    return `<img src="${customPoster}" style="width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;">`;
+  }
+  const firstShow=(playlist.shows||[])[0];
+  if(!firstShow){
+    return `<div class="pl-poster-placeholder">
+      ${YOUR_SHOWS_SMILEY_SVG}
+    </div>`;
+  }
+  const showKey=`pl-cover:${playlistIndex}`;
+  const posterUrl=buildPosterUrl(getShowPosterPathFromShow(firstShow),'w185');
+  const imgStyle='width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;';
+  if(posterUrl){
+    return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="${imgStyle}" />`;
+  }
+  return buildDeferredPosterHtml(showKey,'',imgStyle);
+}
+
+async function resolvePlaylistCardPosters(allPlaylists,filtered){
+  const lookupMap=new Map();
+  for(const playlist of (filtered||[])){
+    const index=allPlaylists.indexOf(playlist);
+    if(index<0)continue;
+    if(localStorage.getItem('shufflr_playlist_poster_'+(playlist.id||playlist.name)))continue;
+    const firstShow=(playlist.shows||[])[0];
+    if(!firstShow)continue;
+    if(buildPosterUrl(getShowPosterPathFromShow(firstShow),'w185'))continue;
+    const query=stripServiceSuffixFromShowName(getShowLabel(firstShow));
+    if(!query)continue;
+    lookupMap.set(`pl-cover:${index}`,query);
+  }
+  await resolveCardPostersFromTmdb(lookupMap,'w185');
+}
+
+function buildDrawerShowThumbnailHtml(show){
+  const showKey=getPosterLookupKey(show);
+  const posterUrl=buildPosterUrl(getShowPosterPathFromShow(show),'w92');
+  const imgStyle='width:28px;height:40px;object-fit:cover;border-radius:3px;margin-right:8px;flex-shrink:0;background:#222;';
+  if(posterUrl){
+    return `<img class="pl-drawer-add-poster" data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" alt="" style="${imgStyle}" onerror="this.style.background='#222'" />`;
+  }
+  return `<img class="pl-drawer-add-poster" data-show-key="${escapeHtml(showKey)}" src="" alt="" style="${imgStyle}opacity:0;" />`;
+}
+
+async function resolveDrawerShowPosters(shows){
+  const lookupMap=new Map();
+  for(const show of (shows||[])){
+    if(buildPosterUrl(getShowPosterPathFromShow(show),'w92'))continue;
+    const showKey=getPosterLookupKey(show);
+    const query=stripServiceSuffixFromShowName(getShowLabel(show));
+    if(!showKey||!query)continue;
+    lookupMap.set(showKey,query);
+  }
+  await resolveCardPostersFromTmdb(lookupMap,'w92');
+}
+
 function buildYourShowsSectionHtml(section){
   const items=section.items||[];
   if(!items.length)return'';
@@ -449,22 +515,7 @@ async function buildYourPlaylistsHtml() {
   const cards = filtered.map((playlist) => {
     const index = allPlaylists.indexOf(playlist);
     const showCount = (playlist.shows || []).length;
-    const customPoster = localStorage.getItem('shufflr_playlist_poster_' + (playlist.id || playlist.name));
-    const posterHtml = customPoster
-      ? `<img src="${customPoster}" style="width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;">`
-      : `<div class="pl-poster-placeholder">
-           <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-             <rect x="8" y="8" width="8" height="8" fill="#23A8E0"/>
-             <rect x="32" y="8" width="8" height="8" fill="#23A8E0"/>
-             <rect x="4" y="24" width="4" height="4" fill="#23A8E0"/>
-             <rect x="40" y="24" width="4" height="4" fill="#23A8E0"/>
-             <rect x="8" y="32" width="4" height="4" fill="#23A8E0"/>
-             <rect x="12" y="36" width="4" height="4" fill="#23A8E0"/>
-             <rect x="16" y="38" width="16" height="4" fill="#23A8E0"/>
-             <rect x="32" y="36" width="4" height="4" fill="#23A8E0"/>
-             <rect x="36" y="32" width="4" height="4" fill="#23A8E0"/>
-           </svg>
-         </div>`;
+    const posterHtml = buildPlaylistCoverPosterHtml(playlist, index);
 
     return `
       <div class="pl-home-card" data-pl-index="${index}" data-pl-id="${playlist.id || ''}" data-pl-name="${encodeURIComponent(playlist.name || '')}">
@@ -1322,9 +1373,13 @@ function renderDrawerShowList(playlistIndex, playlist) {
   const shows = playlist.shows || [];
   body.innerHTML = shows.length
     ? shows.map((show, si) => (
-      `<button type="button" class="pl-drawer-show-row" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">${escapeHtml(getPlaylistShowLabel(show))}</button>`
+      `<button type="button" class="pl-drawer-show-row" style="display:flex;align-items:center;" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">
+        ${buildDrawerShowThumbnailHtml(show)}
+        <span class="pl-drawer-add-show-name">${escapeHtml(getPlaylistShowLabel(show))}</span>
+      </button>`
     )).join('')
     : '<div class="pl-drawer-empty">No shows in this playlist.</div>';
+  resolveDrawerShowPosters(shows);
 }
 
 function updatePlaylistDrawerContent(playlist, playlistIndex) {
@@ -2661,6 +2716,15 @@ async function renderHomeScreen(navType){
     html += await buildYourPlaylistsHtml();
   }
 
+  let playlistCardLookup=null;
+  if(!isMovies&&homePlaylistsCache.length){
+    const connectedService=localStorage.getItem('shufflr_service')||'max';
+    playlistCardLookup={
+      allPlaylists:homePlaylistsCache,
+      filtered:homePlaylistsCache.filter(p=>(p.service||'max')===connectedService),
+    };
+  }
+
   if(yourShows.length){
     html+=buildYourShowsSectionHtml(yourShowsSection);
 
@@ -2685,6 +2749,9 @@ async function renderHomeScreen(navType){
 
   if(yourShows.length){
     resolveYourShowsPosters(yourShowsSection.items);
+  }
+  if(playlistCardLookup){
+    resolvePlaylistCardPosters(playlistCardLookup.allPlaylists,playlistCardLookup.filtered);
   }
   if(recentlyWatchedEntries.length){
     resolveRecentlyWatchedPosters(recentlyWatchedEntries);
