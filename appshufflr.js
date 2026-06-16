@@ -1373,8 +1373,10 @@ function renderDrawerAddShowPicker(playlistIndex) {
 
   body.innerHTML = `
     <div class="pl-drawer-add-mode">
-      <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
-      <input type="text" class="pl-drawer-add-filter" id="pl-drawer-add-filter" placeholder="Filter shows..." oninput="filterDrawerAddShowPicker(${playlistIndex})" autocomplete="off" />
+      <div class="pl-drawer-add-toolbar">
+        <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+        <input type="text" class="pl-drawer-add-filter" id="pl-drawer-add-filter" placeholder="Filter shows..." oninput="filterDrawerAddShowPicker(${playlistIndex})" autocomplete="off" />
+      </div>
       <div class="pl-drawer-add-picker" id="pl-drawer-add-picker"></div>
       ${createBtn}
     </div>`;
