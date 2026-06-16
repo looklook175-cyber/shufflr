@@ -417,6 +417,28 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   height: 100%;
   background: #1a1a1a;
 }
+.pl-cover-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+.pl-cover-grid-cell {
+  overflow: hidden;
+  background: #1a1a1a;
+}
+.pl-cover-grid-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.recently-watched-card .card-poster-wrap,
+.recently-watched-card .card-poster-placeholder {
+  pointer-events: none;
+}
 .pl-home-camera-btn {
   position: absolute;
   bottom: 6px;

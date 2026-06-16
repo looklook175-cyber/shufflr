@@ -248,24 +248,48 @@ function getPosterLookupKey(show){
   return getHomeShowDedupeKey(show)||getRecentlyWatchedPosterKey(stripServiceSuffixFromShowName(getShowLabel(show)));
 }
 
+function getPlaylistCoverShows(playlist){
+  const shows=playlist?.shows||[];
+  if(!shows.length)return[];
+  if(shows.length===1)return[shows[0]];
+  const slots=[...shows.slice(0,4)];
+  while(slots.length<4)slots.push(shows[0]);
+  return slots;
+}
+
+function buildPlaylistGridQuadrantHtml(show,playlistIndex,quadrantIndex){
+  const showKey=`pl-cover:${playlistIndex}:${quadrantIndex}`;
+  const posterUrl=buildPosterUrl(getShowPosterPathFromShow(show),'w185');
+  if(posterUrl){
+    return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" alt="" onerror="this.style.background='#1a1a1a'" />`;
+  }
+  return `<img data-show-key="${escapeHtml(showKey)}" src="" alt="" style="opacity:0;background:#1a1a1a;" />`;
+}
+
 function buildPlaylistCoverPosterHtml(playlist,playlistIndex){
   const customPoster=localStorage.getItem('shufflr_playlist_poster_'+(playlist.id||playlist.name));
   if(customPoster){
     return `<img src="${customPoster}" style="width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;">`;
   }
-  const firstShow=(playlist.shows||[])[0];
-  if(!firstShow){
+  const shows=playlist.shows||[];
+  if(!shows.length){
     return `<div class="pl-poster-placeholder">
       ${YOUR_SHOWS_SMILEY_SVG}
     </div>`;
   }
-  const showKey=`pl-cover:${playlistIndex}`;
-  const posterUrl=buildPosterUrl(getShowPosterPathFromShow(firstShow),'w185');
-  const imgStyle='width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;';
-  if(posterUrl){
-    return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="${imgStyle}" />`;
+  if(shows.length===1){
+    const show=shows[0];
+    const showKey=`pl-cover:${playlistIndex}:0`;
+    const posterUrl=buildPosterUrl(getShowPosterPathFromShow(show),'w185');
+    if(posterUrl){
+      return `<img data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:100%;object-fit:cover;" />`;
+    }
+    return buildDeferredPosterHtml(showKey,'','width:100%;height:100%;object-fit:cover;');
   }
-  return buildDeferredPosterHtml(showKey,'',imgStyle);
+  const coverShows=getPlaylistCoverShows(playlist);
+  return `<div class="pl-cover-grid">${coverShows.map((show,qi)=>(
+    `<div class="pl-cover-grid-cell">${buildPlaylistGridQuadrantHtml(show,playlistIndex,qi)}</div>`
+  )).join('')}</div>`;
 }
 
 async function resolvePlaylistCardPosters(allPlaylists,filtered){
@@ -274,12 +298,15 @@ async function resolvePlaylistCardPosters(allPlaylists,filtered){
     const index=allPlaylists.indexOf(playlist);
     if(index<0)continue;
     if(localStorage.getItem('shufflr_playlist_poster_'+(playlist.id||playlist.name)))continue;
-    const firstShow=(playlist.shows||[])[0];
-    if(!firstShow)continue;
-    if(buildPosterUrl(getShowPosterPathFromShow(firstShow),'w185'))continue;
-    const query=stripServiceSuffixFromShowName(getShowLabel(firstShow));
-    if(!query)continue;
-    lookupMap.set(`pl-cover:${index}`,query);
+    const coverShows=getPlaylistCoverShows(playlist);
+    if(!coverShows.length)continue;
+    coverShows.forEach((show,qi)=>{
+      if(buildPosterUrl(getShowPosterPathFromShow(show),'w185'))return;
+      const showKey=`pl-cover:${index}:${qi}`;
+      const query=stripServiceSuffixFromShowName(getShowLabel(show));
+      if(!query)return;
+      lookupMap.set(showKey,query);
+    });
   }
   await resolveCardPostersFromTmdb(lookupMap,'w185');
 }
@@ -380,6 +407,29 @@ async function fetchTmdbEpisodeOverview(showId, seasonNum, episodeNumber) {
   }
 }
 
+function getRecentlyWatchedMaxUrlFromEntry(entry){
+  const stored=entry?.max_url||entry?.maxUrl||entry?.url||'';
+  if(stored&&String(stored).includes('max.com'))return String(stored);
+  const showId=entry?.show_id!=null?String(entry.show_id):'';
+  if(showId&&!/^\d+$/.test(showId)){
+    return `https://play.max.com/show/${showId}`;
+  }
+  return '';
+}
+
+function getRecentlyWatchedLaunchUrl(showId,showName,maxUrl){
+  if(maxUrl&&String(maxUrl).includes('max.com'))return maxUrl;
+  const normId=String(showId||'').trim();
+  const name=stripServiceSuffixFromShowName(showName);
+  if(normId&&!/^\d+$/.test(normId)){
+    return `https://play.max.com/show/${normId}`;
+  }
+  if(name){
+    return `https://play.max.com/search?q=${encodeURIComponent(name)}`;
+  }
+  return null;
+}
+
 async function resolveShowForRecentlyWatchedClick(showId, showName) {
   const storedPlaylists = await readPlaylistsFromChromeStorage();
   const allPlaylists = storedPlaylists || playlists || [];
@@ -402,29 +452,32 @@ async function resolveShowForRecentlyWatchedClick(showId, showName) {
   return fallback;
 }
 
-async function recentlyWatchedMaxCardClick(showId, showName) {
-  const show = await resolveShowForRecentlyWatchedClick(showId, showName);
-  const launchUrl = getShowMaxUrlFromPlaylistShow(show);
-  if (!launchUrl) return;
-  window.open(launchUrl, '_blank');
-}
-
 function recentlyWatchedMaxCardClickFromCard(el) {
-  const rawId = el?.getAttribute?.('data-recently-watched-show-id') || '';
+  const card=el?.closest?.('.recently-watched-card')||el;
+  const rawId=card?.getAttribute?.('data-recently-watched-show-id')||'';
   let showId;
-  try {
-    showId = decodeURIComponent(rawId);
-  } catch {
-    showId = rawId;
+  try{
+    showId=decodeURIComponent(rawId);
+  }catch{
+    showId=rawId;
   }
-  const rawName = el?.getAttribute?.('data-recently-watched-show-name') || '';
+  const rawName=card?.getAttribute?.('data-recently-watched-show-name')||'';
   let showName;
-  try {
-    showName = decodeURIComponent(rawName);
-  } catch {
-    showName = rawName;
+  try{
+    showName=decodeURIComponent(rawName);
+  }catch{
+    showName=rawName;
   }
-  recentlyWatchedMaxCardClick(showId, showName);
+  const rawMaxUrl=card?.getAttribute?.('data-recently-watched-max-url')||'';
+  let maxUrl;
+  try{
+    maxUrl=decodeURIComponent(rawMaxUrl);
+  }catch{
+    maxUrl=rawMaxUrl;
+  }
+  const launchUrl=getRecentlyWatchedLaunchUrl(showId,showName,maxUrl);
+  if(!launchUrl)return;
+  window.open(launchUrl,'_blank');
 }
 
 function buildRecentlyWatchedMaxCardHtml(entry, description) {
@@ -436,17 +489,18 @@ function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const showId = entry.show_id != null ? String(entry.show_id) : '';
   const showIdAttr = encodeURIComponent(showId);
   const showNameAttr = encodeURIComponent(rawShowName);
+  const maxUrlAttr = encodeURIComponent(getRecentlyWatchedMaxUrlFromEntry(entry));
   const showKey = getRecentlyWatchedPosterKey(rawShowName);
   const thumbHtml = buildDeferredPosterHtml(
     showKey,
     posterUrl,
-    'width:100%;height:100%;object-fit:cover;background:#1a1a1a;'
+    'width:100%;height:100%;object-fit:cover;background:#1a1a1a;pointer-events:none;'
   );
   const descHtml = description
     ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;">${escapeHtml(description)}</div>`
     : '';
-  return `<div class="ep-card-h" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" onclick="recentlyWatchedMaxCardClickFromCard(this)" style="width:240px;">
-    <div style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;">${thumbHtml}</div>
+  return `<div class="ep-card-h recently-watched-card" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" onclick="recentlyWatchedMaxCardClickFromCard(this)" style="width:240px;cursor:pointer;">
+    <div class="recently-watched-card-thumb" style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;pointer-events:none;">${thumbHtml}</div>
     <div class="ep-card-h-body">
       <div class="ep-card-h-name">${showTitle}</div>
       ${episodeLabel ? `<div class="ep-card-h-code">${episodeLabel}</div>` : ''}
