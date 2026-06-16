@@ -306,7 +306,9 @@ async function buildRecentlyWatchedMaxCardsHtml(entries) {
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
 async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
-  const allPlaylists = playlists || [];
+  // Read playlists from Chrome storage first so extension-synced playlists are included.
+  const storedPlaylists = await readPlaylistsFromChromeStorage();
+  const allPlaylists = storedPlaylists || playlists || [];
   const filtered = allPlaylists.filter(p => (p.service || 'max') === connectedService);
   if (!filtered.length) return `
     <div class="genre-section" style="margin-top:16px;">
