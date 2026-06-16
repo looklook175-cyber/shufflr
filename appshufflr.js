@@ -340,7 +340,7 @@ function buildYourShowsSectionHtml(section){
   let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
   items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
     const showKey=getHomeShowDedupeKey(s);
-    html+=`<div class="ep-card-h" onclick="shufflePlaylistShow(${pi},${si})">
+    html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}">
       ${buildYourShowsPosterHtml(s,showKey)}
       <div class="ep-card-h-body">
         <div class="ep-card-h-name">${s.name||s.title||''}</div>
@@ -2949,8 +2949,15 @@ function closeSearch(){
   document.getElementById('search-overlay').style.display='none';
   document.getElementById('search-input').blur();
 }
-// Desktop: click outside closes dropdown; delegated recently watched card clicks
+// Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
+  const yourShowCard=e.target.closest('.your-show-card');
+  if(yourShowCard){
+    const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
+    const si=parseInt(yourShowCard.dataset.showIndex,10);
+    if(Number.isFinite(pi)&&Number.isFinite(si))shufflePlaylistShow(pi,si);
+    return;
+  }
   const rwCard=e.target.closest('.recently-watched-card');
   if(rwCard){
     let url=rwCard.dataset.recentlyWatchedMaxUrl||'';
