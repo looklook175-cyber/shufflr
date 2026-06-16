@@ -1173,9 +1173,22 @@ function getPlaylistShowLabel(show) {
 }
 
 function getShowMaxUrlFromPlaylistShow(show) {
-  const id = show?.maxId || show?.maxShowId || show?.max_id || show?.slug || show?.id;
-  if (!id) return null;
-  return `https://play.max.com/show/${String(id)}`;
+  // Prefer a saved Max URL on the show object (extension or synced entries).
+  const maxUrl = show?.url || show?.maxUrl || show?.href || show?.watchUrl || null;
+  if (maxUrl && String(maxUrl).includes('max.com')) {
+    return String(maxUrl);
+  }
+
+  // Extension-added shows store a Max UUID as maxId — link directly to the show page.
+  const maxId = show?.maxId || show?.maxShowId || show?.max_id;
+  if (maxId) {
+    return `https://play.max.com/show/${String(maxId)}`;
+  }
+
+  // TMDB-added shows with no Max URL — fall back to Max search.
+  const query = encodeURIComponent(getPlaylistShowLabel(show));
+  if (!query) return null;
+  return `https://play.max.com/search?q=${query}`;
 }
 
 function setActivePlaylistViaBridge(playlist, launchUrl) {
