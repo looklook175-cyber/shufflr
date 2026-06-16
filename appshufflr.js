@@ -449,7 +449,6 @@ window.addEventListener('load',()=>{
       ls.style.display='none';
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
       updateConnectBtnLabel();
-      updateMaxSearchDisclaimer();
       renderHomeScreen('shows');
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
@@ -527,7 +526,6 @@ function selectService(btn, svc){
   btn.classList.add('connected');
   // Update sidebar button label
   updateConnectBtnLabel();
-  updateMaxSearchDisclaimer();
 }
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
@@ -542,38 +540,6 @@ function updateConnectBtnLabel(){
   btn.style.borderColor='';
   btn.style.color='';
   btn.style.boxShadow='';
-  updateMaxSearchDisclaimer();
-}
-
-const MAX_TMDB_PROVIDER_ID = 384;
-
-function isMaxConnected() {
-  return localStorage.getItem('shufflr_service') === 'max';
-}
-
-function updateMaxSearchDisclaimer() {
-  const el = document.getElementById('max-search-disclaimer');
-  if (el) el.hidden = !isMaxConnected();
-}
-
-async function isResultAvailableOnMax(show, mediaType) {
-  try {
-    const r = await fetch(`https://api.themoviedb.org/3/${mediaType}/${show.id}/watch/providers?api_key=${KEY}`);
-    const d = await r.json();
-    const us = (d.results || {}).US || {};
-    const flatrate = us.flatrate || [];
-    return flatrate.some(p => p.provider_id === MAX_TMDB_PROVIDER_ID);
-  } catch {
-    return false;
-  }
-}
-
-async function filterResultsForMax(results, mediaType) {
-  if (!isMaxConnected() || !results?.length) return results || [];
-  const filtered = await Promise.all(results.map(async show => (
-    await isResultAvailableOnMax(show, mediaType) ? show : null
-  )));
-  return filtered.filter(Boolean);
 }
 
 // NAV
@@ -643,10 +609,7 @@ async function doSearch(q){
   try{
     const r=await fetch(`https://api.themoviedb.org/3/search/${type}?api_key=${KEY}&query=${encodeURIComponent(q)}`);
     const d=await r.json();
-    let results=(d.results||[]).slice(0,7);
-    if(isMaxConnected()){
-      results=await filterResultsForMax(results, type);
-    }
+    const results=(d.results||[]).slice(0,7);
     const drop=document.getElementById('dropdown');
     if(!results.length){drop.classList.remove('open');return;}
     drop._results=results;
@@ -1356,12 +1319,9 @@ async function doDrawerAddShowSearch(playlistIndex, q) {
     const r = await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(q)}`);
     const d = await r.json();
     let results = (d.results || []).slice(0, 10);
-    if (isMaxConnected()) {
-      results = await filterResultsForMax(results, 'tv');
-    }
     drawerSearchResults = results;
     if (!results.length) {
-      resultsEl.innerHTML = '<div class="pl-drawer-empty">No Max results found.</div>';
+      resultsEl.innerHTML = '<div class="pl-drawer-empty">No results found.</div>';
       return;
     }
     resultsEl.innerHTML = results.map((s, i) => (
