@@ -136,7 +136,7 @@ function buildYourShowsSectionHtml(section){
   const pi=section.playlistIndex;
   if(!shows.length||pi<0)return'';
 
-  let html=`<div class="genre-section"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
+  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
   shows.forEach((s,si)=>{
     html+=`<div class="ep-card-h" onclick="shufflePlaylistShow(${pi},${si})">
       <img src="${buildPosterUrl(s.poster_path,'w185')}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
@@ -2461,6 +2461,10 @@ async function renderHomeScreen(navType){
       <div class="empty-sub">${isMovies ? 'Search above to find a movie,<br>then hit the shuffle arrows.' : 'Search above to find a show,<br>then hit the shuffle arrows.'}</div>
     </div>`;
 
+  if (!isMovies) {
+    html += await buildYourPlaylistsHtml();
+  }
+
   if(yourShows.length){
     html+=buildYourShowsSectionHtml(yourShowsSection);
 
@@ -2472,28 +2476,8 @@ async function renderHomeScreen(navType){
     </div>`;
   }
 
-  const allPlShows=[...new Map(playlists.flatMap(p=>p.shows).map(s=>[s.id,s])).values()]
-    .filter(s => isMovies ? !!s.release_date : !s.release_date);
-  if(allPlShows.length){
-    html+=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- FROM YOUR PLAYLISTS --</div><div class="h-scroll-wrap">`;
-    allPlShows.slice(0,5).forEach(s=>{
-      const t=s.release_date?'movie':'tv';
-      html+=`<div class="ep-card-h" onclick="homeTileClick(${s.id},'${t}')">
-        <img src="${s.poster_path?IMG+'w185'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
-        <div class="ep-card-h-body">
-          <div class="ep-card-h-name">${s.name||s.title||''}</div>
-          <div class="ep-card-h-meta">${((s.first_air_date||s.release_date)||'').slice(0,4)}${s.vote_average?` · ${s.vote_average.toFixed(1)}/10`:''}</div>
-        </div>
-      </div>`;
-    });
-    html+=`</div></div>`;
-  }
-
-  if (!isMovies) {
-    html += await buildYourPlaylistsHtml();
-    if (typeof window.shufflrIsLoggedIn === 'function' && await window.shufflrIsLoggedIn()) {
-      html += await buildRecentlyWatchedOnMaxHtml();
-    }
+  if (!isMovies && typeof window.shufflrIsLoggedIn === 'function' && await window.shufflrIsLoggedIn()) {
+    html += await buildRecentlyWatchedOnMaxHtml();
   }
 
   html+=`</div>`;
