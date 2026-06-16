@@ -1269,6 +1269,7 @@ async function submitCreatePlaylistForm() {
     name,
     shows: [{ title, maxId: uuid }],
     episodes: [],
+    service: 'max',
   });
 
   await writePlaylistsToStorage(playlists);
@@ -1531,6 +1532,8 @@ async function addCurrentShowToPlaylist(playlistIndex) {
   }
 
   playlist.shows.push({ title, maxId: uuid });
+  // Tag the playlist with the service it belongs to if not already set.
+  if (!playlist.service) playlist.service = 'max';
   await writePlaylistsToStorage(playlists);
   showToast(`Added ${title} to ${playlist.name || 'playlist'}`);
 

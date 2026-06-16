@@ -1057,7 +1057,12 @@ function createInlinePlaylist(){
   const input=document.getElementById('inline-pl-input');
   const name=input.value.trim();
   if(!name)return;
-  playlists.push({name,shows:[]});
+  playlists.push({
+    name,
+    shows:[],
+    // Tag playlist with service — hardcoded to 'max' until multi-service support is added.
+    service: 'max',
+  });
   savePlaylists();
   renderPlaylistPage();
 }
@@ -1698,7 +1703,13 @@ async function createPlaylist(){
   const input=document.getElementById('new-playlist-input');
   const name=input.value.trim();
   if(!name)return;
-  const newP={name,shows:[],episodes:[]};
+  const newP={
+    name,
+    shows:[],
+    episodes:[],
+    // Tag playlist with service — hardcoded to 'max' until multi-service support is added.
+    service: 'max',
+  };
   if(_pendingEp&&currentShow){
     newP.episodes.push({
       showId:currentShow.id,
