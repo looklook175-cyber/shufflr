@@ -1851,8 +1851,39 @@ async function shufflePlaylist(pi){
 async function shufflePlaylistShow(pi,si){
   const show=playlists[pi]?.shows?.[si];
   if(!show)return;
-  showToast('SHUFFLING '+((show.name||show.title||'').toUpperCase()).slice(0,15)+'...');
   const type=show.release_date?'movie':'tv';
+  const hasTmdbId=show?.id!=null&&/^\d+$/.test(String(show.id));
+
+  if(!hasTmdbId){
+    const query=getShowLabel(show);
+    if(!query){
+      showToast('NO SHOW NAME');
+      return;
+    }
+    showToast('LOADING '+query.toUpperCase().slice(0,15)+'...');
+    try{
+      const r=await fetch(`https://api.themoviedb.org/3/search/${type}?api_key=${KEY}&query=${encodeURIComponent(query)}`);
+      const d=await r.json();
+      const match=(d.results||[])[0];
+      if(!match){
+        showToast('NO TMDB MATCH');
+        return;
+      }
+      currentNav=type==='movie'?'movies':'shows';
+      ['shows','movies','playlist','free'].forEach(n=>{
+        const el=document.getElementById('nav-'+n);
+        if(el) el.classList.toggle('active',n===currentNav);
+      });
+      await _loadShow(match);
+      return;
+    }catch(e){
+      console.error(e);
+      showToast('SEARCH FAILED');
+      return;
+    }
+  }
+
+  showToast('SHUFFLING '+((show.name||show.title||'').toUpperCase()).slice(0,15)+'...');
   if(type==='movie'){
     currentType='movie';currentShow=show;
     currentNav='movies';
