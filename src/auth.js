@@ -4,7 +4,6 @@ const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists'
 const SHUFFLR_AUTH_SESSION_KEY = 'shufflr_auth_session'
 let cloudSyncReady = false
 let currentUsername = null
-let currentSessionUser = null
 
 async function fetchUserProfile(userId) {
   if (!userId) {
@@ -47,7 +46,6 @@ async function saveUserProfile(userId, username) {
 }
 
 window.shufflrGetUsername = () => currentUsername
-window.shufflrGetLoggedInSync = () => !!currentSessionUser
 
 async function persistAuthSessionForExtension(session) {
   const payload = session
@@ -111,7 +109,6 @@ function friendlyLoginError(message) {
 }
 
 function updateAuthUI(session) {
-  currentSessionUser = session?.user || null
   const loggedOut = document.getElementById('auth-logged-out')
   const loggedIn = document.getElementById('auth-logged-in')
   const emailEl = document.getElementById('auth-user-email')
@@ -307,7 +304,6 @@ async function handleLogIn() {
 async function handleLogOut() {
   cloudSyncReady = false
   currentUsername = null
-  currentSessionUser = null
   await supabase.auth.signOut()
   showAuthMessage('')
 }
@@ -336,10 +332,7 @@ function bindAuthUI() {
 window.shufflrRefreshAuthUI = async () => {
   const { data: { session } } = await supabase.auth.getSession()
   if (session?.user) await fetchUserProfile(session.user.id)
-  else {
-    currentUsername = null
-    currentSessionUser = null
-  }
+  else currentUsername = null
   updateAuthUI(session)
 }
 
@@ -396,10 +389,7 @@ bindSessionWakeRefresh()
 
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) await fetchUserProfile(session.user.id)
-  else {
-    currentUsername = null
-    currentSessionUser = null
-  }
+  else currentUsername = null
   updateAuthUI(session)
   await persistAuthSessionForExtension(session)
   notifyAuthChanged(session)
@@ -409,10 +399,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
 supabase.auth.getSession().then(async ({ data: { session } }) => {
   const activeSession = session ? await refreshSessionIfStale() : null
   if (activeSession?.user) await fetchUserProfile(activeSession.user.id)
-  else {
-    currentUsername = null
-    currentSessionUser = null
-  }
+  else currentUsername = null
   updateAuthUI(activeSession)
   await persistAuthSessionForExtension(activeSession)
   notifyAuthChanged(activeSession)
