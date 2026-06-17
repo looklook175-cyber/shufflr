@@ -1316,8 +1316,10 @@ function togglePlaylistShowsList(playlistIndex) {
 function closePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   const toggle = document.getElementById('shufflr-playlist-toggle');
+  const btn = document.getElementById('shufflr-btn');
   if (dropdown) dropdown.classList.remove('open');
   if (toggle) toggle.classList.remove('open');
+  if (btn) btn.classList.remove('open');
 }
 
 function togglePlaylistDropdown(event) {
@@ -1325,13 +1327,18 @@ function togglePlaylistDropdown(event) {
   event.stopPropagation();
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   const toggle = document.getElementById('shufflr-playlist-toggle');
-  if (!dropdown || !toggle) return;
+  const btn = document.getElementById('shufflr-btn');
+  if (!dropdown) return;
   const willOpen = !dropdown.classList.contains('open');
   closePlaylistDropdown();
   if (willOpen) {
     populatePlaylistDropdown().then(() => {
       dropdown.classList.add('open');
-      toggle.classList.add('open');
+      if (isMaxMoviePage()) {
+        btn?.classList.add('open');
+      } else {
+        toggle?.classList.add('open');
+      }
     });
   }
 }
@@ -1379,6 +1386,40 @@ async function setOrderedEpisodesEnabled(enabled) {
   orderedEpisodesCached = !!next.orderedEpisodes;
   showToast(next.orderedEpisodes ? 'Ordered Episodes ON' : 'Ordered Episodes OFF');
   return next;
+}
+
+function renderMoviePlaylistDropdownContent(playlists) {
+  const emptyMessage = 'No playlists yet — create one below';
+
+  if (!playlists.length) {
+    return `
+      <div class="shufflr-pl-section">
+        <div class="shufflr-pl-section-header">ADD TO PLAYLIST</div>
+        <button type="button" class="shufflr-pl-row shufflr-pl-empty" disabled>${emptyMessage}</button>
+        ${renderPlaylistCreateSection()}
+      </div>
+    `;
+  }
+
+  const addRows = playlists.map((playlist, index) => `
+    <div class="shufflr-pl-add-row" data-pl-index="${index}">
+      <span class="shufflr-pl-add-name">${escapePlaylistLabel(playlist.name || 'Untitled')}</span>
+      <button
+        type="button"
+        class="shufflr-pl-add-btn"
+        data-pl-index="${index}"
+        aria-label="Add current movie to ${escapePlaylistLabel(playlist.name || 'Untitled')}"
+      >+</button>
+    </div>
+  `).join('');
+
+  return `
+    <div class="shufflr-pl-section">
+      <div class="shufflr-pl-section-header">ADD TO PLAYLIST</div>
+      ${addRows}
+      ${renderPlaylistCreateSection()}
+    </div>
+  `;
 }
 
 function renderPlaylistDropdownContent(playlists, settings = {}) {
@@ -1457,6 +1498,19 @@ function renderPlaylistDropdownContent(playlists, settings = {}) {
   `;
 }
 
+function isMaxMoviePage(url = location.href) {
+  const href = String(url);
+  return href.includes('play.max.com/movie/') || href.includes('play.hbomax.com/movie/');
+}
+
+function extractMaxMovieUuidFromUrl(url) {
+  if (!url || !String(url).includes('/movie/')) return null;
+  const match = String(url).match(
+    /\/movie\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+  );
+  return match ? match[1] : null;
+}
+
 function extractMaxShowUuidFromUrl(url) {
   if (!url || !String(url).includes('/show/')) return null;
   const match = String(url).match(
@@ -1466,6 +1520,9 @@ function extractMaxShowUuidFromUrl(url) {
 }
 
 function getCurrentMaxShowUuid() {
+  const fromMovie = extractMaxMovieUuidFromUrl(location.href);
+  if (fromMovie) return fromMovie;
+
   const fromLocation = extractMaxShowUuidFromUrl(location.href);
   if (fromLocation) return fromLocation;
 
@@ -1477,6 +1534,11 @@ function getCurrentMaxShowUuid() {
 }
 
 function getCurrentShowTitle() {
+  if (isMaxMoviePage()) {
+    const h1 = document.querySelector('h1');
+    if (h1?.textContent?.trim()) return h1.textContent.trim();
+  }
+
   const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   if (onVideoPage) {
     const showName = getMaxPlayerShowName();
@@ -1514,9 +1576,10 @@ async function writePlaylistsToStorage(playlists) {
 
 async function addCurrentShowToPlaylist(playlistIndex) {
   if (!isChromeContextValid()) return;
-  const uuid = getCurrentMaxShowUuid();
+  const isMovie = isMaxMoviePage();
+  const uuid = isMovie ? extractMaxMovieUuidFromUrl(location.href) : getCurrentMaxShowUuid();
   if (!uuid) {
-    showToast('Could not find show ID');
+    showToast(isMovie ? 'Could not find movie ID' : 'Could not find show ID');
     return;
   }
 
@@ -1538,7 +1601,18 @@ async function addCurrentShowToPlaylist(playlistIndex) {
     return;
   }
 
-  playlist.shows.push({ title, maxId: uuid });
+  if (isMovie) {
+    playlist.shows.push({
+      title,
+      name: title,
+      maxId: uuid,
+      type: 'movie',
+      release_date: new Date().toISOString().slice(0, 10),
+      url: location.href.split('?')[0],
+    });
+  } else {
+    playlist.shows.push({ title, maxId: uuid });
+  }
   // Tag the playlist with the service it belongs to if not already set.
   if (!playlist.service) playlist.service = 'max';
   await writePlaylistsToStorage(playlists);
@@ -1555,6 +1629,10 @@ async function populatePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (!dropdown) return;
   dropdownPlaylists = await readPlaylistsFromStorage();
+  if (isMaxMoviePage()) {
+    dropdown.innerHTML = renderMoviePlaylistDropdownContent(dropdownPlaylists);
+    return;
+  }
   const settings = await readShuffleSettings();
   dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists, settings);
 }
@@ -2144,6 +2222,7 @@ async function isStandaloneShuffleEnabled() {
 }
 
 function attachShuffleListenersIfVideoPage() {
+  if (isMaxMoviePage()) return;
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   if (!isVideoPage) return;
   const video = document.querySelector('video');
@@ -2158,8 +2237,30 @@ async function getActivePlaylistFromStorage() {
   return storageLocalGet(SHUFFLR_ACTIVE_PLAYLIST_KEY);
 }
 
+function configureMoviePageButtonUI() {
+  if (!isMaxMoviePage()) return;
+  const wrap = document.getElementById('shufflr-wrap');
+  const btn = document.getElementById('shufflr-btn');
+  const label = document.getElementById('shufflr-label');
+  const toggle = document.getElementById('shufflr-playlist-toggle');
+  const status = document.getElementById('shufflr-status');
+  const split = document.getElementById('shufflr-split');
+  const icon = document.getElementById('shufflr-icon');
+  wrap?.classList.add('shufflr-movie-page');
+  btn?.classList.remove('active');
+  if (label) label.textContent = '🎬 ADD TO PLAYLIST';
+  if (status) status.textContent = '';
+  if (toggle) toggle.style.display = 'none';
+  if (split) split.classList.add('shufflr-movie-add-only');
+  if (icon) icon.style.display = 'none';
+}
+
 function updateShuffleUI(playlistName) {
   if (!isChromeContextValid()) return;
+  if (isMaxMoviePage()) {
+    configureMoviePageButtonUI();
+    return;
+  }
   try {
     const btn = document.getElementById('shufflr-btn');
     const label = document.getElementById('shufflr-label');
@@ -2184,6 +2285,12 @@ function updateShuffleUI(playlistName) {
 
 async function fullyRestoreArmedShuffleSessionAfterInject() {
   if (!isChromeContextValid()) return false;
+  if (isMaxMoviePage()) {
+    configureMoviePageButtonUI();
+    shufflrActive = false;
+    armedPlaylistCached = false;
+    return false;
+  }
   const active = await getActivePlaylistFromStorage();
   armedPlaylistCached = !!active?.armed;
 
@@ -2586,19 +2693,30 @@ async function playPlaylistFromDropdown(playlistIndex) {
 
 function isShufflrPlayerPage() {
   const href = location.href;
-  return href.includes('/video/') || href.includes('/play/') || href.includes('/show/');
+  return href.includes('/video/') || href.includes('/play/') || href.includes('/show/') || isMaxMoviePage();
 }
 
 function tryInjectButton() {
   if (!isChromeContextValid()) return Promise.resolve(false);
   if (document.getElementById('shufflr-wrap')) {
+    if (isMaxMoviePage()) {
+      configureMoviePageButtonUI();
+      return Promise.resolve(true);
+    }
     const video = document.querySelector('video');
     if (video) attachVideoListeners(video);
     return fullyRestoreArmedShuffleSessionAfterInject();
   }
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
-  if (!isVideoPage && !isShowPage) return Promise.resolve(false);
+  const isMoviePage = isMaxMoviePage();
+  if (!isVideoPage && !isShowPage && !isMoviePage) return Promise.resolve(false);
+
+  if (isMoviePage) {
+    injectShufflrButton(null);
+    configureMoviePageButtonUI();
+    return Promise.resolve(true);
+  }
 
   if (isShowPage) {
     saveShowPageUrl(location.href);
@@ -2646,6 +2764,13 @@ async function recoverShufflrUI(reason) {
 
     const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
     const isShowPage = location.href.includes('/show/');
+    const isMoviePage = isMaxMoviePage();
+
+    if (isMoviePage) {
+      injectShufflrButton(null);
+      configureMoviePageButtonUI();
+      return;
+    }
 
     if (isShowPage) {
       saveShowPageUrl(location.href);
@@ -2858,6 +2983,13 @@ function removeShufflrUI() {
   hasInjectedButton = false;
 }
 
+function onMovieAddBtnClick(event) {
+  if (!chrome.runtime?.id) return;
+  event.preventDefault();
+  event.stopPropagation();
+  togglePlaylistDropdown(event);
+}
+
 function onShuffleBtnClick(event) {
   if (!chrome.runtime?.id) return;
   event.preventDefault();
@@ -2932,10 +3064,12 @@ function bindShufflrButtonHandlers() {
   const shuffleBtn = document.getElementById('shufflr-btn');
   const playlistToggle = document.getElementById('shufflr-playlist-toggle');
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
+  const mainClickHandler = isMaxMoviePage() ? onMovieAddBtnClick : onShuffleBtnClick;
 
   if (shuffleBtn) {
     shuffleBtn.removeEventListener('click', onShuffleBtnClick);
-    shuffleBtn.addEventListener('click', onShuffleBtnClick);
+    shuffleBtn.removeEventListener('click', onMovieAddBtnClick);
+    shuffleBtn.addEventListener('click', mainClickHandler);
   }
 
   if (playlistToggle) {
@@ -2965,6 +3099,7 @@ function teardownShufflrButtonHandlers() {
 
   if (shuffleBtn) {
     shuffleBtn.removeEventListener('click', onShuffleBtnClick);
+    shuffleBtn.removeEventListener('click', onMovieAddBtnClick);
   }
   if (playlistToggle) {
     playlistToggle.removeEventListener('click', togglePlaylistDropdown);
@@ -3075,6 +3210,21 @@ function injectShufflrStyles() {
     }
     #shufflr-btn.active #shufflr-icon {
       animation: shufflr-spin 1.5s linear infinite;
+    }
+    #shufflr-wrap.shufflr-movie-page #shufflr-playlist-toggle {
+      display: none !important;
+    }
+    #shufflr-wrap.shufflr-movie-page #shufflr-split.shufflr-movie-add-only #shufflr-inner {
+      border-right: 2px solid #1a6bff;
+      border-radius: 12px;
+    }
+    #shufflr-wrap.shufflr-movie-page #shufflr-label {
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+    #shufflr-wrap.shufflr-movie-page #shufflr-btn.open #shufflr-inner {
+      background: #1a6bff;
+      color: #000;
     }
     #shufflr-playlist-toggle {
       display: flex;
@@ -3549,7 +3699,9 @@ function injectShufflrButton(video) {
   startShuffleWatchdog();
   populatePlaylistDropdown();
 
-  if (video) {
+  if (isMaxMoviePage()) {
+    configureMoviePageButtonUI();
+  } else if (video) {
     attachVideoListeners(video);
     ensureVideoSwapObserver();
   }
@@ -3564,6 +3716,7 @@ function injectShufflrButton(video) {
 
 function attachVideoListeners(video) {
   if (!video) return;
+  if (isMaxMoviePage() && !shufflrActive && !armedPlaylistCached) return;
   video.removeEventListener('ended', onEpisodeEnded);
   video.addEventListener('ended', onEpisodeEnded);
   video.removeEventListener('timeupdate', onTimeUpdate);
@@ -4408,6 +4561,7 @@ async function maybeLogWatchHistoryOnPlay() {
 // ── TOGGLE ─────────────────────────────────────────────────────────────────
 async function toggleShuffle() {
   if (!isChromeContextValid()) return;
+  if (isMaxMoviePage()) return;
   if (toggleShuffleInProgress) return;
 
   const btn = document.getElementById('shufflr-btn');
