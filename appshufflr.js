@@ -16,6 +16,7 @@ async function detectRegion(){
 const IMG='https://image.tmdb.org/t/p/';
 let currentShow=null,currentType='tv',allSeasons=[],blockedSeasons=new Set();
 let selectedSeason=null,allEpisodes={},currentNav='shows';
+let showLoadGeneration=0,homeRenderGeneration=0;
 let minRating=0,searchTimer=null,isLightMode=false;
 let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
@@ -752,6 +753,8 @@ function renderViewForNav(nav){
       renderOptionsPage();
       break;
     case 'shows':
+      showLoadGeneration++;
+      homeRenderGeneration++;
       currentType='tv';
       currentShow=null;
       allSeasons=[];
@@ -761,7 +764,8 @@ function renderViewForNav(nav){
       document.getElementById('search-input').value='';
       homeScrollPos=0;
       lastShowNav={shows:null,movies:null};
-      renderHomeScreen('shows');
+      showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">LOADING...</div></div>');
+      renderHomeScreen('shows', homeRenderGeneration);
       break;
   }
 }
@@ -853,15 +857,16 @@ async function _loadShow(show){
 
 // SEASONS
 async function loadSeasons(id){
+  const loadId=++showLoadGeneration;
   showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">LOADING...</div></div>');
   try{
     const r=await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${KEY}`);
     const d=await r.json();
+    if(loadId!==showLoadGeneration||!currentShow)return;
     allSeasons=(d.seasons||[]).filter(s=>s.season_number>0&&s.episode_count>0);
     currentShow={...currentShow,...d};
     renderSeasonsSidebar();
     await renderMain();
-
   }catch(e){console.error(e);}
 }
 
@@ -2536,13 +2541,8 @@ async function loadFreeShow(id, type){
 // HOME BUTTON
 function goHome(){
   homeScrollPos=0;
-  currentShow=null;allSeasons=[];allEpisodes={};highlightedEps=[];selectedSeason=null;
-  blockedSeasons=new Set();
-  lastShowNav={shows:null,movies:null};
-  clearSeasonsSidebar();
-  document.getElementById('search-input').value='';
   cameFromFree=false;
-  renderHomeScreen(currentNav);
+  setNav('shows');
 }
 
 function goBackHome(){
@@ -2698,11 +2698,12 @@ function buildProviderHTML(pd, showName){
 
 // renderProviders handled inline by buildProviderHTML
 
-async function renderHomeScreen(navType){
+async function renderHomeScreen(navType,gen=homeRenderGeneration){
   homeNavType = navType || currentNav || 'shows';
 
   let allPlaylists = playlists;
   const bridgePlaylists = await getPlaylistsFromBridge();
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
   if (bridgePlaylists?.length) {
     allPlaylists = bridgePlaylists;
     playlists = bridgePlaylists;
@@ -2715,6 +2716,7 @@ async function renderHomeScreen(navType){
   let html=`<div class="home-wrap">`;
 
   html += await buildYourPlaylistsHtml();
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
 
   let playlistCardLookup=null;
   if(homePlaylistsCache.length){
@@ -2741,9 +2743,10 @@ async function renderHomeScreen(navType){
     html+=recentSection.html;
     recentlyWatchedEntries=recentSection.entries;
   }
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
 
   html+=`</div>`;
-  if(currentNav!=='shows')return;
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
   showMain(html);
   setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
 
