@@ -16,7 +16,7 @@ async function detectRegion(){
 const IMG='https://image.tmdb.org/t/p/';
 let currentShow=null,currentType='tv',allSeasons=[],blockedSeasons=new Set();
 let selectedSeason=null,allEpisodes={},currentNav='shows';
-let showLoadGeneration=0;
+let showLoadGeneration=0,homeRenderGeneration=0;
 let minRating=0,searchTimer=null,isLightMode=false;
 let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
@@ -754,6 +754,7 @@ function renderViewForNav(nav){
       break;
     case 'shows':
       showLoadGeneration++;
+      homeRenderGeneration++;
       currentType='tv';
       currentShow=null;
       allSeasons=[];
@@ -764,7 +765,7 @@ function renderViewForNav(nav){
       homeScrollPos=0;
       lastShowNav={shows:null,movies:null};
       showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">LOADING...</div></div>');
-      renderHomeScreen('shows');
+      renderHomeScreen('shows', homeRenderGeneration);
       break;
   }
 }
@@ -2697,12 +2698,12 @@ function buildProviderHTML(pd, showName){
 
 // renderProviders handled inline by buildProviderHTML
 
-async function renderHomeScreen(navType){
+async function renderHomeScreen(navType,gen=homeRenderGeneration){
   homeNavType = navType || currentNav || 'shows';
 
   let allPlaylists = playlists;
   const bridgePlaylists = await getPlaylistsFromBridge();
-  if(currentNav!=='shows')return;
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
   if (bridgePlaylists?.length) {
     allPlaylists = bridgePlaylists;
     playlists = bridgePlaylists;
@@ -2715,7 +2716,7 @@ async function renderHomeScreen(navType){
   let html=`<div class="home-wrap">`;
 
   html += await buildYourPlaylistsHtml();
-  if(currentNav!=='shows')return;
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
 
   let playlistCardLookup=null;
   if(homePlaylistsCache.length){
@@ -2742,10 +2743,10 @@ async function renderHomeScreen(navType){
     html+=recentSection.html;
     recentlyWatchedEntries=recentSection.entries;
   }
-  if(currentNav!=='shows')return;
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
 
   html+=`</div>`;
-  if(currentNav!=='shows')return;
+  if(gen!==homeRenderGeneration||currentNav!=='shows')return;
   showMain(html);
   setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
 
