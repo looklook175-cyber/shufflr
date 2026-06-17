@@ -337,14 +337,6 @@ body.light-mode .queue-ep-title{color:#111;}
 
 /* OPTIONS PAGE */
 .options-page{max-width:640px;padding:4px 0 40px;}
-.options-greeting-card{display:flex;align-items:center;gap:16px;padding:16px 18px;background:var(--surface2);border:1px solid #23A8E0;border-radius:10px;margin-bottom:28px;box-shadow:0 0 16px rgba(35,168,224,0.12);}
-.options-greeting-smiley{flex-shrink:0;display:flex;align-items:center;justify-content:center;}
-.options-greeting-smiley svg{display:block;}
-.options-greeting-text{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#23A8E0;line-height:1.7;text-shadow:0 0 8px var(--blue-glow);}
-.options-username-row{display:flex;gap:8px;align-items:center;width:100%;}
-.options-username-row .options-input{flex:1;min-width:0;}
-.options-username-row .options-btn{flex-shrink:0;}
-.options-username-saved{font-family:'Press Start 2P',monospace;font-size:0.38rem;color:#23A8E0;letter-spacing:1px;}
 .options-section{margin-bottom:28px;padding-bottom:24px;border-bottom:1px solid var(--border);}
 .options-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
 .options-section-title{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#23A8E0;letter-spacing:2px;margin-bottom:14px;text-shadow:0 0 8px var(--blue-glow);}
@@ -372,7 +364,6 @@ body.light-mode .queue-ep-title{color:#111;}
 .options-help-title{font-family:'DM Sans',sans-serif;font-size:0.88rem;font-weight:600;color:var(--text);margin-bottom:6px;}
 .options-help-desc{font-size:0.78rem;color:var(--muted);line-height:1.5;}
 body.light-mode .options-section{border-color:#ddd;}
-body.light-mode .options-greeting-card{background:#f5f5f5;border-color:#23A8E0;}
 body.light-mode .options-lang-btn{background:#f5f5f5;border-color:#ddd;color:#555;}
 body.light-mode .options-lang-btn.active{background:rgba(35,168,224,0.12);}
 body.light-mode .options-input,body.light-mode .options-textarea{background:#fff;border-color:#ddd;color:#111;}

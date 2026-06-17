@@ -65,11 +65,7 @@ window.addEventListener('shufflr-auth-changed',()=>{
   if(currentNav==='shows'&&!currentShow){
     renderHomeScreen('shows');
   }else if(currentNav==='options'){
-    if(typeof window.shufflrRefreshAuthUI==='function'){
-      window.shufflrRefreshAuthUI().then(()=>{
-        if(typeof window.updateOptionsGreetingCard==='function')window.updateOptionsGreetingCard();
-      });
-    }
+    if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
   }
 });
 
@@ -2857,25 +2853,7 @@ function setLanguage(code){
   if(currentNav==='options')renderOptionsPage();
 }
 
-function getOptionsGreetingText(loggedIn,username){
-  if(!loggedIn)return'SIGN IN TO ADD A USERNAME';
-  if(!username)return'HELLO, STRANGER';
-  return`HELLO, ${String(username).toUpperCase()}`;
-}
-
-async function updateOptionsGreetingCard(){
-  const el=document.querySelector('.options-greeting-text');
-  if(!el)return;
-  const loggedIn=typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn();
-  const username=loggedIn?window._shufflrUsername:null;
-  el.textContent=getOptionsGreetingText(loggedIn,username);
-}
-window.updateOptionsGreetingCard=updateOptionsGreetingCard;
-
-async function renderOptionsPage(){
-  const loggedIn=typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn();
-  const username=loggedIn?window._shufflrUsername:null;
-  const greetingText=getOptionsGreetingText(loggedIn,username);
+function renderOptionsPage(){
   const lang=getSavedLanguage();
   const langButtons=SHUFFLR_LANGUAGES.map(l=>(
     `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" onclick="setLanguage('${l.code}')">${l.label}</button>`
@@ -2889,11 +2867,6 @@ async function renderOptionsPage(){
   )).join('');
 
   const html=`<div class="options-page">
-    <div class="options-greeting-card">
-      <div class="options-greeting-smiley">${YOUR_SHOWS_SMILEY_SVG}</div>
-      <div class="options-greeting-text">${escapeHtml(greetingText)}</div>
-    </div>
-
     <div class="options-section">
       <div class="options-section-title">LANGUAGE</div>
       <div class="options-section-body">
@@ -2908,7 +2881,6 @@ async function renderOptionsPage(){
         <div id="auth-section" class="auth-section">
           <div id="auth-logged-out">
             <input class="options-input auth-input" id="auth-email" type="email" placeholder="Email" autocomplete="email" />
-            <input class="options-input auth-input" id="auth-username" type="text" placeholder="Username" autocomplete="username" />
             <input class="options-input auth-input" id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
             <div class="auth-btn-row">
               <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-signup-btn">Sign Up</button>
@@ -2917,11 +2889,6 @@ async function renderOptionsPage(){
           </div>
           <div id="auth-logged-in" style="display:none;">
             <div class="auth-user-email options-account-email" id="auth-user-email"></div>
-            <div class="options-username-row">
-              <input class="options-input auth-input" id="auth-username-edit" type="text" placeholder="Username" autocomplete="username" value="${escapeHtml(username||'')}" />
-              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-username-save-btn">Save</button>
-            </div>
-            <div id="auth-username-saved-msg" class="options-username-saved" style="display:none;">SAVED</div>
             <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn">Log Out</button>
           </div>
           <div id="auth-message" class="auth-message" style="display:none;"></div>
@@ -2948,8 +2915,7 @@ async function renderOptionsPage(){
   </div>`;
 
   showMain(html);
-  if(typeof window.shufflrRefreshAuthUI==='function')await window.shufflrRefreshAuthUI();
-  await updateOptionsGreetingCard();
+  if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
 }
 
 function submitOptionsFeedback(){
