@@ -611,6 +611,8 @@ let highlightedEps=[];
 let cameFromFree=false,freeScrollPos=0;
 let lastShowNav={shows:null,movies:null};
 let homeNavType='shows',homeScrollPos=0;
+let genreShuffleSelectedId=null;
+let genreShuffleFetchToken=0;
 let _timerInterval=null,_timerSecondsLeft=0,_timerTotalSeconds=0;
 let _timerEp=null,_timerNextEp=null;
 let _timerStartTimestamp=null,_timerPhase=null;
@@ -723,6 +725,7 @@ function updateConnectBtnLabel(){
 // NAV
 function setNav(nav){
   currentNav=nav;
+  if(nav!=='movies')clearGenreShuffleState();
   ['shows','movies','playlist','free'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
@@ -2696,6 +2699,133 @@ function buildProviderHTML(pd, showName){
 
 // renderProviders handled inline by buildProviderHTML
 
+const GENRE_SHUFFLE_GENRES=[
+  {id:28,name:'Action'},
+  {id:35,name:'Comedy'},
+  {id:27,name:'Horror'},
+  {id:10749,name:'Romance'},
+  {id:878,name:'Sci-Fi'},
+  {id:53,name:'Thriller'},
+  {id:16,name:'Animation'},
+  {id:18,name:'Drama'},
+  {id:99,name:'Documentary'},
+  {id:9648,name:'Mystery'},
+];
+
+function clearGenreShuffleState(){
+  genreShuffleSelectedId=null;
+  genreShuffleFetchToken++;
+}
+
+function buildGenreShuffleSectionHtml(){
+  const buttons=GENRE_SHUFFLE_GENRES.map(g=>(
+    `<button type="button" class="genre-shuffle-btn" data-genre-id="${g.id}">${g.name}</button>`
+  )).join('');
+  return `<div class="genre-section genre-shuffle-section" id="genre-shuffle-section">
+    <div class="genre-title">-- PICK A GENRE --</div>
+    <div class="genre-shuffle-btns">${buttons}</div>
+    <div class="genre-shuffle-toolbar" id="genre-shuffle-toolbar" hidden>
+      <button type="button" class="genre-shuffle-reshuffle-btn">🔀 Reshuffle</button>
+    </div>
+    <div class="h-scroll-wrap genre-shuffle-movies" id="genre-shuffle-movies"></div>
+  </div>`;
+}
+
+function pickRandomItems(items,count){
+  const pool=[...(items||[])];
+  const picked=[];
+  while(pool.length&&picked.length<count){
+    const i=Math.floor(Math.random()*pool.length);
+    picked.push(pool.splice(i,1)[0]);
+  }
+  return picked;
+}
+
+async function fetchGenreShuffleMovies(genreId){
+  const page=Math.floor(Math.random()*10)+1;
+  const r=await fetch(`https://api.themoviedb.org/3/discover/movie?api_key=${KEY}&language=en-US&with_genres=${genreId}&sort_by=popularity.desc&page=${page}`);
+  if(!r.ok)throw new Error('Genre fetch failed');
+  const d=await r.json();
+  return pickRandomItems((d.results||[]).filter(m=>m.poster_path),5);
+}
+
+function buildGenreShuffleMovieCardHtml(movie){
+  const title=escapeHtml(movie.title||'');
+  const rating=movie.vote_average!=null?`${movie.vote_average.toFixed(1)}/10`:'—';
+  const poster=movie.poster_path?`${IMG}w185${movie.poster_path}`:'';
+  return `<div class="ep-card-h genre-shuffle-card" data-movie-id="${movie.id}">
+    <img src="${poster}" alt="" onerror="this.style.background='#1a1a1a'" style="width:100%;height:220px;object-fit:cover;background:#1a1a1a;" />
+    <div class="ep-card-h-body">
+      <div class="ep-card-h-name">${title}</div>
+      <div class="ep-card-h-meta">${rating}</div>
+    </div>
+  </div>`;
+}
+
+function renderGenreShuffleMovies(movies){
+  const wrap=document.getElementById('genre-shuffle-movies');
+  if(!wrap)return;
+  if(!movies?.length){
+    wrap.innerHTML='<div class="genre-shuffle-empty">No movies found for this genre.</div>';
+    return;
+  }
+  wrap.innerHTML=movies.map(buildGenreShuffleMovieCardHtml).join('');
+}
+
+function updateGenreShuffleButtons(){
+  document.querySelectorAll('.genre-shuffle-btn').forEach(btn=>{
+    const id=Number(btn.dataset.genreId);
+    btn.classList.toggle('active',id===genreShuffleSelectedId);
+  });
+}
+
+async function loadGenreShuffleMovies(genreId){
+  const token=++genreShuffleFetchToken;
+  const wrap=document.getElementById('genre-shuffle-movies');
+  if(wrap)wrap.innerHTML='<div class="genre-shuffle-loading">LOADING...</div>';
+  try{
+    const movies=await fetchGenreShuffleMovies(genreId);
+    if(token!==genreShuffleFetchToken||genreShuffleSelectedId!==genreId)return;
+    renderGenreShuffleMovies(movies);
+  }catch(e){
+    console.error('[Shufflr] Genre shuffle failed:',e);
+    if(token!==genreShuffleFetchToken||genreShuffleSelectedId!==genreId)return;
+    if(wrap)wrap.innerHTML='<div class="genre-shuffle-empty">Could not load movies.</div>';
+  }
+}
+
+async function selectGenreShuffle(genreId){
+  genreId=Number(genreId);
+  if(!GENRE_SHUFFLE_GENRES.some(g=>g.id===genreId))return;
+  const moviesWrap=document.getElementById('genre-shuffle-movies');
+  const toolbar=document.getElementById('genre-shuffle-toolbar');
+  if(genreShuffleSelectedId!==genreId){
+    genreShuffleSelectedId=genreId;
+    if(moviesWrap)moviesWrap.innerHTML='';
+  }
+  updateGenreShuffleButtons();
+  if(toolbar)toolbar.hidden=false;
+  await loadGenreShuffleMovies(genreId);
+}
+
+async function loadGenreShuffleMovie(id){
+  try{
+    const r=await fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=${KEY}&language=en-US`);
+    if(!r.ok)return;
+    const show=await r.json();
+    currentNav='movies';
+    currentType='movie';
+    ['shows','movies','playlist','free'].forEach(n=>{
+      const el=document.getElementById('nav-'+n);
+      if(el)el.classList.toggle('active',n==='movies');
+    });
+    await _loadShow(show);
+  }catch(e){
+    console.error('[Shufflr] Failed to load genre shuffle movie:',e);
+    showToast('LOAD FAILED');
+  }
+}
+
 async function renderHomeScreen(navType){
   homeNavType = navType || currentNav || 'shows';
   const isMovies = homeNavType === 'movies';
@@ -2715,6 +2845,10 @@ async function renderHomeScreen(navType){
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
+
+  if(isMovies){
+    html+=buildGenreShuffleSectionHtml();
+  }
 
   if (!isMovies) {
     html += await buildYourPlaylistsHtml();
@@ -2929,6 +3063,22 @@ function closeSearch(){
 }
 // Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
+  const genreBtn=e.target.closest('.genre-shuffle-btn');
+  if(genreBtn){
+    selectGenreShuffle(genreBtn.dataset.genreId);
+    return;
+  }
+  const reshuffleBtn=e.target.closest('.genre-shuffle-reshuffle-btn');
+  if(reshuffleBtn){
+    if(genreShuffleSelectedId)loadGenreShuffleMovies(genreShuffleSelectedId);
+    return;
+  }
+  const genreMovieCard=e.target.closest('.genre-shuffle-card');
+  if(genreMovieCard){
+    const id=parseInt(genreMovieCard.dataset.movieId,10);
+    if(Number.isFinite(id))loadGenreShuffleMovie(id);
+    return;
+  }
   const yourShowCard=e.target.closest('.your-show-card');
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);

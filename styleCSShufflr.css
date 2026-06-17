@@ -332,6 +332,64 @@ body.light-mode .queue-ep-title{color:#111;}
 .home-wrap{padding:4px 0;}
 .genre-section{margin-bottom:20px;}
 .genre-title{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
+.genre-shuffle-section{margin-bottom:24px;}
+.genre-shuffle-btns{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.genre-shuffle-btn{
+  font-family:'Press Start 2P',monospace;
+  font-size:0.38rem;
+  padding:8px 10px;
+  background:var(--surface);
+  border:1px solid #23A8E0;
+  border-radius:8px;
+  color:#23A8E0;
+  cursor:pointer;
+  transition:all 0.2s;
+  letter-spacing:1px;
+  line-height:1.5;
+}
+.genre-shuffle-btn:hover{
+  box-shadow:0 0 10px rgba(35,168,224,0.25);
+  transform:translateY(-1px);
+}
+.genre-shuffle-btn.active{
+  background:#23A8E0;
+  color:#000;
+  box-shadow:0 0 12px rgba(35,168,224,0.4);
+}
+.genre-shuffle-toolbar{
+  display:flex;
+  justify-content:flex-end;
+  margin-bottom:8px;
+}
+.genre-shuffle-toolbar[hidden]{display:none;}
+.genre-shuffle-reshuffle-btn{
+  font-family:'Press Start 2P',monospace;
+  font-size:0.4rem;
+  padding:8px 12px;
+  background:transparent;
+  border:1px solid #23A8E0;
+  border-radius:8px;
+  color:#23A8E0;
+  cursor:pointer;
+  transition:all 0.2s;
+  letter-spacing:1px;
+}
+.genre-shuffle-reshuffle-btn:hover{
+  background:rgba(35,168,224,0.12);
+  box-shadow:0 0 10px rgba(35,168,224,0.2);
+}
+.genre-shuffle-movies{min-height:0;}
+.genre-shuffle-card{cursor:pointer;}
+.genre-shuffle-card img{height:220px;}
+.genre-shuffle-loading,.genre-shuffle-empty{
+  font-family:'Press Start 2P',monospace;
+  font-size:0.42rem;
+  color:var(--muted);
+  padding:16px 0;
+  letter-spacing:1px;
+}
+body.light-mode .genre-shuffle-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0;}
+body.light-mode .genre-shuffle-btn.active{background:#23A8E0;color:#000;}
 .watch-history-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
 .watch-history-title{margin-bottom:0;}
 .watch-history-toggle{display:inline-flex;background:#111;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0;}
