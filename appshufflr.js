@@ -710,15 +710,26 @@ function selectService(btn, svc){
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
   const names={netflix:'Netflix',max:'Max',hulu:'Hulu',disney:'Disney+',prime:'Prime Video',tubi:'Tubi',peacock:'Peacock',paramount:'Paramount+',appletv:'Apple TV+',crunchyroll:'Crunchyroll'};
-  const btn=document.getElementById('options-service-connect-btn');
+  const btn=document.getElementById('service-connect-btn');
   if(!btn) return;
   if(saved&&names[saved]){
-    btn.innerHTML=`<span class="options-connected-dot"></span>${names[saved]} Connected`;
-    btn.classList.add('connected');
+    btn.innerHTML=`<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e;margin-right:7px;vertical-align:middle;flex-shrink:0;"></span>${names[saved]} Connected`;
   } else {
     btn.innerHTML='Connect Your Service';
-    btn.classList.remove('connected');
   }
+  btn.style.borderColor='';
+  btn.style.color='';
+  btn.style.boxShadow='';
+}
+
+function updateSeasonsSidebarVisibility(hasSeasons){
+  const block=document.getElementById('seasons-sidebar-block');
+  if(block)block.style.display=hasSeasons?'':'none';
+}
+
+function clearSeasonsSidebar(){
+  document.getElementById('seasons-list').innerHTML='';
+  updateSeasonsSidebarVisibility(false);
 }
 
 // NAV
@@ -729,12 +740,18 @@ function setNav(nav){
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
   });
-  if(nav==='playlist') renderPlaylistPage();
-  else if(nav==='options') renderOptionsPage();
-  else if(nav==='shows'){
+  if(nav==='playlist'){
+    allSeasons=[];
+    clearSeasonsSidebar();
+    renderPlaylistPage();
+  }else if(nav==='options'){
+    allSeasons=[];
+    clearSeasonsSidebar();
+    renderOptionsPage();
+  }else if(nav==='shows'){
     currentType='tv';
     currentShow=null; allSeasons=[]; allEpisodes={}; highlightedEps=[];
-    document.getElementById('seasons-list').innerHTML='';
+    clearSeasonsSidebar();
     document.getElementById('search-input').value='';
     homeScrollPos=0;
     lastShowNav={shows:null,movies:null};
@@ -835,7 +852,11 @@ async function loadSeasons(id){
 
 function renderSeasonsSidebar(){
   const el=document.getElementById('seasons-list');
-  if(!allSeasons.length){el.innerHTML='';return;}
+  if(!allSeasons.length){
+    clearSeasonsSidebar();
+    return;
+  }
+  updateSeasonsSidebarVisibility(true);
   el.innerHTML=allSeasons.map(s=>`
     <div class="season-item ${selectedSeason===s.season_number?'active':''} ${blockedSeasons.has(s.season_number)?'blocked':''}"
          onclick="selectSeason(${s.season_number})">
@@ -971,7 +992,8 @@ function toggleOv(id,btn){
 
 // MOVIES
 async function renderMovieMain(show){
-  document.getElementById('seasons-list').innerHTML='';
+  allSeasons=[];
+  clearSeasonsSidebar();
   try{
     const r=await fetch(`https://api.themoviedb.org/3/movie/${show.id}?api_key=${KEY}`);
     const d=await r.json();
@@ -2501,7 +2523,7 @@ function goHome(){
   currentShow=null;allSeasons=[];allEpisodes={};highlightedEps=[];selectedSeason=null;
   blockedSeasons=new Set();
   lastShowNav={shows:null,movies:null};
-  document.getElementById('seasons-list').innerHTML='';
+  clearSeasonsSidebar();
   document.getElementById('search-input').value='';
   cameFromFree=false;
   renderHomeScreen(currentNav);
@@ -2510,7 +2532,7 @@ function goHome(){
 function goBackHome(){
   currentShow=null;allSeasons=[];allEpisodes={};highlightedEps=[];selectedSeason=null;
   blockedSeasons=new Set();
-  document.getElementById('seasons-list').innerHTML='';
+  clearSeasonsSidebar();
   document.getElementById('search-input').value='';
   cameFromFree=false;
   lastShowNav={shows:null,movies:null};
@@ -2875,14 +2897,6 @@ function renderOptionsPage(){
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">STREAMING SERVICE</div>
-      <div class="options-section-body">
-        <p class="options-desc">Pick the service you use. Episode links will open there.</p>
-        <button type="button" class="options-btn options-btn-secondary" id="options-service-connect-btn" onclick="openConnect()">Connect Your Service</button>
-      </div>
-    </div>
-
-    <div class="options-section">
       <div class="options-section-title">FEEDBACK</div>
       <div class="options-section-body">
         <p class="options-desc">Got an idea or found a bug? We want to hear it.</p>
@@ -2901,7 +2915,6 @@ function renderOptionsPage(){
   </div>`;
 
   showMain(html);
-  updateConnectBtnLabel();
   if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
 }
 
