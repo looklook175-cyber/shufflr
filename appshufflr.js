@@ -62,8 +62,8 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
 });
 
 window.addEventListener('shufflr-auth-changed',()=>{
-  if((currentNav==='shows'||currentNav==='movies')&&!currentShow){
-    renderHomeScreen(currentNav);
+  if(currentNav==='shows'&&!currentShow){
+    renderHomeScreen('shows');
   }
 });
 
@@ -113,7 +113,7 @@ function getHomeShowDedupeKey(show){
   return'';
 }
 
-function getActivePlaylistShowsForHome(isMovies,allPlaylists=playlists){
+function getActivePlaylistShowsForHome(allPlaylists=playlists){
   const seen=new Set();
   const items=[];
   const source=Array.isArray(allPlaylists)?allPlaylists:playlists;
@@ -121,8 +121,7 @@ function getActivePlaylistShowsForHome(isMovies,allPlaylists=playlists){
     const plShows=source[pi]?.shows||[];
     for(let si=0;si<plShows.length;si++){
       const show=plShows[si];
-      const isMovie=isPlaylistMovie(show);
-      if(isMovies?!isMovie:isMovie)continue;
+      if(show?.release_date)continue;
       const key=getHomeShowDedupeKey(show);
       if(!key||seen.has(key))continue;
       seen.add(key);
@@ -130,30 +129,6 @@ function getActivePlaylistShowsForHome(isMovies,allPlaylists=playlists){
     }
   }
   return{items};
-}
-
-function isPlaylistMovie(show){
-  if(String(show?.type||'').toLowerCase()==='movie')return true;
-  return!!show?.release_date;
-}
-
-function isWatchHistoryMovieEntry(entry,allPlaylists=[]){
-  const type=String(entry?.type||entry?.media_type||'').toLowerCase();
-  if(type==='movie')return true;
-  if(type==='tv'||type==='series'||type==='show')return false;
-  if(entry?.season_num!=null||entry?.episode_number!=null)return false;
-  if(String(entry?.episode_name||'').trim())return false;
-  const showId=entry?.show_id!=null?String(entry.show_id):'';
-  const showName=stripServiceSuffixFromShowName(entry?.show_name||'');
-  for(const pl of allPlaylists){
-    for(const show of (pl?.shows||[])){
-      const idMatch=showId&&show.id!=null&&String(show.id)===showId;
-      const nameMatch=showName&&normalizePlShowName(getShowLabel(show))===normalizePlShowName(showName);
-      if(!idMatch&&!nameMatch)continue;
-      return isPlaylistMovie(show);
-    }
-  }
-  return false;
 }
 
 const YOUR_SHOWS_SMILEY_SVG=`<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -214,13 +189,12 @@ function applyPosterToDomByShowKey(showKey,posterUrl){
   });
 }
 
-async function resolveCardPostersFromTmdb(lookupMap,size='w185',mediaType='tv'){
-  const endpoint=mediaType==='movie'?'movie':'tv';
+async function resolveCardPostersFromTmdb(lookupMap,size='w185'){
   for(const [showKey,query] of lookupMap){
     const searchQuery=stripServiceSuffixFromShowName(query);
     if(!searchQuery)continue;
     try{
-      const r=await fetch(`https://api.themoviedb.org/3/search/${endpoint}?api_key=${KEY}&query=${encodeURIComponent(searchQuery)}`);
+      const r=await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${KEY}&query=${encodeURIComponent(searchQuery)}`);
       const d=await r.json();
       const match=(d.results||[]).find(result=>result.poster_path)||(d.results||[])[0];
       if(!match?.poster_path)continue;
@@ -250,22 +224,10 @@ async function resolveYourShowsPosters(items){
     if(!showKey||!query)continue;
     lookupMap.set(showKey,query);
   }
-  await resolveCardPostersFromTmdb(lookupMap,'w185','tv');
+  await resolveCardPostersFromTmdb(lookupMap,'w185');
 }
 
-async function resolveYourMoviesPosters(items){
-  const lookupMap=new Map();
-  for(const {show} of (items||[])){
-    if(!yourShowNeedsPosterLookup(show))continue;
-    const showKey=getHomeShowDedupeKey(show);
-    const query=getShowLabel(show);
-    if(!showKey||!query)continue;
-    lookupMap.set(showKey,query);
-  }
-  await resolveCardPostersFromTmdb(lookupMap,'w185','movie');
-}
-
-async function resolveRecentlyWatchedPosters(entries,mediaType='tv'){
+async function resolveRecentlyWatchedPosters(entries){
   const lookupMap=new Map();
   for(const entry of (entries||[])){
     if(buildPosterUrl(entry.poster_path,'w300'))continue;
@@ -274,7 +236,7 @@ async function resolveRecentlyWatchedPosters(entries,mediaType='tv'){
     if(!showKey||!query)continue;
     lookupMap.set(showKey,query);
   }
-  await resolveCardPostersFromTmdb(lookupMap,'w300',mediaType);
+  await resolveCardPostersFromTmdb(lookupMap,'w300');
 }
 
 function getShowPosterPathFromShow(show){
@@ -285,9 +247,8 @@ function getPosterLookupKey(show){
   return getHomeShowDedupeKey(show)||getRecentlyWatchedPosterKey(stripServiceSuffixFromShowName(getShowLabel(show)));
 }
 
-function getPlaylistCoverShows(playlist,{moviesOnly=false}={}){
-  let shows=playlist?.shows||[];
-  if(moviesOnly)shows=shows.filter(isPlaylistMovie);
+function getPlaylistCoverShows(playlist){
+  const shows=playlist?.shows||[];
   if(!shows.length)return[];
   if(shows.length===1)return[shows[0]];
   const slots=[...shows.slice(0,4)];
@@ -304,12 +265,12 @@ function buildPlaylistGridQuadrantHtml(show,playlistIndex,quadrantIndex){
   return `<img data-show-key="${escapeHtml(showKey)}" src="" alt="" style="opacity:0;background:#1a1a1a;" />`;
 }
 
-function buildPlaylistCoverPosterHtml(playlist,playlistIndex,{moviesOnly=false}={}){
+function buildPlaylistCoverPosterHtml(playlist,playlistIndex){
   const customPoster=localStorage.getItem('shufflr_playlist_poster_'+(playlist.id||playlist.name));
   if(customPoster){
     return `<img src="${customPoster}" style="width:100%;height:100%;object-fit:cover;border-radius:8px 8px 0 0;">`;
   }
-  const shows=moviesOnly?(playlist.shows||[]).filter(isPlaylistMovie):(playlist.shows||[]);
+  const shows=playlist.shows||[];
   if(!shows.length){
     return `<div class="pl-poster-placeholder">
       ${YOUR_SHOWS_SMILEY_SVG}
@@ -324,19 +285,19 @@ function buildPlaylistCoverPosterHtml(playlist,playlistIndex,{moviesOnly=false}=
     }
     return buildDeferredPosterHtml(showKey,'','width:100%;height:100%;object-fit:cover;');
   }
-  const coverShows=getPlaylistCoverShows(playlist,{moviesOnly});
+  const coverShows=getPlaylistCoverShows(playlist);
   return `<div class="pl-cover-grid">${coverShows.map((show,qi)=>(
     `<div class="pl-cover-grid-cell">${buildPlaylistGridQuadrantHtml(show,playlistIndex,qi)}</div>`
   )).join('')}</div>`;
 }
 
-async function resolvePlaylistCardPosters(allPlaylists,filtered,isMovies=false){
+async function resolvePlaylistCardPosters(allPlaylists,filtered){
   const lookupMap=new Map();
   for(const playlist of (filtered||[])){
     const index=allPlaylists.indexOf(playlist);
     if(index<0)continue;
     if(localStorage.getItem('shufflr_playlist_poster_'+(playlist.id||playlist.name)))continue;
-    const coverShows=getPlaylistCoverShows(playlist,{moviesOnly:isMovies});
+    const coverShows=getPlaylistCoverShows(playlist);
     if(!coverShows.length)continue;
     coverShows.forEach((show,qi)=>{
       if(buildPosterUrl(getShowPosterPathFromShow(show),'w185'))return;
@@ -346,7 +307,7 @@ async function resolvePlaylistCardPosters(allPlaylists,filtered,isMovies=false){
       lookupMap.set(showKey,query);
     });
   }
-  await resolveCardPostersFromTmdb(lookupMap,'w185',isMovies?'movie':'tv');
+  await resolveCardPostersFromTmdb(lookupMap,'w185');
 }
 
 function buildDrawerShowThumbnailHtml(show){
@@ -369,24 +330,6 @@ async function resolveDrawerShowPosters(shows){
     lookupMap.set(showKey,query);
   }
   await resolveCardPostersFromTmdb(lookupMap,'w92');
-}
-
-function buildYourMoviesSectionHtml(section){
-  const items=section.items||[];
-  if(!items.length)return'';
-
-  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR MOVIES --</div><div class="h-scroll-wrap">`;
-  items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
-    const showKey=getHomeShowDedupeKey(s);
-    html+=`<div class="ep-card-h your-movie-card" data-show-playlist-index="${pi}" data-show-index="${si}">
-      ${buildYourShowsPosterHtml(s,showKey)}
-      <div class="ep-card-h-body" style="pointer-events:none;">
-        <div class="ep-card-h-name" style="pointer-events:none;">${s.name||s.title||''}</div>
-      </div>
-    </div>`;
-  });
-  html+=`</div></div>`;
-  return html;
 }
 
 function buildYourShowsSectionHtml(section){
@@ -508,22 +451,7 @@ async function resolveShowForRecentlyWatchedClick(showId, showName) {
   return fallback;
 }
 
-async function fetchTmdbMovieOverview(movieId) {
-  if (!/^\d+$/.test(String(movieId))) return null;
-  try {
-    const r = await fetch(
-      `https://api.themoviedb.org/3/movie/${movieId}?api_key=${KEY}&language=en-US`
-    );
-    if (!r.ok) return null;
-    const data = await r.json();
-    const overview = (data.overview || '').trim();
-    return overview || null;
-  } catch {
-    return null;
-  }
-}
-
-function buildRecentlyWatchedMaxCardHtml(entry, description, {isMovie=false}={}) {
+function buildRecentlyWatchedMaxCardHtml(entry, description) {
   const posterUrl = buildPosterUrl(entry.poster_path, 'w300');
   const rawShowName = stripServiceSuffixFromShowName(entry.show_name);
   const showTitle = escapeHtml(formatRecentlyWatchedCardTitle(entry));
@@ -542,28 +470,25 @@ function buildRecentlyWatchedMaxCardHtml(entry, description, {isMovie=false}={})
   const descHtml = description
     ? `<div class="ep-card-h-meta" style="margin-top:6px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;pointer-events:none;">${escapeHtml(description)}</div>`
     : '';
-  const movieAttr=isMovie?' data-recently-watched-is-movie="1"':'';
-  return `<div class="ep-card-h recently-watched-card"${movieAttr} data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" style="width:240px;">
+  return `<div class="ep-card-h recently-watched-card" data-recently-watched-show-id="${showIdAttr}" data-recently-watched-show-name="${showNameAttr}" data-recently-watched-max-url="${maxUrlAttr}" style="width:240px;">
     <div class="recently-watched-card-thumb" style="width:100%;aspect-ratio:16/9;background:#1a1a1a;overflow:hidden;flex-shrink:0;pointer-events:none;">${thumbHtml}</div>
     <div class="ep-card-h-body" style="pointer-events:none;">
       <div class="ep-card-h-name" style="pointer-events:none;">${showTitle}</div>
-      ${!isMovie&&episodeLabel ? `<div class="ep-card-h-code" style="pointer-events:none;">${episodeLabel}</div>` : ''}
+      ${episodeLabel ? `<div class="ep-card-h-code" style="pointer-events:none;">${episodeLabel}</div>` : ''}
       <div class="ep-card-h-meta" style="pointer-events:none;">${time}</div>
       ${descHtml}
     </div>
   </div>`;
 }
 
-async function buildRecentlyWatchedMaxCardsHtml(entries, {isMovie=false}={}) {
+async function buildRecentlyWatchedMaxCardsHtml(entries) {
   const cards = await Promise.all((entries || []).map(async entry => {
-    const description = isMovie
-      ? await fetchTmdbMovieOverview(entry.show_id)
-      : await fetchTmdbEpisodeOverview(
-        entry.show_id,
-        entry.season_num,
-        entry.episode_number
-      );
-    return buildRecentlyWatchedMaxCardHtml(entry, description, {isMovie});
+    const description = await fetchTmdbEpisodeOverview(
+      entry.show_id,
+      entry.season_num,
+      entry.episode_number
+    );
+    return buildRecentlyWatchedMaxCardHtml(entry, description);
   }));
   return cards.join('');
 }
@@ -597,36 +522,26 @@ function getPlaylistsFromBridge() {
 }
 
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
-async function buildYourPlaylistsHtml(isMovies=false) {
+async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
   const bridgePlaylists = await getPlaylistsFromBridge();
   const allPlaylists = bridgePlaylists || playlists || [];
   homePlaylistsCache = allPlaylists;
-  const filtered = allPlaylists.filter(p => (p.service || 'max') === connectedService);
-  const displayPlaylists = isMovies
-    ? filtered.filter(p => (p.shows || []).some(isPlaylistMovie))
-    : filtered;
+  const displayPlaylists = allPlaylists.filter(p => (p.service || 'max') === connectedService);
   if (!displayPlaylists.length) {
-    const emptyCopy = isMovies
-      ? `<p>No movie playlists yet.</p><p>Add movies to a playlist on Max and they will appear here automatically.</p>`
-      : `<p>No playlists yet.</p><p>On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.</p>`;
     return `
     <div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">-- YOUR PLAYLISTS --</div>
-      <div class="pl-empty-state">${emptyCopy}</div>
+      <div class="pl-empty-state"><p>No playlists yet.</p><p>On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.</p></div>
     </div>`;
   }
 
   const cards = displayPlaylists.map((playlist) => {
     const index = allPlaylists.indexOf(playlist);
-    const playlistItems = isMovies
-      ? (playlist.shows || []).filter(isPlaylistMovie)
-      : (playlist.shows || []);
+    const playlistItems = playlist.shows || [];
     const itemCount = playlistItems.length;
-    const countLabel = isMovies
-      ? `${itemCount} movie${itemCount !== 1 ? 's' : ''}`
-      : `${itemCount} show${itemCount !== 1 ? 's' : ''}`;
-    const posterHtml = buildPlaylistCoverPosterHtml(playlist, index, {moviesOnly: isMovies});
+    const countLabel = `${itemCount} show${itemCount !== 1 ? 's' : ''}`;
+    const posterHtml = buildPlaylistCoverPosterHtml(playlist, index);
 
     return `
       <div class="pl-home-card" data-pl-index="${index}" data-pl-id="${playlist.id || ''}" data-pl-name="${encodeURIComponent(playlist.name || '')}">
@@ -655,28 +570,24 @@ async function buildYourPlaylistsHtml(isMovies=false) {
     </div>`;
 }
 
-async function buildRecentlyWatchedOnMaxHtml(entries,{isMovie=false}={}){
-  const emptyMessage=isMovie
-    ? 'Start watching movies on Max to see your history here.'
-    : 'Start watching on Max to see your history here.';
+async function buildRecentlyWatchedOnMaxHtml(entries){
   if (!entries?.length) {
     return `<div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
-      <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">${emptyMessage}</div></div>
+      <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>
     </div>`;
   }
   return `<div class="genre-section" style="margin-top:16px;">
     <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
-    <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries,{isMovie})}</div>
+    <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div>
   </div>`;
 }
 
-async function loadRecentlyWatchedOnMaxSection(isMovies=false,allPlaylists=playlists){
+async function loadRecentlyWatchedOnMaxSection(allPlaylists=playlists){
   if(typeof window.shufflrGetWatchHistory!=='function')return{html:'',entries:[]};
   try{
-    let entries=dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(200));
-    entries=entries.filter(entry=>isWatchHistoryMovieEntry(entry,allPlaylists)===isMovies);
-    return{html:await buildRecentlyWatchedOnMaxHtml(entries,{isMovie:isMovies}),entries};
+    const entries=dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(200));
+    return{html:await buildRecentlyWatchedOnMaxHtml(entries),entries};
   }catch(e){
     console.error('[Shufflr] Failed to load watch history:',e);
     return{html:'',entries:[]};
@@ -811,8 +722,9 @@ function updateConnectBtnLabel(){
 
 // NAV
 function setNav(nav){
+  if(nav==='movies')return;
   currentNav=nav;
-  ['shows','movies','playlist','free'].forEach(n=>{
+  ['shows','playlist','free'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
   });
@@ -828,14 +740,14 @@ function setNav(nav){
   }
   if(nav==='playlist') renderPlaylistPage();
   else if(nav==='free') renderFreeTab();
-  else if(nav==='shows'||nav==='movies'){
-    currentType=nav==='movies'?'movie':'tv';
+  else if(nav==='shows'){
+    currentType='tv';
     currentShow=null; allSeasons=[]; allEpisodes={}; highlightedEps=[];
     document.getElementById('seasons-list').innerHTML='';
     document.getElementById('search-input').value='';
     homeScrollPos=0;
     lastShowNav={shows:null,movies:null};
-    renderHomeScreen(nav);
+    renderHomeScreen('shows');
   }
 }
 
@@ -859,8 +771,7 @@ function handleSearch(){
 function showRecent(){
   const drop=document.getElementById('dropdown');
   if(document.getElementById('search-input').value.trim()){return;}
-  const isMovies=currentNav==='movies';
-  const filtered=recentShows.filter(s=>isMovies?!!s.release_date:!s.release_date);
+  const filtered=recentShows.filter(s=>!s.release_date);
   if(!filtered.length){drop.classList.remove('open');return;}
   drop.innerHTML='<div class="recent-label">Recent Searches</div>'+
     filtered.slice(0,5).map((s,i)=>`
@@ -872,7 +783,7 @@ function showRecent(){
 }
 
 async function doSearch(q){
-  const type=currentNav==='movies'?'movie':'tv';
+  const type='tv';
   try{
     const r=await fetch(`https://api.themoviedb.org/3/search/${type}?api_key=${KEY}&query=${encodeURIComponent(q)}`);
     const d=await r.json();
@@ -906,7 +817,7 @@ async function _loadShow(show){
   blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
   recentShows=[show,...recentShows.filter(s=>s.id!==show.id)].slice(0,10);
   localStorage.setItem('shufflr_recent',JSON.stringify(recentShows));
-  if(currentNav==='movies'||show.media_type==='movie'||show.release_date){
+  if(show.media_type==='movie'||show.release_date){
     currentType='movie';
     lastShowNav.movies=show;
     renderMovieMain(show);
@@ -2103,7 +2014,7 @@ async function shufflePlaylist(pi){
     const fullEp=allEpisodes[ep.seasonNum].find(e=>e.episode_number===ep.episode_number);
     highlightedEps=fullEp?[{...fullEp,seasonNum:ep.seasonNum}]:[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2115,18 +2026,18 @@ async function shufflePlaylist(pi){
   const type=show.release_date?'movie':'tv';
   if(type==='movie'){
     currentType='movie';currentShow=show;
-    currentNav='movies';
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
-      if(el) el.classList.toggle('active',n==='movies');
+      if(el) el.classList.toggle('active',n==='shows');
     });
+    currentNav='shows';
     renderMovieMain(show);
   } else {
     currentType='tv';currentShow=show;
     currentNav='shows';
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2160,109 +2071,9 @@ async function openYourShowDetailPage(pi,si){
       return;
     }
     currentNav='shows';
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
-    });
-    await _loadShow(match);
-  }catch(e){
-    console.error(e);
-    showToast('SEARCH FAILED');
-  }
-}
-
-async function openYourMovieDetailPage(pi,si){
-  const show=playlists[pi]?.shows?.[si];
-  if(!show)return;
-  const hasTmdbId=show?.id!=null&&/^\d+$/.test(String(show.id));
-
-  if(hasTmdbId){
-    currentNav='movies';
-    ['shows','movies','playlist','free'].forEach(n=>{
-      const el=document.getElementById('nav-'+n);
-      if(el)el.classList.toggle('active',n==='movies');
-    });
-    await _loadShow(show);
-    return;
-  }
-
-  const query=stripServiceSuffixFromShowName(getShowLabel(show));
-  if(!query){
-    showToast('NO MOVIE NAME');
-    return;
-  }
-  showToast('LOADING '+query.toUpperCase().slice(0,15)+'...');
-  try{
-    const r=await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${KEY}&query=${encodeURIComponent(query)}`);
-    const d=await r.json();
-    const match=(d.results||[])[0];
-    if(!match){
-      showToast('NO TMDB MATCH');
-      return;
-    }
-    currentNav='movies';
-    ['shows','movies','playlist','free'].forEach(n=>{
-      const el=document.getElementById('nav-'+n);
-      if(el)el.classList.toggle('active',n==='movies');
-    });
-    await _loadShow(match);
-  }catch(e){
-    console.error(e);
-    showToast('SEARCH FAILED');
-  }
-}
-
-async function openRecentlyWatchedMovieDetail(card){
-  const rawId=card?.getAttribute?.('data-recently-watched-show-id')||'';
-  let showId;
-  try{
-    showId=decodeURIComponent(rawId);
-  }catch{
-    showId=rawId;
-  }
-  const rawName=card?.getAttribute?.('data-recently-watched-show-name')||'';
-  let showName;
-  try{
-    showName=decodeURIComponent(rawName);
-  }catch{
-    showName=rawName;
-  }
-  showName=stripServiceSuffixFromShowName(showName);
-
-  if(showId&&/^\d+$/.test(String(showId))){
-    try{
-      const r=await fetch(`https://api.themoviedb.org/3/movie/${showId}?api_key=${KEY}&language=en-US`);
-      if(r.ok){
-        currentNav='movies';
-        ['shows','movies','playlist','free'].forEach(n=>{
-          const el=document.getElementById('nav-'+n);
-          if(el)el.classList.toggle('active',n==='movies');
-        });
-        await _loadShow(await r.json());
-        return;
-      }
-    }catch(e){
-      console.error(e);
-    }
-  }
-
-  if(!showName){
-    showToast('NO MOVIE NAME');
-    return;
-  }
-  showToast('LOADING '+showName.toUpperCase().slice(0,15)+'...');
-  try{
-    const r=await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${KEY}&query=${encodeURIComponent(showName)}`);
-    const d=await r.json();
-    const match=(d.results||[])[0];
-    if(!match){
-      showToast('NO TMDB MATCH');
-      return;
-    }
-    currentNav='movies';
-    ['shows','movies','playlist','free'].forEach(n=>{
-      const el=document.getElementById('nav-'+n);
-      if(el)el.classList.toggle('active',n==='movies');
     });
     await _loadShow(match);
   }catch(e){
@@ -2670,11 +2481,11 @@ async function loadFreeShow(id, type){
     const show=await r.json();
     currentType='movie';currentShow=show;
     // Set nav active state without triggering show restore
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
-      if(el) el.classList.toggle('active',n==='movies');
+      if(el) el.classList.toggle('active',n==='free');
     });
-    currentNav='movies';
+    currentNav='free';
     renderMovieMain(show);
   } else {
     const r=await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${KEY}`);
@@ -2684,7 +2495,7 @@ async function loadFreeShow(id, type){
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
     // Set nav active state without triggering show restore
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2715,7 +2526,7 @@ function goBackHome(){
     // Clear lastShowNav so setNav doesn't restore old show
     lastShowNav={shows:null,movies:null};
     // Manually set active nav without triggering show restore
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='free');
     });
@@ -2731,7 +2542,7 @@ function goBackHome(){
     lastShowNav={shows:null,movies:null};
     const navTarget=homeNavType||currentNav||'shows';
     currentNav=navTarget;
-    ['shows','movies','playlist','free'].forEach(n=>{
+    ['shows','playlist','free'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n===navTarget);
     });
@@ -2887,7 +2698,6 @@ function buildProviderHTML(pd, showName){
 
 async function renderHomeScreen(navType){
   homeNavType = navType || currentNav || 'shows';
-  const isMovies = homeNavType === 'movies';
 
   let allPlaylists = playlists;
   const bridgePlaylists = await getPlaylistsFromBridge();
@@ -2897,47 +2707,35 @@ async function renderHomeScreen(navType){
     homePlaylistsCache = bridgePlaylists;
   }
 
-  const yourItemsSection = getActivePlaylistShowsForHome(isMovies, allPlaylists);
-  const yourItems = (yourItemsSection.items || []).map(item => item.show);
+  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists);
+  const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
 
-  html += await buildYourPlaylistsHtml(isMovies);
+  html += await buildYourPlaylistsHtml();
 
   let playlistCardLookup=null;
   if(homePlaylistsCache.length){
     const connectedService=localStorage.getItem('shufflr_service')||'max';
     const filtered=homePlaylistsCache.filter(p=>(p.service||'max')===connectedService);
-    const displayFiltered=isMovies
-      ? filtered.filter(p=>(p.shows||[]).some(isPlaylistMovie))
-      : filtered;
-    if(displayFiltered.length){
-      playlistCardLookup={
-        allPlaylists:homePlaylistsCache,
-        filtered:displayFiltered,
-        isMovies,
-      };
+    if(filtered.length){
+      playlistCardLookup={allPlaylists:homePlaylistsCache,filtered};
     }
   }
 
-  if(yourItems.length){
-    html+=isMovies
-      ? buildYourMoviesSectionHtml(yourItemsSection)
-      : buildYourShowsSectionHtml(yourItemsSection);
-
-    if(!isMovies){
-      html+=`<div class="genre-section" id="recs-section" style="margin-top:4px;">
-        <div class="genre-title">-- BECAUSE YOU WATCHED <span id="recs-title" style="color:var(--blue);">${(yourItems[0].name||yourItems[0].title||'').toUpperCase()}</span> --</div>
-        <div class="h-scroll-wrap" id="recs-wrap">
-          ${[1,2,3,4].map(()=>`<div class="ep-card-h" style="background:var(--surface);border-color:var(--border);"><div style="width:100%;height:220px;background:var(--surface2);border-radius:0;"></div><div class="ep-card-h-body"><div style="height:10px;background:var(--border);border-radius:4px;margin-bottom:6px;width:80%;"></div><div style="height:8px;background:var(--border);border-radius:4px;width:50%;"></div></div></div>`).join('')}
-        </div>
-      </div>`;
-    }
+  if(yourShows.length){
+    html+=buildYourShowsSectionHtml(yourShowsSection);
+    html+=`<div class="genre-section" id="recs-section" style="margin-top:4px;">
+      <div class="genre-title">-- BECAUSE YOU WATCHED <span id="recs-title" style="color:var(--blue);">${(yourShows[0].name||yourShows[0].title||'').toUpperCase()}</span> --</div>
+      <div class="h-scroll-wrap" id="recs-wrap">
+        ${[1,2,3,4].map(()=>`<div class="ep-card-h" style="background:var(--surface);border-color:var(--border);"><div style="width:100%;height:220px;background:var(--surface2);border-radius:0;"></div><div class="ep-card-h-body"><div style="height:10px;background:var(--border);border-radius:4px;margin-bottom:6px;width:80%;"></div><div style="height:8px;background:var(--border);border-radius:4px;width:50%;"></div></div></div>`).join('')}
+      </div>
+    </div>`;
   }
 
   let recentlyWatchedEntries=[];
   if(typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn()){
-    const recentSection=await loadRecentlyWatchedOnMaxSection(isMovies,allPlaylists);
+    const recentSection=await loadRecentlyWatchedOnMaxSection(allPlaylists);
     html+=recentSection.html;
     recentlyWatchedEntries=recentSection.entries;
   }
@@ -2946,26 +2744,20 @@ async function renderHomeScreen(navType){
   showMain(html);
   setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
 
-  if(yourItems.length){
-    if(isMovies)resolveYourMoviesPosters(yourItemsSection.items);
-    else resolveYourShowsPosters(yourItemsSection.items);
+  if(yourShows.length){
+    resolveYourShowsPosters(yourShowsSection.items);
   }
   if(playlistCardLookup){
-    resolvePlaylistCardPosters(
-      playlistCardLookup.allPlaylists,
-      playlistCardLookup.filtered,
-      playlistCardLookup.isMovies
-    );
+    resolvePlaylistCardPosters(playlistCardLookup.allPlaylists,playlistCardLookup.filtered);
   }
   if(recentlyWatchedEntries.length){
-    resolveRecentlyWatchedPosters(recentlyWatchedEntries,isMovies?'movie':'tv');
+    resolveRecentlyWatchedPosters(recentlyWatchedEntries);
   }
 
-  // Load recommendations async for the first show in Your Shows
-  if(!isMovies&&yourItems.length){
-    const seed = yourItems[0];
+  if(yourShows.length){
+    const seed = yourShows[0];
     const seedType = seed.release_date ? 'movie' : 'tv';
-    const recentIds = new Set(yourItems.map(s=>String(s.id)));
+    const recentIds = new Set(yourShows.map(s=>String(s.id)));
     if(!/^\d+$/.test(String(seed.id))){
       document.getElementById('recs-section')&&document.getElementById('recs-section').remove();
       return;
@@ -3040,7 +2832,7 @@ async function homeTileClick(id,type){
     const show=await r.json();
     currentType='movie';
     lastShowNav.movies=show;
-    setNav('movies');
+    currentShow=show;
     renderMovieMain(show);
   } else {
     const r=await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${KEY}`);
@@ -3129,13 +2921,6 @@ function closeSearch(){
 }
 // Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
-  const yourMovieCard=e.target.closest('.your-movie-card');
-  if(yourMovieCard){
-    const pi=parseInt(yourMovieCard.dataset.showPlaylistIndex,10);
-    const si=parseInt(yourMovieCard.dataset.showIndex,10);
-    if(Number.isFinite(pi)&&Number.isFinite(si))openYourMovieDetailPage(pi,si);
-    return;
-  }
   const yourShowCard=e.target.closest('.your-show-card');
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
@@ -3145,10 +2930,6 @@ document.addEventListener('click',e=>{
   }
   const rwCard=e.target.closest('.recently-watched-card');
   if(rwCard){
-    if(rwCard.dataset.recentlyWatchedIsMovie==='1'){
-      openRecentlyWatchedMovieDetail(rwCard);
-      return;
-    }
     let url=rwCard.dataset.recentlyWatchedMaxUrl||'';
     if(!url)return;
     try{

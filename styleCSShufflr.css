@@ -332,8 +332,8 @@ body.light-mode .queue-ep-title{color:#111;}
 .home-wrap{padding:4px 0;}
 .genre-section{margin-bottom:20px;}
 .genre-title{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
-.your-movie-card{cursor:pointer;}
-.your-movie-card *{pointer-events:none;}
+.your-show-card{cursor:pointer;}
+.your-show-card *{pointer-events:none;}
 .watch-history-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
 .watch-history-title{margin-bottom:0;}
 .watch-history-toggle{display:inline-flex;background:#111;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0;}
