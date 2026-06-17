@@ -62,10 +62,9 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
 });
 
 window.addEventListener('shufflr-auth-changed',()=>{
-  if(currentNav==='shows'&&!currentShow){
-    renderHomeScreen('shows');
-  }else if(currentNav==='options'){
-    renderOptionsPage();
+  if(currentShow)return;
+  if(currentNav==='shows'||currentNav==='options'){
+    renderViewForNav(currentNav);
   }
 });
 
@@ -733,30 +732,46 @@ function clearSeasonsSidebar(){
 }
 
 // NAV
-function setNav(nav){
-  if(nav==='movies'||nav==='free')return;
-  currentNav=nav;
+function updateNavActiveStates(nav){
   ['shows','playlist','options'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
   });
-  if(nav==='playlist'){
-    allSeasons=[];
-    clearSeasonsSidebar();
-    renderPlaylistPage();
-  }else if(nav==='options'){
-    allSeasons=[];
-    clearSeasonsSidebar();
-    renderOptionsPage();
-  }else if(nav==='shows'){
-    currentType='tv';
-    currentShow=null; allSeasons=[]; allEpisodes={}; highlightedEps=[];
-    clearSeasonsSidebar();
-    document.getElementById('search-input').value='';
-    homeScrollPos=0;
-    lastShowNav={shows:null,movies:null};
-    renderHomeScreen('shows');
+}
+
+function renderViewForNav(nav){
+  switch(nav){
+    case 'playlist':
+      allSeasons=[];
+      clearSeasonsSidebar();
+      renderPlaylistPage();
+      break;
+    case 'options':
+      allSeasons=[];
+      clearSeasonsSidebar();
+      renderOptionsPage();
+      break;
+    case 'shows':
+      currentType='tv';
+      currentShow=null;
+      allSeasons=[];
+      allEpisodes={};
+      highlightedEps=[];
+      clearSeasonsSidebar();
+      document.getElementById('search-input').value='';
+      homeScrollPos=0;
+      lastShowNav={shows:null,movies:null};
+      renderHomeScreen('shows');
+      break;
   }
+}
+
+function setNav(nav){
+  if(nav==='movies'||nav==='free')return;
+  if(nav!=='shows'&&nav!=='playlist'&&nav!=='options')return;
+  currentNav=nav;
+  updateNavActiveStates(nav);
+  renderViewForNav(nav);
 }
 
 function _restoreShow(show,type){
@@ -1233,6 +1248,7 @@ function getPlaylistAddShowSection(){
 }
 
 function renderPlaylistPage(){
+  if(currentNav!=='playlist')return;
   let html=`<div class="playlist-page-header">
     <div class="playlist-page-title">MY PLAYLISTS</div>
   </div>
@@ -2727,6 +2743,7 @@ async function renderHomeScreen(navType){
   }
 
   html+=`</div>`;
+  if(currentNav!=='shows')return;
   showMain(html);
   setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
 
@@ -2859,8 +2876,8 @@ function getOptionsGreetingText(loggedIn,username){
   return`HELLO, ${String(username).toUpperCase()}`;
 }
 
-async function renderOptionsPage(){
-  const loggedIn=typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn();
+function renderOptionsPage(){
+  const loggedIn=typeof window.shufflrGetLoggedInSync==='function'&&window.shufflrGetLoggedInSync();
   const username=loggedIn&&typeof window.shufflrGetUsername==='function'?window.shufflrGetUsername():null;
   const greetingText=getOptionsGreetingText(loggedIn,username);
   const lang=getSavedLanguage();
@@ -2934,8 +2951,18 @@ async function renderOptionsPage(){
     </div>
   </div>`;
 
+  if(currentNav!=='options')return;
   showMain(html);
-  if(typeof window.shufflrRefreshAuthUI==='function')await window.shufflrRefreshAuthUI();
+  if(typeof window.shufflrRefreshAuthUI==='function'){
+    window.shufflrRefreshAuthUI().then(()=>{
+      if(currentNav!=='options')return;
+      const greetingEl=document.querySelector('.options-greeting-text');
+      if(!greetingEl)return;
+      const isLoggedIn=typeof window.shufflrGetLoggedInSync==='function'&&window.shufflrGetLoggedInSync();
+      const name=isLoggedIn&&typeof window.shufflrGetUsername==='function'?window.shufflrGetUsername():null;
+      greetingEl.textContent=getOptionsGreetingText(isLoggedIn,name);
+    });
+  }
 }
 
 function submitOptionsFeedback(){
