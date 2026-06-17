@@ -3,49 +3,6 @@ import { supabase, getWatchHistory, logWatchHistory } from './supabase.js'
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists'
 const SHUFFLR_AUTH_SESSION_KEY = 'shufflr_auth_session'
 let cloudSyncReady = false
-let currentUsername = null
-
-async function fetchUserProfile(userId) {
-  if (!userId) {
-    currentUsername = null
-    return null
-  }
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('username')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (error) {
-      console.error('[Shufflr] Failed to load profile:', error.message)
-      currentUsername = null
-      return null
-    }
-
-    currentUsername = data?.username?.trim() || null
-    return currentUsername
-  } catch (err) {
-    console.error('[Shufflr] Failed to load profile:', err)
-    currentUsername = null
-    return null
-  }
-}
-
-async function saveUserProfile(userId, username) {
-  const trimmed = String(username || '').trim()
-  if (!userId || !trimmed) return null
-
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({ id: userId, username: trimmed }, { onConflict: 'id' })
-
-  if (error) throw error
-  currentUsername = trimmed
-  return trimmed
-}
-
-window.shufflrGetUsername = () => currentUsername
 
 async function persistAuthSessionForExtension(session) {
   const payload = session
@@ -112,20 +69,17 @@ function updateAuthUI(session) {
   const loggedOut = document.getElementById('auth-logged-out')
   const loggedIn = document.getElementById('auth-logged-in')
   const emailEl = document.getElementById('auth-user-email')
-  const usernameEdit = document.getElementById('auth-username-edit')
   if (!loggedOut || !loggedIn) return
 
   if (session?.user) {
     loggedOut.style.display = 'none'
     loggedIn.style.display = 'block'
     if (emailEl) emailEl.textContent = session.user.email || 'Logged in'
-    if (usernameEdit) usernameEdit.value = currentUsername || ''
     showAuthMessage('')
   } else {
     loggedOut.style.display = 'block'
     loggedIn.style.display = 'none'
     if (emailEl) emailEl.textContent = ''
-    if (usernameEdit) usernameEdit.value = ''
   }
 }
 
@@ -218,7 +172,6 @@ async function syncPlaylistsToCloud(allPlaylists) {
 
 async function handleSignUp() {
   const email = document.getElementById('auth-email')?.value?.trim()
-  const username = document.getElementById('auth-username')?.value?.trim()
   const password = document.getElementById('auth-password')?.value
   if (!email || !password) {
     showAuthMessage('Enter email and password.', 'error')
@@ -232,49 +185,14 @@ async function handleSignUp() {
   }
 
   if (data.session) {
-    if (username) {
-      try {
-        await saveUserProfile(data.session.user.id, username)
-      } catch (err) {
-        console.error('[Shufflr] Failed to save username on signup:', err)
-      }
-    }
-    await fetchUserProfile(data.session.user.id)
     updateAuthUI(data.session)
     cloudSyncReady = true
     await syncPlaylistsToCloud(readLocalPlaylists())
-    notifyAuthChanged(data.session)
     showAuthMessage('Account created!', 'success')
     return
   }
 
   showAuthMessage('Check your email to confirm signup!', 'success')
-}
-
-async function handleSaveUsername() {
-  const username = document.getElementById('auth-username-edit')?.value?.trim()
-  if (!username) {
-    showAuthMessage('Enter a username.', 'error')
-    return
-  }
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
-
-  try {
-    await saveUserProfile(user.id, username)
-    showAuthMessage('')
-    const greetingEl = document.querySelector('.options-greeting-text')
-    if (greetingEl) greetingEl.textContent = `HELLO, ${username.toUpperCase()}`
-    const savedEl = document.getElementById('auth-username-saved-msg')
-    if (savedEl) {
-      savedEl.style.display = 'block'
-      setTimeout(() => { savedEl.style.display = 'none' }, 2000)
-    }
-  } catch (err) {
-    console.error('[Shufflr] Failed to save username:', err)
-    showAuthMessage('Could not save username.', 'error')
-  }
 }
 
 async function handleLogIn() {
@@ -292,18 +210,15 @@ async function handleLogIn() {
   }
 
   if (data.session) {
-    await fetchUserProfile(data.session.user.id)
     updateAuthUI(data.session)
     cloudSyncReady = true
     await loadPlaylistsFromCloud(data.session.user.id)
-    notifyAuthChanged(data.session)
     showAuthMessage('')
   }
 }
 
 async function handleLogOut() {
   cloudSyncReady = false
-  currentUsername = null
   await supabase.auth.signOut()
   showAuthMessage('')
 }
@@ -322,17 +237,12 @@ function bindAuthUI() {
     } else if (id === 'auth-logout-btn') {
       e.preventDefault()
       handleLogOut()
-    } else if (id === 'auth-username-save-btn') {
-      e.preventDefault()
-      handleSaveUsername()
     }
   })
 }
 
 window.shufflrRefreshAuthUI = async () => {
   const { data: { session } } = await supabase.auth.getSession()
-  if (session?.user) await fetchUserProfile(session.user.id)
-  else currentUsername = null
   updateAuthUI(session)
 }
 
@@ -369,7 +279,6 @@ async function refreshSessionIfStale() {
     return session
   }
 
-  await fetchUserProfile(data.session.user.id)
   updateAuthUI(data.session)
   await persistAuthSessionForExtension(data.session)
   notifyAuthChanged(data.session)
@@ -388,8 +297,6 @@ function bindSessionWakeRefresh() {
 bindSessionWakeRefresh()
 
 supabase.auth.onAuthStateChange(async (event, session) => {
-  if (session?.user) await fetchUserProfile(session.user.id)
-  else currentUsername = null
   updateAuthUI(session)
   await persistAuthSessionForExtension(session)
   notifyAuthChanged(session)
@@ -398,8 +305,6 @@ supabase.auth.onAuthStateChange(async (event, session) => {
 
 supabase.auth.getSession().then(async ({ data: { session } }) => {
   const activeSession = session ? await refreshSessionIfStale() : null
-  if (activeSession?.user) await fetchUserProfile(activeSession.user.id)
-  else currentUsername = null
   updateAuthUI(activeSession)
   await persistAuthSessionForExtension(activeSession)
   notifyAuthChanged(activeSession)
