@@ -64,6 +64,8 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
 window.addEventListener('shufflr-auth-changed',()=>{
   if(currentNav==='shows'&&!currentShow){
     renderHomeScreen('shows');
+  }else if(currentNav==='options'){
+    if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
   }
 });
 
@@ -708,38 +710,27 @@ function selectService(btn, svc){
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
   const names={netflix:'Netflix',max:'Max',hulu:'Hulu',disney:'Disney+',prime:'Prime Video',tubi:'Tubi',peacock:'Peacock',paramount:'Paramount+',appletv:'Apple TV+',crunchyroll:'Crunchyroll'};
-  const btn=document.getElementById('service-connect-btn');
+  const btn=document.getElementById('options-service-connect-btn');
   if(!btn) return;
   if(saved&&names[saved]){
-    btn.innerHTML=`<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e;margin-right:7px;vertical-align:middle;flex-shrink:0;"></span>${names[saved]} Connected`;
+    btn.innerHTML=`<span class="options-connected-dot"></span>${names[saved]} Connected`;
+    btn.classList.add('connected');
   } else {
     btn.innerHTML='Connect Your Service';
+    btn.classList.remove('connected');
   }
-  btn.style.borderColor='';
-  btn.style.color='';
-  btn.style.boxShadow='';
 }
 
 // NAV
 function setNav(nav){
-  if(nav==='movies')return;
+  if(nav==='movies'||nav==='free')return;
   currentNav=nav;
-  ['shows','playlist','free'].forEach(n=>{
+  ['shows','playlist','options'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
   });
-  // Special green styling for free tab
-  const freeDot=document.getElementById('free-dot');
-  const freeNav=document.getElementById('nav-free');
-  if(nav==='free'){
-    if(freeDot){freeDot.style.opacity='1';freeDot.style.background='#22c55e';freeDot.style.boxShadow='0 0 8px #22c55e';}
-    if(freeNav){freeNav.style.color='#22c55e';}
-  } else {
-    if(freeDot){freeDot.style.opacity='0';}
-    if(freeNav){freeNav.style.color='';}
-  }
   if(nav==='playlist') renderPlaylistPage();
-  else if(nav==='free') renderFreeTab();
+  else if(nav==='options') renderOptionsPage();
   else if(nav==='shows'){
     currentType='tv';
     currentShow=null; allSeasons=[]; allEpisodes={}; highlightedEps=[];
@@ -2014,7 +2005,7 @@ async function shufflePlaylist(pi){
     const fullEp=allEpisodes[ep.seasonNum].find(e=>e.episode_number===ep.episode_number);
     highlightedEps=fullEp?[{...fullEp,seasonNum:ep.seasonNum}]:[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','playlist','free'].forEach(n=>{
+    ['shows','playlist','options'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2026,7 +2017,7 @@ async function shufflePlaylist(pi){
   const type=show.release_date?'movie':'tv';
   if(type==='movie'){
     currentType='movie';currentShow=show;
-    ['shows','playlist','free'].forEach(n=>{
+    ['shows','playlist','options'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2037,7 +2028,7 @@ async function shufflePlaylist(pi){
     currentNav='shows';
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
-    ['shows','playlist','free'].forEach(n=>{
+    ['shows','playlist','options'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2071,7 +2062,7 @@ async function openYourShowDetailPage(pi,si){
       return;
     }
     currentNav='shows';
-    ['shows','playlist','free'].forEach(n=>{
+    ['shows','playlist','options'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2481,11 +2472,11 @@ async function loadFreeShow(id, type){
     const show=await r.json();
     currentType='movie';currentShow=show;
     // Set nav active state without triggering show restore
-    ['shows','playlist','free'].forEach(n=>{
+    ['shows','playlist','options'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
-      if(el) el.classList.toggle('active',n==='free');
+      if(el) el.classList.toggle('active',n==='shows');
     });
-    currentNav='free';
+    currentNav='shows';
     renderMovieMain(show);
   } else {
     const r=await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${KEY}`);
@@ -2495,7 +2486,7 @@ async function loadFreeShow(id, type){
     blockedSeasons=new Set();selectedSeason=null;allEpisodes={};highlightedEps=[];
     document.getElementById('search-input').value=show.name||'';
     // Set nav active state without triggering show restore
-    ['shows','playlist','free'].forEach(n=>{
+    ['shows','playlist','options'].forEach(n=>{
       const el=document.getElementById('nav-'+n);
       if(el) el.classList.toggle('active',n==='shows');
     });
@@ -2521,36 +2512,13 @@ function goBackHome(){
   blockedSeasons=new Set();
   document.getElementById('seasons-list').innerHTML='';
   document.getElementById('search-input').value='';
-  if(cameFromFree){
-    cameFromFree=false;
-    // Clear lastShowNav so setNav doesn't restore old show
-    lastShowNav={shows:null,movies:null};
-    // Manually set active nav without triggering show restore
-    ['shows','playlist','free'].forEach(n=>{
-      const el=document.getElementById('nav-'+n);
-      if(el) el.classList.toggle('active',n==='free');
-    });
-    const freeDot=document.getElementById('free-dot');
-    const freeNav=document.getElementById('nav-free');
-    if(freeDot){freeDot.style.opacity='1';freeDot.style.background='#22c55e';freeDot.style.boxShadow='0 0 8px #22c55e';}
-    if(freeNav){freeNav.style.color='#22c55e';}
-    currentNav='free';
-    renderFreeTab(freeFilter);
-    setTimeout(()=>{ document.getElementById('main-content').scrollTop=freeScrollPos; },50);
-  } else {
-    // Clear lastShowNav so we go to home, not back to the show
-    lastShowNav={shows:null,movies:null};
-    const navTarget=homeNavType||currentNav||'shows';
-    currentNav=navTarget;
-    ['shows','playlist','free'].forEach(n=>{
-      const el=document.getElementById('nav-'+n);
-      if(el) el.classList.toggle('active',n===navTarget);
-    });
-    const freeDot=document.getElementById('free-dot');
-    const freeNav=document.getElementById('nav-free');
-    if(freeDot){freeDot.style.opacity='0';}
-    if(freeNav){freeNav.style.color='';}
-    renderHomeScreen(navTarget);
+  cameFromFree=false;
+  lastShowNav={shows:null,movies:null};
+  const navTarget=homeNavType||currentNav||'shows';
+  if(navTarget==='playlist'||navTarget==='options'){
+    setNav(navTarget);
+  }else{
+    setNav('shows');
   }
 }
 
@@ -2564,13 +2532,9 @@ function showHelp(){
   document.querySelectorAll('.onboard-dot').forEach((d,i)=>d.classList.toggle('active',i===0));
   document.querySelector('.onboard-btn').textContent='NEXT';
   document.getElementById('onboarding').style.display='flex';
-  const btn=document.getElementById('help-btn');
-  if(btn){btn.style.borderColor='var(--blue)';btn.style.color='var(--blue)';btn.style.boxShadow='0 0 12px rgba(35,168,224,0.4)';}
 }
 function closeHelp(){
   document.getElementById('onboarding').style.display='none';
-  const btn=document.getElementById('help-btn');
-  if(btn){btn.style.borderColor='var(--muted)';btn.style.color='var(--muted)';btn.style.boxShadow='none';}
 }
 
 // HOME SCREEN
@@ -2849,22 +2813,103 @@ async function homeTileClick(id,type){
   }
 }
 
-// FEEDBACK
-function openFeedback(){
-  document.getElementById('feedback-modal').style.display='flex';
-  const btn=document.getElementById('feedback-btn');
-  if(btn){btn.style.borderColor='var(--blue)';btn.style.color='var(--blue)';btn.style.boxShadow='0 0 12px rgba(35,168,224,0.4)';}
+// OPTIONS
+const SHUFFLR_LANGUAGES=[
+  {code:'en',label:'English'},
+  {code:'es',label:'Spanish'},
+  {code:'fr',label:'French'},
+  {code:'pt',label:'Portuguese'},
+  {code:'ja',label:'Japanese'},
+];
+
+function getSavedLanguage(){
+  return localStorage.getItem('shufflr_language')||'en';
 }
-function closeFeedback(){
-  document.getElementById('feedback-modal').style.display='none';
-  const btn=document.getElementById('feedback-btn');
-  if(btn){btn.style.borderColor='var(--muted)';btn.style.color='var(--muted)';btn.style.boxShadow='none';}
+
+function setLanguage(code){
+  localStorage.setItem('shufflr_language',code);
+  if(currentNav==='options')renderOptionsPage();
 }
-function submitFeedback(){
-  const text=document.getElementById('feedback-text').value.trim();
+
+function renderOptionsPage(){
+  const lang=getSavedLanguage();
+  const langButtons=SHUFFLR_LANGUAGES.map(l=>(
+    `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" onclick="setLanguage('${l.code}')">${l.label}</button>`
+  )).join('');
+  const helpItems=obSteps.map(s=>(
+    `<div class="options-help-item">
+      <div class="options-help-step">${s.step}</div>
+      <div class="options-help-title">${s.title}</div>
+      <div class="options-help-desc">${String(s.desc).replace(/<[^>]+>/g,'')}</div>
+    </div>`
+  )).join('');
+
+  const html=`<div class="options-page">
+    <div class="options-section">
+      <div class="options-section-title">LANGUAGE</div>
+      <div class="options-section-body">
+        <p class="options-desc">Choose Shufflr's display language.</p>
+        <div class="options-lang-group">${langButtons}</div>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <div class="options-section-title">ACCOUNT</div>
+      <div class="options-section-body">
+        <div id="auth-section" class="auth-section">
+          <div id="auth-logged-out">
+            <input class="options-input auth-input" id="auth-email" type="email" placeholder="Email" autocomplete="email" />
+            <input class="options-input auth-input" id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+            <div class="auth-btn-row">
+              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-signup-btn">Sign Up</button>
+              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-login-btn">Log In</button>
+            </div>
+          </div>
+          <div id="auth-logged-in" style="display:none;">
+            <div class="auth-user-email options-account-email" id="auth-user-email"></div>
+            <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn">Log Out</button>
+          </div>
+          <div id="auth-message" class="auth-message" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <div class="options-section-title">STREAMING SERVICE</div>
+      <div class="options-section-body">
+        <p class="options-desc">Pick the service you use. Episode links will open there.</p>
+        <button type="button" class="options-btn options-btn-secondary" id="options-service-connect-btn" onclick="openConnect()">Connect Your Service</button>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <div class="options-section-title">FEEDBACK</div>
+      <div class="options-section-body">
+        <p class="options-desc">Got an idea or found a bug? We want to hear it.</p>
+        <textarea id="options-feedback-text" class="options-textarea" placeholder="Type your feedback here..."></textarea>
+        <button type="button" class="options-btn options-btn-primary" onclick="submitOptionsFeedback()">Submit</button>
+      </div>
+    </div>
+
+    <div class="options-section">
+      <div class="options-section-title">HELP</div>
+      <div class="options-section-body">
+        <div class="options-help-list">${helpItems}</div>
+        <button type="button" class="options-btn options-btn-primary" onclick="showHelp()">Replay Onboarding</button>
+      </div>
+    </div>
+  </div>`;
+
+  showMain(html);
+  updateConnectBtnLabel();
+  if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
+}
+
+function submitOptionsFeedback(){
+  const text=document.getElementById('options-feedback-text')?.value?.trim();
   if(!text)return;
-  document.getElementById('feedback-text').value='';
-  closeFeedback();
+  console.log('[Shufflr Feedback]',text);
+  document.getElementById('options-feedback-text').value='';
   showToast('FEEDBACK SENT!');
 }
 

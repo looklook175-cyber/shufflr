@@ -224,9 +224,26 @@ async function handleLogOut() {
 }
 
 function bindAuthUI() {
-  document.getElementById('auth-signup-btn')?.addEventListener('click', () => { handleSignUp() })
-  document.getElementById('auth-login-btn')?.addEventListener('click', () => { handleLogIn() })
-  document.getElementById('auth-logout-btn')?.addEventListener('click', () => { handleLogOut() })
+  if (bindAuthUI._bound) return
+  bindAuthUI._bound = true
+  document.addEventListener('click', (e) => {
+    const id = e.target?.id
+    if (id === 'auth-signup-btn') {
+      e.preventDefault()
+      handleSignUp()
+    } else if (id === 'auth-login-btn') {
+      e.preventDefault()
+      handleLogIn()
+    } else if (id === 'auth-logout-btn') {
+      e.preventDefault()
+      handleLogOut()
+    }
+  })
+}
+
+window.shufflrRefreshAuthUI = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  updateAuthUI(session)
 }
 
 window.shufflrSyncPlaylistsToCloud = async (playlists) => {

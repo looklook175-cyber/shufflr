@@ -91,17 +91,6 @@
   </div>
 </div>
 
-<!-- FEEDBACK MODAL -->
-<div id="feedback-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:8888;display:none;align-items:center;justify-content:center;">
-  <div id="feedback-card" style="background:var(--surface);border:2px solid var(--blue);border-radius:16px;padding:28px 24px;max-width:360px;width:90%;box-shadow:0 0 40px var(--blue-glow);">
-    <div style="font-family:'Press Start 2P',monospace;font-size:0.65rem;color:var(--blue);margin-bottom:8px;">SEND FEEDBACK</div>
-    <div id="feedback-sub" style="font-size:0.78rem;color:var(--muted);margin-bottom:16px;line-height:1.6;">Got an idea or found a bug? We want to hear it.</div>
-    <textarea id="feedback-text" placeholder="Type your feedback here..." style="width:100%;height:120px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:0.82rem;outline:none;resize:none;margin-bottom:12px;transition:border-color 0.2s;" onfocus="this.style.borderColor='#23A8E0'" onblur="this.style.borderColor='var(--border)'"></textarea>
-    <button onclick="submitFeedback()" style="width:100%;padding:11px;background:var(--blue);border:none;border-radius:8px;color:#000;font-family:'Press Start 2P',monospace;font-size:0.5rem;cursor:pointer;letter-spacing:2px;margin-bottom:10px;transition:all 0.2s;">SUBMIT</button>
-    <button id="feedback-cancel-btn" onclick="closeFeedback()" style="width:100%;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:0.8rem;cursor:pointer;transition:all 0.2s;">Cancel</button>
-  </div>
-</div>
-
 <!-- TOAST -->
 <div id="share-toast">COPIED</div>
 
@@ -166,36 +155,11 @@
       <div class="sidebar-label">Browse</div>
       <div class="nav-item active" id="nav-shows" onclick="setNav('shows')"><div class="nav-dot"></div>Shows</div>
       <div class="nav-item" id="nav-playlist" onclick="setNav('playlist')"><div class="nav-dot"></div>Playlist</div>
-      <div class="nav-item" id="nav-free" onclick="setNav('free')">
-        <div class="nav-dot" style="background:#22c55e;box-shadow:0 0 8px #22c55e;opacity:0;" id="free-dot"></div>
-        Free
-      </div>
+      <div class="nav-item" id="nav-options" onclick="setNav('options')"><div class="nav-dot"></div>Options</div>
     </div>
     <div class="sidebar-divider"></div>
     <div class="sidebar-section"><div class="sidebar-label">Seasons</div></div>
     <div id="seasons-list"></div>
-    <div class="connect-wrap">
-      <div id="auth-section" class="auth-section">
-        <div class="sidebar-label">Account</div>
-        <div id="auth-logged-out">
-          <input class="auth-input" id="auth-email" type="email" placeholder="Email" autocomplete="email" />
-          <input class="auth-input" id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
-          <div class="auth-btn-row">
-            <button type="button" class="connect-btn auth-btn" id="auth-signup-btn">Sign Up</button>
-            <button type="button" class="connect-btn auth-btn" id="auth-login-btn">Log In</button>
-          </div>
-        </div>
-        <div id="auth-logged-in" style="display:none;">
-          <div class="auth-user-email" id="auth-user-email"></div>
-          <button type="button" class="connect-btn auth-btn" id="auth-logout-btn">Log Out</button>
-        </div>
-        <div id="auth-message" class="auth-message" style="display:none;"></div>
-      </div>
-      <div style="height:1px;background:var(--border);margin-bottom:12px;"></div>
-      <button class="connect-btn" id="service-connect-btn" onclick="openConnect()">Connect Your Service</button>
-      <button class="connect-btn" id="feedback-btn" style="margin-top:8px;border-color:var(--muted);color:var(--muted);transition:all 0.2s;" onclick="openFeedback()">Send Feedback</button>
-      <button class="connect-btn" id="help-btn" style="margin-top:8px;border-color:var(--muted);color:var(--muted);transition:all 0.2s;" onclick="showHelp()">? Help</button>
-    </div>
   </div>
   <div class="main" id="main-content">
   </div>
