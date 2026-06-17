@@ -65,7 +65,7 @@ window.addEventListener('shufflr-auth-changed',()=>{
   if(currentNav==='shows'&&!currentShow){
     renderHomeScreen('shows');
   }else if(currentNav==='options'){
-    if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
+    renderOptionsPage();
   }
 });
 
@@ -2854,6 +2854,12 @@ function setLanguage(code){
 }
 
 function renderOptionsPage(){
+  let loggedIn=false;
+  try{
+    const raw=localStorage.getItem(SHUFFLR_SUPABASE_SESSION_KEY);
+    loggedIn=!!(raw&&JSON.parse(raw)?.userId);
+  }catch(e){}
+  const greetingText=loggedIn?'HELLO':'SIGN IN TO GET STARTED';
   const lang=getSavedLanguage();
   const langButtons=SHUFFLR_LANGUAGES.map(l=>(
     `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" onclick="setLanguage('${l.code}')">${l.label}</button>`
@@ -2867,6 +2873,11 @@ function renderOptionsPage(){
   )).join('');
 
   const html=`<div class="options-page">
+    <div class="options-greeting-card">
+      <div class="options-greeting-smiley">${YOUR_SHOWS_SMILEY_SVG}</div>
+      <div class="options-greeting-text">${greetingText}</div>
+    </div>
+
     <div class="options-section">
       <div class="options-section-title">LANGUAGE</div>
       <div class="options-section-body">
