@@ -336,8 +336,9 @@ body.light-mode .queue-ep-title{color:#111;}
 .home-wrap{padding:0;}
 .genre-section{margin-bottom:20px;}
 .home-wrap > .genre-section:first-child{margin-top:0 !important;}
-.genre-title{font-family:'Press Start 2P',monospace;font-size:11px;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
-.your-show-card{cursor:pointer;}
+.genre-title{font-family:'Press Start 2P',monospace;font-size:9px;font-weight:400;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
+.your-show-card{cursor:pointer;width:130px;}
+.your-show-card img{width:100%;height:185px !important;object-fit:cover;background:var(--surface2);}
 .your-show-card *{pointer-events:none;}
 
 /* OPTIONS PAGE */
@@ -474,7 +475,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-home-card {
   display: inline-flex;
   flex-direction: column;
-  width: 120px;
+  width: 130px;
   margin-right: 12px;
   cursor: pointer;
   flex-shrink: 0;
@@ -482,8 +483,8 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .pl-home-poster {
   position: relative;
-  width: 120px;
-  height: 180px;
+  width: 130px;
+  height: 195px;
   background: #1a1a1a;
   border-radius: 8px 8px 0 0;
   overflow: hidden;
@@ -544,7 +545,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   opacity: 1;
 }
 .pl-home-info {
-  width: 120px;
+  width: 130px;
   padding: 8px 6px;
   background: var(--surface);
   border: 1px solid var(--border);
