@@ -20,7 +20,7 @@ en:{
 'sidebar.browse':'Browse','sidebar.seasons':'Seasons',
 'search.placeholder':'Search shows or movies...','search.recentLabel':'Recent Searches',
 'section.yourPlaylists':'-- YOUR PLAYLISTS --','section.yourShows':'-- YOUR SHOWS --',
-'section.recentlyWatchedMax':'-- RECENTLY WATCHED ON MAX --','section.myPlaylists':'MY PLAYLISTS',
+'section.recentlyWatched':'-- RECENTLY WATCHED --','section.myPlaylists':'MY PLAYLISTS',
 'section.becauseYouWatched':'-- BECAUSE YOU WATCHED',
 'btn.logOut':'Log Out','btn.save':'Save','btn.play':'Play','btn.edit':'Edit','btn.addShow':'Add Show',
 'btn.createNewPlaylist':'Create New Playlist','btn.shuffle':'Shuffle','btn.back':'Back',
@@ -36,7 +36,7 @@ en:{
 'empty.noPlaylistsHint':'On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.',
 'empty.noYourShows':'Shows you add to playlists will appear here.',
 'empty.noPlaylistsPlaylistTab':'No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.',
-'empty.noRecentlyWatched':'Episodes you watch on Max with Shufflr active will appear here.',
+'empty.noRecentlyWatched':'Episodes you watch on Max will appear here.',
 'empty.noEpisodes':'No episodes found. Try a lower rating.','empty.nothingAdded':'Nothing added yet.',
 'empty.loading':'LOADING...',
 'auth.email':'Email','auth.password':'Password',
@@ -60,7 +60,7 @@ es:{
 'sidebar.browse':'Explorar','sidebar.seasons':'Temporadas',
 'search.placeholder':'Buscar series o películas...','search.recentLabel':'Búsquedas recientes',
 'section.yourPlaylists':'-- TUS LISTAS --','section.yourShows':'-- TUS SERIES --',
-'section.recentlyWatchedMax':'-- VISTO RECIENTEMENTE EN MAX --','section.myPlaylists':'MIS LISTAS',
+'section.recentlyWatched':'-- VISTO RECIENTEMENTE --','section.myPlaylists':'MIS LISTAS',
 'section.becauseYouWatched':'-- PORQUE VISTE',
 'btn.logOut':'Cerrar sesión','btn.save':'Guardar','btn.play':'Reproducir','btn.edit':'Editar','btn.addShow':'Añadir serie',
 'btn.createNewPlaylist':'Crear nueva lista','btn.shuffle':'Aleatorio','btn.back':'Volver',
@@ -76,7 +76,7 @@ es:{
 'empty.noPlaylistsHint':'En Max, pulsa el botón Shufflr y usa el menú de listas para crear una. Aparecerá aquí automáticamente.',
 'empty.noYourShows':'Las series que añadas a listas aparecerán aquí.',
 'empty.noPlaylistsPlaylistTab':'Aún no hay listas.<br>Crea una arriba y añade series desde Max con el botón + del menú Shufflr.',
-'empty.noRecentlyWatched':'Los episodios que veas en Max con Shufflr activo aparecerán aquí.',
+'empty.noRecentlyWatched':'Los episodios que veas en Max aparecerán aquí.',
 'empty.noEpisodes':'No se encontraron episodios. Prueba con una calificación más baja.','empty.nothingAdded':'Nada añadido aún.',
 'empty.loading':'CARGANDO...',
 'auth.email':'Correo','auth.password':'Contraseña',
@@ -100,7 +100,7 @@ fr:{
 'sidebar.browse':'Parcourir','sidebar.seasons':'Saisons',
 'search.placeholder':'Rechercher séries ou films...','search.recentLabel':'Recherches récentes',
 'section.yourPlaylists':'-- VOS PLAYLISTS --','section.yourShows':'-- VOS SÉRIES --',
-'section.recentlyWatchedMax':'-- RÉCEMMENT VU SUR MAX --','section.myPlaylists':'MES PLAYLISTS',
+'section.recentlyWatched':'-- RÉCEMMENT VU --','section.myPlaylists':'MES PLAYLISTS',
 'section.becauseYouWatched':'-- PARCE QUE VOUS AVEZ VU',
 'btn.logOut':'Déconnexion','btn.save':'Enregistrer','btn.play':'Lire','btn.edit':'Modifier','btn.addShow':'Ajouter une série',
 'btn.createNewPlaylist':'Créer une playlist','btn.shuffle':'Mélanger','btn.back':'Retour',
@@ -116,7 +116,7 @@ fr:{
 'empty.noPlaylistsHint':'Sur Max, appuyez sur Shufflr et utilisez le menu playlist pour en créer une. Elle apparaîtra ici automatiquement.',
 'empty.noYourShows':'Les séries que vous ajoutez aux playlists apparaîtront ici.',
 'empty.noPlaylistsPlaylistTab':'Pas encore de playlists.<br>Créez-en une ci-dessus, puis ajoutez des séries depuis Max avec le bouton + du menu Shufflr.',
-'empty.noRecentlyWatched':'Les épisodes regardés sur Max avec Shufflr actif apparaîtront ici.',
+'empty.noRecentlyWatched':'Les épisodes regardés sur Max apparaîtront ici.',
 'empty.noEpisodes':'Aucun épisode trouvé. Essayez une note plus basse.','empty.nothingAdded':'Rien ajouté pour l\'instant.',
 'empty.loading':'CHARGEMENT...',
 'auth.email':'E-mail','auth.password':'Mot de passe',
@@ -140,7 +140,7 @@ pt:{
 'sidebar.browse':'Explorar','sidebar.seasons':'Temporadas',
 'search.placeholder':'Buscar séries ou filmes...','search.recentLabel':'Pesquisas recentes',
 'section.yourPlaylists':'-- SUAS PLAYLISTS --','section.yourShows':'-- SUAS SÉRIES --',
-'section.recentlyWatchedMax':'-- ASSISTIDO RECENTEMENTE NO MAX --','section.myPlaylists':'MINHAS PLAYLISTS',
+'section.recentlyWatched':'-- ASSISTIDO RECENTEMENTE --','section.myPlaylists':'MINHAS PLAYLISTS',
 'section.becauseYouWatched':'-- PORQUE VOCÊ ASSISTIU',
 'btn.logOut':'Sair','btn.save':'Salvar','btn.play':'Reproduzir','btn.edit':'Editar','btn.addShow':'Adicionar série',
 'btn.createNewPlaylist':'Criar nova playlist','btn.shuffle':'Aleatório','btn.back':'Voltar',
@@ -156,7 +156,7 @@ pt:{
 'empty.noPlaylistsHint':'No Max, toque no botão Shufflr e use o menu de playlists para criar uma. Ela aparecerá aqui automaticamente.',
 'empty.noYourShows':'As séries que você adicionar às playlists aparecerão aqui.',
 'empty.noPlaylistsPlaylistTab':'Nenhuma playlist ainda.<br>Crie uma acima e adicione séries do Max com o botão + do menu Shufflr.',
-'empty.noRecentlyWatched':'Episódios assistidos no Max com o Shufflr ativo aparecerão aqui.',
+'empty.noRecentlyWatched':'Episódios assistidos no Max aparecerão aqui.',
 'empty.noEpisodes':'Nenhum episódio encontrado. Tente uma nota mais baixa.','empty.nothingAdded':'Nada adicionado ainda.',
 'empty.loading':'CARREGANDO...',
 'auth.email':'E-mail','auth.password':'Senha',
@@ -180,7 +180,7 @@ ja:{
 'sidebar.browse':'閲覧','sidebar.seasons':'シーズン',
 'search.placeholder':'番組や映画を検索...','search.recentLabel':'最近の検索',
 'section.yourPlaylists':'-- あなたのプレイリスト --','section.yourShows':'-- あなたの番組 --',
-'section.recentlyWatchedMax':'-- MAXで最近視聴 --','section.myPlaylists':'マイプレイリスト',
+'section.recentlyWatched':'-- 最近視聴 --','section.myPlaylists':'マイプレイリスト',
 'section.becauseYouWatched':'-- 視聴履歴に基づくおすすめ',
 'btn.logOut':'ログアウト','btn.save':'保存','btn.play':'再生','btn.edit':'編集','btn.addShow':'番組を追加',
 'btn.createNewPlaylist':'新規プレイリスト','btn.shuffle':'シャッフル','btn.back':'戻る',
@@ -196,7 +196,7 @@ ja:{
 'empty.noPlaylistsHint':'MaxでShufflrボタンを押し、プレイリストメニューから作成してください。ここに自動的に表示されます。',
 'empty.noYourShows':'プレイリストに追加した番組がここに表示されます。',
 'empty.noPlaylistsPlaylistTab':'プレイリストはまだありません。<br>上で作成し、MaxのShufflrメニューの+ボタンから番組を追加してください。',
-'empty.noRecentlyWatched':'Shufflrを有効にしてMaxで視聴したエピソードがここに表示されます。',
+'empty.noRecentlyWatched':'Maxで視聴したエピソードがここに表示されます。',
 'empty.noEpisodes':'エピソードが見つかりません。評価を下げてみてください。','empty.nothingAdded':'まだ何も追加されていません。',
 'empty.loading':'読み込み中...',
 'auth.email':'メール','auth.password':'パスワード',
@@ -835,16 +835,13 @@ async function buildYourPlaylistsHtml() {
 }
 
 async function buildRecentlyWatchedOnMaxHtml(entries){
-  if (!entries?.length) {
-    return `<div class="genre-section" style="margin-top:16px;">
-      <div class="genre-title">${t('section.recentlyWatchedMax')}</div>
-      <div class="pl-empty-state"><p>${t('empty.noRecentlyWatched')}</p></div>
-    </div>`;
+  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.recentlyWatched')}</div>`;
+  if(!entries?.length){
+    html+=`<div class="pl-empty-state"><p>${t('empty.noRecentlyWatched')}</p></div></div>`;
+    return html;
   }
-  return `<div class="genre-section" style="margin-top:16px;">
-    <div class="genre-title">${t('section.recentlyWatchedMax')}</div>
-    <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div>
-  </div>`;
+  html+=`<div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div></div>`;
+  return html;
 }
 
 async function loadRecentlyWatchedOnMaxSection(allPlaylists=playlists){
@@ -2977,12 +2974,9 @@ async function renderHomeScreen(navType){
     </div>`;
   }
 
-  let recentlyWatchedEntries=[];
-  if(typeof window.shufflrIsLoggedIn==='function'&&await window.shufflrIsLoggedIn()){
-    const recentSection=await loadRecentlyWatchedOnMaxSection(allPlaylists);
-    html+=recentSection.html;
-    recentlyWatchedEntries=recentSection.entries;
-  }
+  const recentSection=await loadRecentlyWatchedOnMaxSection(allPlaylists);
+  html+=recentSection.html;
+  const recentlyWatchedEntries=recentSection.entries;
 
   html+=`</div>`;
   showMain(html);
