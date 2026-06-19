@@ -3702,7 +3702,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const sidebar = document.getElementById('sidebar');
     const topbar = document.getElementById('top-bar');
-    if (sidebar) makeStarCanvas('sidebar-stars', sidebar);
     if (topbar) makeStarCanvas('topbar-stars', topbar);
   })();
   // ============================================================
