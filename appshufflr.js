@@ -34,8 +34,9 @@ en:{
 'greeting.hello':'HELLO','greeting.signIn':'SIGN IN TO GET STARTED',
 'empty.noPlaylists':'No playlists yet.',
 'empty.noPlaylistsHint':'On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.',
+'empty.noYourShows':'Shows you add to playlists will appear here.',
 'empty.noPlaylistsPlaylistTab':'No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.',
-'empty.noRecentlyWatched':'Start watching on Max to see your history here.',
+'empty.noRecentlyWatched':'Episodes you watch on Max with Shufflr active will appear here.',
 'empty.noEpisodes':'No episodes found. Try a lower rating.','empty.nothingAdded':'Nothing added yet.',
 'empty.loading':'LOADING...',
 'auth.email':'Email','auth.password':'Password',
@@ -73,8 +74,9 @@ es:{
 'greeting.hello':'HOLA','greeting.signIn':'INICIA SESIÓN PARA EMPEZAR',
 'empty.noPlaylists':'Aún no hay listas.',
 'empty.noPlaylistsHint':'En Max, pulsa el botón Shufflr y usa el menú de listas para crear una. Aparecerá aquí automáticamente.',
+'empty.noYourShows':'Las series que añadas a listas aparecerán aquí.',
 'empty.noPlaylistsPlaylistTab':'Aún no hay listas.<br>Crea una arriba y añade series desde Max con el botón + del menú Shufflr.',
-'empty.noRecentlyWatched':'Empieza a ver en Max para ver tu historial aquí.',
+'empty.noRecentlyWatched':'Los episodios que veas en Max con Shufflr activo aparecerán aquí.',
 'empty.noEpisodes':'No se encontraron episodios. Prueba con una calificación más baja.','empty.nothingAdded':'Nada añadido aún.',
 'empty.loading':'CARGANDO...',
 'auth.email':'Correo','auth.password':'Contraseña',
@@ -112,8 +114,9 @@ fr:{
 'greeting.hello':'BONJOUR','greeting.signIn':'CONNECTEZ-VOUS POUR COMMENCER',
 'empty.noPlaylists':'Pas encore de playlists.',
 'empty.noPlaylistsHint':'Sur Max, appuyez sur Shufflr et utilisez le menu playlist pour en créer une. Elle apparaîtra ici automatiquement.',
+'empty.noYourShows':'Les séries que vous ajoutez aux playlists apparaîtront ici.',
 'empty.noPlaylistsPlaylistTab':'Pas encore de playlists.<br>Créez-en une ci-dessus, puis ajoutez des séries depuis Max avec le bouton + du menu Shufflr.',
-'empty.noRecentlyWatched':'Regardez sur Max pour voir votre historique ici.',
+'empty.noRecentlyWatched':'Les épisodes regardés sur Max avec Shufflr actif apparaîtront ici.',
 'empty.noEpisodes':'Aucun épisode trouvé. Essayez une note plus basse.','empty.nothingAdded':'Rien ajouté pour l\'instant.',
 'empty.loading':'CHARGEMENT...',
 'auth.email':'E-mail','auth.password':'Mot de passe',
@@ -151,8 +154,9 @@ pt:{
 'greeting.hello':'OLÁ','greeting.signIn':'ENTRE PARA COMEÇAR',
 'empty.noPlaylists':'Nenhuma playlist ainda.',
 'empty.noPlaylistsHint':'No Max, toque no botão Shufflr e use o menu de playlists para criar uma. Ela aparecerá aqui automaticamente.',
+'empty.noYourShows':'As séries que você adicionar às playlists aparecerão aqui.',
 'empty.noPlaylistsPlaylistTab':'Nenhuma playlist ainda.<br>Crie uma acima e adicione séries do Max com o botão + do menu Shufflr.',
-'empty.noRecentlyWatched':'Comece a assistir no Max para ver seu histórico aqui.',
+'empty.noRecentlyWatched':'Episódios assistidos no Max com o Shufflr ativo aparecerão aqui.',
 'empty.noEpisodes':'Nenhum episódio encontrado. Tente uma nota mais baixa.','empty.nothingAdded':'Nada adicionado ainda.',
 'empty.loading':'CARREGANDO...',
 'auth.email':'E-mail','auth.password':'Senha',
@@ -190,8 +194,9 @@ ja:{
 'greeting.hello':'こんにちは','greeting.signIn':'ログインして始める',
 'empty.noPlaylists':'プレイリストはまだありません。',
 'empty.noPlaylistsHint':'MaxでShufflrボタンを押し、プレイリストメニューから作成してください。ここに自動的に表示されます。',
+'empty.noYourShows':'プレイリストに追加した番組がここに表示されます。',
 'empty.noPlaylistsPlaylistTab':'プレイリストはまだありません。<br>上で作成し、MaxのShufflrメニューの+ボタンから番組を追加してください。',
-'empty.noRecentlyWatched':'Maxで視聴を始めると、履歴がここに表示されます。',
+'empty.noRecentlyWatched':'Shufflrを有効にしてMaxで視聴したエピソードがここに表示されます。',
 'empty.noEpisodes':'エピソードが見つかりません。評価を下げてみてください。','empty.nothingAdded':'まだ何も追加されていません。',
 'empty.loading':'読み込み中...',
 'auth.email':'メール','auth.password':'パスワード',
@@ -590,9 +595,12 @@ async function resolveDrawerShowPosters(shows){
 
 function buildYourShowsSectionHtml(section){
   const items=section.items||[];
-  if(!items.length)return'';
-
-  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div><div class="h-scroll-wrap">`;
+  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div>`;
+  if(!items.length){
+    html+=`<div class="pl-empty-state"><p>${t('empty.noYourShows')}</p></div></div>`;
+    return html;
+  }
+  html+=`<div class="h-scroll-wrap">`;
   items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
     const showKey=getHomeShowDedupeKey(s);
     html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}">
@@ -830,7 +838,7 @@ async function buildRecentlyWatchedOnMaxHtml(entries){
   if (!entries?.length) {
     return `<div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">${t('section.recentlyWatchedMax')}</div>
-      <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">${t('empty.noRecentlyWatched')}</div></div>
+      <div class="pl-empty-state"><p>${t('empty.noRecentlyWatched')}</p></div>
     </div>`;
   }
   return `<div class="genre-section" style="margin-top:16px;">
@@ -840,13 +848,13 @@ async function buildRecentlyWatchedOnMaxHtml(entries){
 }
 
 async function loadRecentlyWatchedOnMaxSection(allPlaylists=playlists){
-  if(typeof window.shufflrGetWatchHistory!=='function')return{html:'',entries:[]};
+  if(typeof window.shufflrGetWatchHistory!=='function')return{html:await buildRecentlyWatchedOnMaxHtml([]),entries:[]};
   try{
     const entries=dedupeWatchHistoryByShowId(await window.shufflrGetWatchHistory(200));
     return{html:await buildRecentlyWatchedOnMaxHtml(entries),entries};
   }catch(e){
     console.error('[Shufflr] Failed to load watch history:',e);
-    return{html:'',entries:[]};
+    return{html:await buildRecentlyWatchedOnMaxHtml([]),entries:[]};
   }
 }
 
@@ -2958,8 +2966,9 @@ async function renderHomeScreen(navType){
     }
   }
 
+  html+=buildYourShowsSectionHtml(yourShowsSection);
+
   if(yourShows.length){
-    html+=buildYourShowsSectionHtml(yourShowsSection);
     html+=`<div class="genre-section" id="recs-section" style="margin-top:4px;">
       <div class="genre-title">${t('section.becauseYouWatched')} <span id="recs-title" style="color:var(--blue);">${(yourShows[0].name||yourShows[0].title||'').toUpperCase()}</span> --</div>
       <div class="h-scroll-wrap" id="recs-wrap">
