@@ -639,7 +639,7 @@ window.addEventListener('load',()=>{
 // KEYBOARD SHORTCUT
 document.addEventListener('keydown',e=>{
   if(e.code==='Space'&&e.target.tagName!=='INPUT'){e.preventDefault();triggerShuffle();}
-  if(e.code==='KeyS'&&e.target.tagName!=='INPUT'){document.getElementById('search-input').focus();}
+  if(e.code==='KeyS'&&e.target.tagName!=='INPUT'&&currentNav==='shows'){document.getElementById('search-input').focus();}
 });
 
 // ONBOARDING
@@ -2926,9 +2926,9 @@ function renderOptionsPage(){
   </div>`;
 
   showMain(html);
-  const searchInput = document.querySelector('#search-input, .search-input, input[type="search"], input[placeholder*="Search"]');
-  if (searchInput) searchInput.blur();
-  document.activeElement?.blur();
+  document.body.focus();
+  const s = document.querySelector('input[placeholder*="Search"]');
+  if (s) { s.setAttribute('disabled', 'true'); setTimeout(() => s.removeAttribute('disabled'), 500); }
   if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
 }
 
@@ -2978,6 +2978,10 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'),2000);
 }
 function onSearchFocus(){
+  if(currentNav!=='shows'){
+    document.getElementById('search-input')?.blur();
+    return;
+  }
   showRecent();
 }
 function openDropdown(){
