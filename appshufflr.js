@@ -2926,6 +2926,7 @@ function renderOptionsPage(){
   </div>`;
 
   showMain(html);
+  document.activeElement?.blur();
   if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
 }
 
