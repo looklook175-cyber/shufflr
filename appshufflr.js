@@ -53,6 +53,10 @@ en:{
 'ob.step2':'STEP 2 OF 4','ob.title2':'HIT SHUFFLE','ob.desc2':'Press the shuffle arrows or hit Space on your keyboard to get 3 random episode picks from your show.',
 'ob.step3':'STEP 3 OF 4','ob.title3':'FILTER & BUILD PLAYLISTS','ob.desc3':'Use the rating slider to filter top episodes, block seasons, and build playlists across multiple shows.',
 'ob.step4':'STEP 4 OF 4','ob.title4':'PICK YOUR SERVICE','ob.desc4':'Which streaming service do you use most? Episode links will open there. You can change this any time in settings.',
+'help.step1':'STEP 1 OF 4','help.title1':'GET THE EXTENSION','help.desc1':'Download the Shufflr extension from the Chrome Web Store and pin it to your browser.',
+'help.step2':'STEP 2 OF 4','help.title2':'SIGN IN','help.desc2':'Create a free Shufflr account or sign in to save your playlists across sessions.',
+'help.step3':'STEP 3 OF 4','help.title3':'CONNECT YOUR SERVICE','help.desc3':'Select your streaming service in the bottom left corner. Shufflr works one service at a time.',
+'help.step4':'STEP 4 OF 4','help.title4':'START SHUFFLING','help.desc4':'Open your streaming service and play any show. Use the Shufflr button in the player to shuffle episodes and add shows to playlists.',
 'drawer.close':'Close','drawer.cancelAdd':'Cancel',
 },
 es:{
@@ -93,6 +97,10 @@ es:{
 'ob.step2':'PASO 2 DE 4','ob.title2':'PULSA ALEATORIO','ob.desc2':'Pulsa las flechas de aleatorio o la tecla Espacio para obtener 3 episodios al azar de tu serie.',
 'ob.step3':'PASO 3 DE 4','ob.title3':'FILTRA Y CREA LISTAS','ob.desc3':'Usa el control de calificación para filtrar episodios, bloquear temporadas y crear listas con varias series.',
 'ob.step4':'PASO 4 DE 4','ob.title4':'ELIGE TU SERVICIO','ob.desc4':'¿Qué servicio de streaming usas más? Los enlaces se abrirán allí. Puedes cambiarlo en cualquier momento en ajustes.',
+'help.step1':'PASO 1 DE 4','help.title1':'INSTALA LA EXTENSIÓN','help.desc1':'Descarga la extensión Shufflr desde Chrome Web Store y fíjala en tu navegador.',
+'help.step2':'PASO 2 DE 4','help.title2':'INICIA SESIÓN','help.desc2':'Crea una cuenta gratuita de Shufflr o inicia sesión para guardar tus listas entre sesiones.',
+'help.step3':'PASO 3 DE 4','help.title3':'CONECTA TU SERVICIO','help.desc3':'Selecciona tu servicio de streaming en la esquina inferior izquierda. Shufflr funciona con un servicio a la vez.',
+'help.step4':'PASO 4 DE 4','help.title4':'EMPIEZA A MEZCLAR','help.desc4':'Abre tu servicio de streaming y reproduce cualquier serie. Usa el botón Shufflr en el reproductor para mezclar episodios y añadir series a listas.',
 'drawer.close':'Cerrar','drawer.cancelAdd':'Cancelar',
 },
 fr:{
@@ -133,6 +141,10 @@ fr:{
 'ob.step2':'ÉTAPE 2 SUR 4','ob.title2':'APPUYEZ SUR MÉLANGER','ob.desc2':'Appuyez sur les flèches de mélange ou la barre d\'espace pour obtenir 3 épisodes aléatoires.',
 'ob.step3':'ÉTAPE 3 SUR 4','ob.title3':'FILTRER ET CRÉER DES PLAYLISTS','ob.desc3':'Utilisez le curseur de note pour filtrer les épisodes, bloquer des saisons et créer des playlists.',
 'ob.step4':'ÉTAPE 4 SUR 4','ob.title4':'CHOISISSEZ VOTRE SERVICE','ob.desc4':'Quel service utilisez-vous le plus ? Les liens s\'ouvriront là. Vous pouvez changer à tout moment dans les réglages.',
+'help.step1':'ÉTAPE 1 SUR 4','help.title1':'INSTALLEZ L\'EXTENSION','help.desc1':'Téléchargez l\'extension Shufflr depuis le Chrome Web Store et épinglez-la à votre navigateur.',
+'help.step2':'ÉTAPE 2 SUR 4','help.title2':'CONNECTEZ-VOUS','help.desc2':'Créez un compte Shufflr gratuit ou connectez-vous pour sauvegarder vos playlists entre les sessions.',
+'help.step3':'ÉTAPE 3 SUR 4','help.title3':'CONNECTEZ VOTRE SERVICE','help.desc3':'Sélectionnez votre service de streaming en bas à gauche. Shufflr fonctionne avec un service à la fois.',
+'help.step4':'ÉTAPE 4 SUR 4','help.title4':'COMMENCEZ À MÉLANGER','help.desc4':'Ouvrez votre service de streaming et lancez une série. Utilisez le bouton Shufflr dans le lecteur pour mélanger les épisodes et ajouter des séries aux playlists.',
 'drawer.close':'Fermer','drawer.cancelAdd':'Annuler',
 },
 pt:{
@@ -173,6 +185,10 @@ pt:{
 'ob.step2':'PASSO 2 DE 4','ob.title2':'TOQUE EM ALEATÓRIO','ob.desc2':'Pressione as setas de aleatório ou a barra de espaço para obter 3 episódios aleatórios.',
 'ob.step3':'PASSO 3 DE 4','ob.title3':'FILTRAR E CRIAR PLAYLISTS','ob.desc3':'Use o controle de nota para filtrar episódios, bloquear temporadas e criar playlists.',
 'ob.step4':'PASSO 4 DE 4','ob.title4':'ESCOLHA SEU SERVIÇO','ob.desc4':'Qual serviço você mais usa? Os links abrirão lá. Você pode mudar a qualquer momento nas configurações.',
+'help.step1':'PASSO 1 DE 4','help.title1':'INSTALE A EXTENSÃO','help.desc1':'Baixe a extensão Shufflr na Chrome Web Store e fixe-a no navegador.',
+'help.step2':'PASSO 2 DE 4','help.title2':'ENTRE NA CONTA','help.desc2':'Crie uma conta gratuita do Shufflr ou entre para salvar suas playlists entre sessões.',
+'help.step3':'PASSO 3 DE 4','help.title3':'CONECTE SEU SERVIÇO','help.desc3':'Selecione seu serviço de streaming no canto inferior esquerdo. O Shufflr funciona com um serviço por vez.',
+'help.step4':'PASSO 4 DE 4','help.title4':'COMECE A MISTURAR','help.desc4':'Abra seu serviço de streaming e reproduza qualquer série. Use o botão Shufflr no player para embaralhar episódios e adicionar séries às playlists.',
 'drawer.close':'Fechar','drawer.cancelAdd':'Cancelar',
 },
 ja:{
@@ -213,6 +229,10 @@ ja:{
 'ob.step2':'ステップ 2/4','ob.title2':'シャッフルを押す','ob.desc2':'シャッフル矢印またはスペースキーで、ランダムに3話選びます。',
 'ob.step3':'ステップ 3/4','ob.title3':'フィルターとプレイリスト','ob.desc3':'評価スライダーでエピソードを絞り、シーズンをブロックし、プレイリストを作れます。',
 'ob.step4':'ステップ 4/4','ob.title4':'サービスを選択','ob.desc4':'よく使うストリーミングサービスは？リンクはそこで開きます。設定でいつでも変更できます。',
+'help.step1':'ステップ 1/4','help.title1':'拡張機能を入手','help.desc1':'Chrome Web StoreからShufflr拡張機能をダウンロードし、ブラウザにピン留めしてください。',
+'help.step2':'ステップ 2/4','help.title2':'サインイン','help.desc2':'無料のShufflrアカウントを作成するかサインインして、プレイリストをセッション間で保存します。',
+'help.step3':'ステップ 3/4','help.title3':'サービスを接続','help.desc3':'左下でストリーミングサービスを選択してください。Shufflrは一度に1つのサービスで動作します。',
+'help.step4':'ステップ 4/4','help.title4':'シャッフルを開始','help.desc4':'ストリーミングサービスを開いて番組を再生します。プレイヤーのShufflrボタンでエピソードをシャッフルし、プレイリストに番組を追加できます。',
 'drawer.close':'閉じる','drawer.cancelAdd':'キャンセル',
 },
 };
@@ -3143,10 +3163,10 @@ function renderOptionsPage(){
     `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" data-lang-code="${l.code}" onclick="setLanguage('${l.code}')">${l.label}</button>`
   )).join('');
   const helpKeys=[
-    {step:'ob.step1',title:'ob.title1',desc:'ob.desc1'},
-    {step:'ob.step2',title:'ob.title2',desc:'ob.desc2'},
-    {step:'ob.step3',title:'ob.title3',desc:'ob.desc3'},
-    {step:'ob.step4',title:'ob.title4',desc:'ob.desc4'},
+    {step:'help.step1',title:'help.title1',desc:'help.desc1'},
+    {step:'help.step2',title:'help.title2',desc:'help.desc2'},
+    {step:'help.step3',title:'help.title3',desc:'help.desc3'},
+    {step:'help.step4',title:'help.title4',desc:'help.desc4'},
   ];
   const helpItems=helpKeys.map(k=>(
     `<div class="options-help-item">
