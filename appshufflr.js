@@ -3187,9 +3187,14 @@ function buildOptionsCarouselHtml(){
       <button type="button" class="options-carousel-arrow options-carousel-next-arrow" onclick="goOptionsCarousel(1)" aria-label="Next">&gt;</button>
       <div class="options-carousel-next-intro">
         <span class="options-carousel-hint${optionsCarouselHintDismissed?' is-dismissed':''}" data-i18n="carousel.clickMe">${t('carousel.clickMe')}</span>
-        <div style="text-align: center; margin-bottom: 8px; font-family: 'Caveat', cursive; color: #23A8E0; font-size: 18px; line-height: 1.2;">
-  click me
-  <div style="font-size: 26px; line-height: 1;">↓</div>
+        <div style="text-align: center; margin-bottom: 8px;">
+  <svg width="80" height="90" viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" style="display:block; margin: 0 auto 2px auto;">
+    <!-- arrow shaft -->
+    <line x1="40" y1="5" x2="40" y2="65" stroke="#23A8E0" stroke-width="5" stroke-linecap="round"/>
+    <!-- arrowhead pointing down -->
+    <polyline points="22,48 40,70 58,48" stroke="#23A8E0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </svg>
+  <div style="font-family: 'Caveat', cursive; color: #23A8E0; font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: 1px;">CLICK<br>HERE</div>
 </div>
         <button type="button" class="options-carousel-next-label" onclick="goOptionsCarouselIntroNext()" data-i18n="carousel.next">${t('carousel.next')}</button>
       </div>
