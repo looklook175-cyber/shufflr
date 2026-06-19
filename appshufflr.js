@@ -1478,10 +1478,6 @@ function shareEp(e,url){
 }
 
 // PLAYLISTS PAGE
-function getPlaylistAddShowSection(){
-  return `<div class="pl-playlist-info">Open Max and play any show. Use the dropdown to add it to a playlist. Shows added will be saved and can be added to other playlist.</div>`;
-}
-
 function renderPlaylistPage(){
   let html=`<div class="playlist-page-header">
     <div class="playlist-page-title">${t('section.myPlaylists')}</div>
@@ -1492,7 +1488,6 @@ function renderPlaylistPage(){
   </div>`;
   if(!playlists.length){
     html+=`<div class="empty-state"><div class="empty-sub">${t('empty.noPlaylistsPlaylistTab')}</div></div>`;
-    html+=getPlaylistAddShowSection();
   } else {
     html+=playlists.map((p,pi)=>`
       <div class="pl-card">
@@ -1548,7 +1543,6 @@ function renderPlaylistPage(){
           });
           return rows;
         })()}
-        ${getPlaylistAddShowSection()}
       </div>`).join('');
   }
   showMain(html);
