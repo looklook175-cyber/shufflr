@@ -3650,110 +3650,62 @@ setTimeout(() => {
 
 document.addEventListener('DOMContentLoaded', function() {
   // ============================================================
-  // FOUNTAIN OF DREAMS BACKGROUND — easy to remove: delete from
-  // here to END FOUNTAIN OF DREAMS JS
+  // SIDEBAR & TOPBAR STARS — remove: delete from here to END STARS JS
   // ============================================================
   (function() {
-    const canvas = document.createElement('canvas');
-    canvas.id = 'fountain-canvas';
-    document.body.appendChild(canvas);
-    const ctx = canvas.getContext('2d');
+    function makeStarCanvas(id, container) {
+      const canvas = document.createElement('canvas');
+      canvas.id = id;
+      canvas.style.position = 'absolute';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = '0';
+      container.style.position = 'relative';
+      container.insertBefore(canvas, container.firstChild);
 
-    function resize() {
-      canvas.width = window.innerWidth - 210;
-      canvas.height = window.innerHeight;
-    }
-    resize();
-    window.addEventListener('resize', resize);
+      const ctx = canvas.getContext('2d');
 
-    const stars = Array.from({ length: 130 }, () => ({
-      x: Math.random(),
-      y: Math.random() * 0.82,
-      r: Math.random() * 1.4 + 0.3,
-      phase: Math.random() * Math.PI * 2,
-      speed: Math.random() * 0.6 + 0.3
-    }));
-
-    const rings = Array.from({ length: 7 }, (_, i) => ({
-      x: 0.12 + Math.random() * 0.76,
-      y: 0.08 + Math.random() * 0.70,
-      r: 10 + Math.random() * 18,
-      color: ['#23A8E0', '#9B4FD4', '#2EE8A0', '#7B3FBF'][i % 4],
-      speed: (Math.random() - 0.5) * 0.00012,
-      drift: (Math.random() - 0.5) * 0.00008,
-      opacity: 0.25 + Math.random() * 0.30,
-      phase: Math.random() * Math.PI * 2
-    }));
-
-    function drawAurora(t, W, H) {
-      ctx.save();
-      ctx.globalAlpha = 0.13;
-      for (let layer = 0; layer < 3; layer++) {
-        const grad = ctx.createLinearGradient(0, 0, W * 0.55, H * 0.50);
-        const shift = Math.sin(t * 0.00018 + layer * 1.1) * 0.08;
-        if (layer === 0) {
-          grad.addColorStop(Math.max(0, shift), 'rgba(35,168,224,0.95)');
-          grad.addColorStop(Math.min(1, 0.4 + shift), 'rgba(120,60,210,0.60)');
-          grad.addColorStop(1, 'transparent');
-        } else if (layer === 1) {
-          grad.addColorStop(Math.max(0, shift), 'rgba(80,220,180,0.80)');
-          grad.addColorStop(Math.min(1, 0.5 + shift), 'rgba(35,168,224,0.40)');
-          grad.addColorStop(1, 'transparent');
-        } else {
-          grad.addColorStop(Math.max(0, shift), 'rgba(160,80,230,0.70)');
-          grad.addColorStop(1, 'transparent');
-        }
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        const wave = Math.sin(t * 0.00022 + layer) * H * 0.06;
-        ctx.moveTo(0, 0);
-        ctx.lineTo(W * 0.50, 0);
-        ctx.quadraticCurveTo(W * 0.30, H * 0.25 + wave, 0, H * 0.52 + wave);
-        ctx.closePath();
-        ctx.fill();
+      function resize() {
+        canvas.width = container.offsetWidth;
+        canvas.height = container.offsetHeight;
       }
-      ctx.restore();
-    }
+      resize();
+      window.addEventListener('resize', resize);
 
-    function draw(t) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const W = canvas.width, H = canvas.height;
+      const stars = Array.from({ length: 40 }, () => ({
+        x: Math.random(),
+        y: Math.random(),
+        r: Math.random() * 1.0 + 0.2,
+        phase: Math.random() * Math.PI * 2,
+        speed: Math.random() * 0.5 + 0.2
+      }));
 
-      drawAurora(t, W, H);
-
-      stars.forEach(s => {
-        const twinkle = 0.4 + 0.6 * Math.sin(t * s.speed * 0.001 + s.phase);
-        ctx.save();
-        ctx.globalAlpha = twinkle * 0.75;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      });
-
-      rings.forEach(ring => {
-        ring.phase += ring.speed * 16;
-        ring.y += ring.drift;
-        if (ring.y < 0.05) ring.drift = Math.abs(ring.drift);
-        if (ring.y > 0.85) ring.drift = -Math.abs(ring.drift);
-        const pulse = 0.7 + 0.3 * Math.sin(ring.phase);
-        ctx.save();
-        ctx.globalAlpha = ring.opacity * pulse;
-        ctx.strokeStyle = ring.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(ring.x * W, ring.y * H, ring.r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      });
-
+      function draw(t) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        stars.forEach(s => {
+          const twinkle = 0.3 + 0.7 * Math.sin(t * s.speed * 0.001 + s.phase);
+          ctx.save();
+          ctx.globalAlpha = twinkle * 0.6;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(s.x * canvas.width, s.y * canvas.height, s.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+        requestAnimationFrame(draw);
+      }
       requestAnimationFrame(draw);
     }
 
-    requestAnimationFrame(draw);
+    const sidebar = document.getElementById('sidebar');
+    const topbar = document.getElementById('top-bar');
+    if (sidebar) makeStarCanvas('sidebar-stars', sidebar);
+    if (topbar) makeStarCanvas('topbar-stars', topbar);
   })();
   // ============================================================
-  // END FOUNTAIN OF DREAMS JS
+  // END STARS JS
   // ============================================================
 });
