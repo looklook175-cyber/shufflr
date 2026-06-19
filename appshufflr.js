@@ -235,6 +235,20 @@ function applyStaticTranslations(){
   });
 }
 
+function applyTranslationsToDOM(){
+  applyStaticTranslations();
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=t(el.getAttribute('data-i18n-html'));});
+  const greetingEl=document.querySelector('.options-greeting-text');
+  if(greetingEl){
+    let loggedIn=false;
+    try{
+      const raw=localStorage.getItem(SHUFFLR_SUPABASE_SESSION_KEY);
+      loggedIn=!!(raw&&JSON.parse(raw)?.userId);
+    }catch(e){}
+    greetingEl.textContent=loggedIn?t('greeting.hello'):t('greeting.signIn');
+  }
+}
+
 function rerenderCurrentTab(){
   if(currentNav==='playlist')renderPlaylistPage();
   else if(currentNav==='options')renderOptionsPage();
@@ -3081,10 +3095,10 @@ const SHUFFLR_LANGUAGES=[
 
 function setLanguage(code){
   localStorage.setItem('shufflrLanguage',code);
-  applyStaticTranslations();
-  rerenderCurrentTab();
-  const s = document.querySelector('input[placeholder*="Search"]');
-  if (s) { s.setAttribute('disabled', 'true'); setTimeout(() => s.removeAttribute('disabled'), 500); }
+  document.querySelectorAll('.options-lang-btn').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.langCode===code);
+  });
+  applyTranslationsToDOM();
 }
 
 function renderOptionsPage(){
@@ -3096,13 +3110,19 @@ function renderOptionsPage(){
   const greetingText=loggedIn?t('greeting.hello'):t('greeting.signIn');
   const lang=getSavedLanguage();
   const langButtons=SHUFFLR_LANGUAGES.map(l=>(
-    `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" onclick="setLanguage('${l.code}')">${l.label}</button>`
+    `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" data-lang-code="${l.code}" onclick="setLanguage('${l.code}')">${l.label}</button>`
   )).join('');
-  const helpItems=getObSteps().map(s=>(
+  const helpKeys=[
+    {step:'ob.step1',title:'ob.title1',desc:'ob.desc1'},
+    {step:'ob.step2',title:'ob.title2',desc:'ob.desc2'},
+    {step:'ob.step3',title:'ob.title3',desc:'ob.desc3'},
+    {step:'ob.step4',title:'ob.title4',desc:'ob.desc4'},
+  ];
+  const helpItems=helpKeys.map(k=>(
     `<div class="options-help-item">
-      <div class="options-help-step">${s.step}</div>
-      <div class="options-help-title">${s.title}</div>
-      <div class="options-help-desc">${String(s.desc).replace(/<[^>]+>/g,'')}</div>
+      <div class="options-help-step" data-i18n="${k.step}">${t(k.step)}</div>
+      <div class="options-help-title" data-i18n="${k.title}">${t(k.title)}</div>
+      <div class="options-help-desc" data-i18n="${k.desc}">${t(k.desc)}</div>
     </div>`
   )).join('');
 
@@ -3113,28 +3133,28 @@ function renderOptionsPage(){
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">${t('options.language')}</div>
+      <div class="options-section-title" data-i18n="options.language">${t('options.language')}</div>
       <div class="options-section-body">
-        <p class="options-desc">${t('options.languageDesc')}</p>
+        <p class="options-desc" data-i18n="options.languageDesc">${t('options.languageDesc')}</p>
         <div class="options-lang-group">${langButtons}</div>
       </div>
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">${t('options.account')}</div>
+      <div class="options-section-title" data-i18n="options.account">${t('options.account')}</div>
       <div class="options-section-body">
         <div id="auth-section" class="auth-section">
           <div id="auth-logged-out">
-            <input class="options-input auth-input" id="auth-email" type="email" placeholder="${t('auth.email')}" autocomplete="email" />
-            <input class="options-input auth-input" id="auth-password" type="password" placeholder="${t('auth.password')}" autocomplete="current-password" />
+            <input class="options-input auth-input" id="auth-email" type="email" data-i18n-placeholder="auth.email" placeholder="${t('auth.email')}" autocomplete="email" />
+            <input class="options-input auth-input" id="auth-password" type="password" data-i18n-placeholder="auth.password" placeholder="${t('auth.password')}" autocomplete="current-password" />
             <div class="auth-btn-row">
-              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-signup-btn">${t('btn.signUp')}</button>
-              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-login-btn">${t('btn.logIn')}</button>
+              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-signup-btn" data-i18n="btn.signUp">${t('btn.signUp')}</button>
+              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-login-btn" data-i18n="btn.logIn">${t('btn.logIn')}</button>
             </div>
           </div>
           <div id="auth-logged-in" style="display:none;">
             <div class="auth-user-email options-account-email" id="auth-user-email"></div>
-            <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn">${t('btn.logOut')}</button>
+            <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn" data-i18n="btn.logOut">${t('btn.logOut')}</button>
           </div>
           <div id="auth-message" class="auth-message" style="display:none;"></div>
         </div>
@@ -3142,19 +3162,19 @@ function renderOptionsPage(){
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">${t('options.feedback')}</div>
+      <div class="options-section-title" data-i18n="options.feedback">${t('options.feedback')}</div>
       <div class="options-section-body">
-        <p class="options-desc">${t('options.feedbackDesc')}</p>
-        <textarea id="options-feedback-text" class="options-textarea" placeholder="${t('options.feedbackPlaceholder')}"></textarea>
-        <button type="button" class="options-btn options-btn-primary" onclick="submitOptionsFeedback()">${t('btn.submit')}</button>
+        <p class="options-desc" data-i18n="options.feedbackDesc">${t('options.feedbackDesc')}</p>
+        <textarea id="options-feedback-text" class="options-textarea" data-i18n-placeholder="options.feedbackPlaceholder" placeholder="${t('options.feedbackPlaceholder')}"></textarea>
+        <button type="button" class="options-btn options-btn-primary" onclick="submitOptionsFeedback()" data-i18n="btn.submit">${t('btn.submit')}</button>
       </div>
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">${t('options.help')}</div>
+      <div class="options-section-title" data-i18n="options.help">${t('options.help')}</div>
       <div class="options-section-body">
         <div class="options-help-list">${helpItems}</div>
-        <button type="button" class="options-btn options-btn-primary" onclick="showHelp()">${t('btn.replayOnboarding')}</button>
+        <button type="button" class="options-btn options-btn-primary" onclick="showHelp()" data-i18n="btn.replayOnboarding">${t('btn.replayOnboarding')}</button>
       </div>
     </div>
   </div>`;
