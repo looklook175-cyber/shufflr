@@ -300,7 +300,7 @@ function triggerSidebarAuth(action){
 }
 
 async function renderSidebarAuth(){
-  document.getElementById('sidebar-auth')?.remove();
+  document.querySelectorAll('#sidebar-auth').forEach(el=>el.remove());
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(loggedIn)return;
   const navOptions=document.getElementById('nav-options');
