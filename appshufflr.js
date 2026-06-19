@@ -3186,7 +3186,6 @@ function buildOptionsCarouselHtml(){
       <button type="button" class="options-carousel-arrow options-carousel-back" onclick="goOptionsCarousel(-1)" aria-label="Previous">&lt;</button>
       <button type="button" class="options-carousel-arrow options-carousel-next-arrow" onclick="goOptionsCarousel(1)" aria-label="Next">&gt;</button>
       <div class="options-carousel-next-intro">
-        <span class="options-carousel-hint${optionsCarouselHintDismissed?' is-dismissed':''}" data-i18n="carousel.clickMe">${t('carousel.clickMe')}</span>
         <button type="button" class="options-carousel-next-label" onclick="goOptionsCarouselIntroNext()" data-i18n="carousel.next">${t('carousel.next')}</button>
       </div>
     </div>
