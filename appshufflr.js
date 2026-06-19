@@ -3166,7 +3166,7 @@ function buildOptionsCarouselHtml(){
       <div class="options-carousel-desc" data-i18n="${k.desc}">${t(k.desc)}</div>
     </div>`).join('');
 
-  return `<div class="options-carousel-card" id="options-carousel">
+  return `<div class="options-carousel-card${optionsCarouselIndex===0||optionsCarouselIndex===5?' is-hero-slide':''}" id="options-carousel">
     <div class="options-carousel-viewport">
       <div class="options-carousel-slide options-carousel-slide-intro" data-slide="0"${optionsCarouselIndex===0?'':' hidden'}>
         <div class="options-carousel-intro">
@@ -3208,6 +3208,7 @@ function updateOptionsCarouselView(){
   if(nextArrow)nextArrow.hidden=optionsCarouselIndex===0||optionsCarouselIndex===5;
   if(nextIntro)nextIntro.hidden=optionsCarouselIndex!==0;
   if(hint)hint.classList.toggle('is-dismissed',optionsCarouselHintDismissed);
+  root.classList.toggle('is-hero-slide',optionsCarouselIndex===0||optionsCarouselIndex===5);
 }
 
 function goOptionsCarousel(delta){
