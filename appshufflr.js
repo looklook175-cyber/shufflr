@@ -3083,6 +3083,8 @@ function setLanguage(code){
   localStorage.setItem('shufflrLanguage',code);
   applyStaticTranslations();
   rerenderCurrentTab();
+  const s = document.querySelector('input[placeholder*="Search"]');
+  if (s) { s.setAttribute('disabled', 'true'); setTimeout(() => s.removeAttribute('disabled'), 500); }
 }
 
 function renderOptionsPage(){
