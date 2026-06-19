@@ -343,7 +343,7 @@ body.light-mode .queue-ep-title{color:#111;}
 
 /* OPTIONS PAGE */
 .options-page{max-width:640px;padding:4px 0 40px;}
-.options-carousel-card{position:relative;display:flex;flex-direction:column;width:100%;max-width:100%;min-height:100px;max-height:120px;height:110px;padding:10px 12px;background:var(--surface2);border:1px solid #23A8E0;border-radius:10px;margin-bottom:28px;box-shadow:0 0 16px rgba(35,168,224,0.12);box-sizing:border-box;}
+.options-carousel-card{position:relative;display:flex;flex-direction:column;width:100%;max-width:100%;min-height:100px;max-height:120px;height:110px;padding:10px 12px;background:#0d0d0d;border:1px solid #23A8E0;border-radius:10px;margin-bottom:28px;box-shadow:0 0 16px rgba(35,168,224,0.12);box-sizing:border-box;}
 .options-carousel-card.is-hero-slide .options-carousel-viewport{padding-right:0;}
 .options-carousel-viewport{position:relative;flex:1;min-height:0;overflow:hidden;padding-right:72px;}
 .options-carousel-slide{display:block;height:100%;}
