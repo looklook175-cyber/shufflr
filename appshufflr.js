@@ -1479,11 +1479,7 @@ function shareEp(e,url){
 
 // PLAYLISTS PAGE
 function getPlaylistAddShowSection(){
-  return `<div class="pl-add-show-section">
-    <span class="pl-coming-soon-badge">Coming Soon</span>
-    <button class="pl-add-show-btn" type="button" disabled aria-disabled="true">+ ${t('btn.addShow')}</button>
-    <p class="pl-add-show-hint">${t('pl.addShowHint')}</p>
-  </div>`;
+  return `<div class="pl-playlist-info">Open Max and play any show. Use the dropdown to add it to a playlist. Shows added will be saved and can be added to other playlist.</div>`;
 }
 
 function renderPlaylistPage(){
