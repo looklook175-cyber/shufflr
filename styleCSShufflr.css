@@ -415,14 +415,22 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .new-pl-btn{padding:10px 16px;background:var(--blue);border:none;border-radius:8px;color:#000;font-family:'DM Sans',sans-serif;font-size:0.8rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:all 0.2s;}
 .new-pl-btn:hover{box-shadow:0 0 12px var(--blue-glow);}
 .pl-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden;}
-.pl-card-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);}
+.pl-card-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:none;cursor:pointer;user-select:none;}
+.pl-card.expanded .pl-card-header{border-bottom:1px solid var(--border);}
+.pl-card-header-info{flex:1;min-width:0;}
+.pl-card-actions{display:flex;gap:8px;align-items:center;flex-shrink:0;}
+.pl-card-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 0.28s ease;}
+.pl-card.expanded .pl-card-body{grid-template-rows:1fr;}
+.pl-card-body-inner{overflow:hidden;min-height:0;}
+.pl-add-show-btn{display:block;background:none;border:none;color:#23A8E0;font-family:var(--font-system);font-size:13px;font-weight:600;padding:12px 16px 14px;cursor:pointer;text-align:left;transition:opacity 0.15s;}
+.pl-add-show-btn:hover{opacity:0.85;}
 .pl-card-name{font-family:'Press Start 2P',monospace;font-size:0.55rem;color:var(--text);}
 .pl-card-count{font-family:var(--font-system);font-size:13px;color:var(--body-text);}
 .pl-shuffle-btn{padding:6px 14px;background:transparent;border:1px solid var(--blue);border-radius:7px;color:var(--blue);font-family:'Press Start 2P',monospace;font-size:0.38rem;cursor:pointer;letter-spacing:1px;transition:all 0.2s;display:flex;align-items:center;gap:6px;}
 .pl-shuffle-btn:hover{background:var(--blue-dim);}
 .pl-shuffle-btn svg{width:12px;height:12px;stroke:var(--blue);fill:none;}
 .pl-show-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);}
-.pl-show-row:last-child{border-bottom:none;}
+.pl-card-items .pl-show-row:last-child{border-bottom:none;}
 .pl-show-img{width:36px;height:52px;border-radius:5px;object-fit:cover;background:var(--surface2);flex-shrink:0;}
 .pl-show-name{flex:1;font-weight:600;font-size:0.85rem;}
 .pl-show-year{font-family:var(--font-system);font-size:13px;color:var(--body-text);margin-top:2px;}

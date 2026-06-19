@@ -281,6 +281,7 @@ let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
+let expandedPlaylistIndex=null;
 
 function handleExtensionPlaylistSync(payload){
   playlists=Array.isArray(payload)?payload:[];
@@ -989,6 +990,7 @@ function clearSeasonsSidebar(){
 // NAV
 function setNav(nav){
   if(nav==='movies'||nav==='free')return;
+  if(nav!=='playlist')expandedPlaylistIndex=null;
   currentNav=nav;
   ['shows','playlist','options'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
@@ -1478,8 +1480,68 @@ function shareEp(e,url){
 }
 
 // PLAYLISTS PAGE
+function buildPlCardItemsHtml(p, pi) {
+  const shows = p.shows || [];
+  const episodes = p.episodes || [];
+  if (!shows.length && !episodes.length) {
+    return `<div class="pl-empty">${t('empty.nothingAdded')}</div>`;
+  }
+  let rows = '';
+  shows.forEach((s, si) => {
+    rows += `<div class="pl-show-row" draggable="true"
+      ondragstart="dragStart(event,${pi},${si},'show')"
+      ondragover="dragOver(event)"
+      ondragleave="dragLeave(event)"
+      ondrop="dragDrop(event,${pi},${si})"
+      ondragend="dragEnd(event)">
+      <span class="drag-handle">⠿</span>
+      <img class="pl-show-img" src="${s.poster_path ? IMG + 'w92' + s.poster_path : ''}" onerror="this.style.background='#1a1a1a'" />
+      <div style="flex:1;min-width:0;">
+        <div class="pl-show-name">${s.name || s.title}</div>
+        <div class="pl-show-year">${((s.first_air_date || s.release_date) || '').slice(0, 4)} · ${t('pl.fullShow')}</div>
+      </div>
+      <button class="pl-remove-btn" onclick="removeShowFromPlaylist(${pi},${si})" title="Remove">✕</button>
+    </div>`;
+  });
+  episodes.forEach((e, ei) => {
+    const code = `S${String(e.seasonNum || '?').padStart(2, '0')} E${String(e.episode_number || '?').padStart(2, '0')}`;
+    rows += `<div class="pl-show-row">
+      <span class="drag-handle" style="color:#23A8E0;font-size:0.6rem;width:18px;text-align:center;">▶</span>
+      <img class="pl-show-img" src="${e.showPoster ? IMG + 'w92' + e.showPoster : ''}" onerror="this.style.background='#1a1a1a'" style="opacity:0.75;" />
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:0.58rem;color:var(--blue);font-weight:700;letter-spacing:1px;margin-bottom:1px;">${code}</div>
+        <div class="pl-show-name" style="font-size:0.82rem;">${e.name || 'Episode'}</div>
+        <div class="pl-show-year">${e.showName || ''}</div>
+      </div>
+      <button class="pl-remove-btn" onclick="removeEpFromPlaylist(${pi},${ei})" title="Remove">✕</button>
+    </div>`;
+  });
+  return `<div class="pl-card-items">${rows}</div>`;
+}
+
+function handlePlaylistHeaderClick(event, pi) {
+  if (event.target.closest('.pl-card-actions')) return;
+  expandedPlaylistIndex = expandedPlaylistIndex === pi ? null : pi;
+  document.querySelectorAll('.pl-card').forEach((card) => {
+    const cardIndex = parseInt(card.dataset.plIndex, 10);
+    card.classList.toggle('expanded', cardIndex === expandedPlaylistIndex);
+  });
+}
+
+function collapseExpandedPlaylist() {
+  if (expandedPlaylistIndex === null) return;
+  expandedPlaylistIndex = null;
+  document.querySelectorAll('.pl-card.expanded').forEach((card) => card.classList.remove('expanded'));
+}
+
+function showAddShowFromPlaylistToast(event) {
+  event?.stopPropagation?.();
+  showToast('Add shows from Max using the Shufflr button');
+}
+
 function renderPlaylistPage(){
-  let html=`<div class="playlist-page-header">
+  let html=`<div class="playlist-page">
+  <div class="playlist-page-header">
     <div class="playlist-page-title">${t('section.myPlaylists')}</div>
   </div>
   <div class="new-pl-row">
@@ -1489,14 +1551,17 @@ function renderPlaylistPage(){
   if(!playlists.length){
     html+=`<div class="empty-state"><div class="empty-sub">${t('empty.noPlaylistsPlaylistTab')}</div></div>`;
   } else {
-    html+=playlists.map((p,pi)=>`
-      <div class="pl-card">
-        <div class="pl-card-header">
-          <div>
+    html+=playlists.map((p,pi)=>{
+      const itemCount=(p.shows||[]).length+(p.episodes||[]).length;
+      const expanded=expandedPlaylistIndex===pi;
+      return `
+      <div class="pl-card${expanded?' expanded':''}" data-pl-index="${pi}">
+        <div class="pl-card-header" onclick="handlePlaylistHeaderClick(event, ${pi})">
+          <div class="pl-card-header-info">
             <div class="pl-card-name">${p.name}</div>
-            <div class="pl-card-count">${(p.shows||[]).length+(p.episodes||[]).length} ${((p.shows||[]).length+(p.episodes||[]).length)!==1?t('pl.items'):t('pl.item')}</div>
+            <div class="pl-card-count">${itemCount} ${itemCount!==1?t('pl.items'):t('pl.item')}</div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center;">
+          <div class="pl-card-actions" onclick="event.stopPropagation()">
             <button class="pl-shuffle-btn" onclick="sharePlaylist(${pi})" style="border-color:var(--muted);color:var(--muted);">
               <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
               ${t('btn.share').toUpperCase()}
@@ -1507,44 +1572,16 @@ function renderPlaylistPage(){
             <button class="pl-delete-btn" onclick="deletePlaylist(${pi})">${t('btn.delete')}</button>
           </div>
         </div>
-        ${(()=>{
-          const shows=(p.shows||[]);
-          const episodes=(p.episodes||[]);
-          if(!shows.length&&!episodes.length) return '<div class="pl-empty">'+t('empty.nothingAdded')+'</div>';
-          let rows='';
-          shows.forEach((s,si)=>{
-            rows+=`<div class="pl-show-row" draggable="true"
-              ondragstart="dragStart(event,${pi},${si},'show')"
-              ondragover="dragOver(event)"
-              ondragleave="dragLeave(event)"
-              ondrop="dragDrop(event,${pi},${si})"
-              ondragend="dragEnd(event)">
-              <span class="drag-handle">⠿</span>
-              <img class="pl-show-img" src="${s.poster_path?IMG+'w92'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" />
-              <div style="flex:1;min-width:0;">
-                <div class="pl-show-name">${s.name||s.title}</div>
-                <div class="pl-show-year">${((s.first_air_date||s.release_date)||'').slice(0,4)} · ${t('pl.fullShow')}</div>
-              </div>
-              <button class="pl-remove-btn" onclick="removeShowFromPlaylist(${pi},${si})" title="Remove">✕</button>
-            </div>`;
-          });
-          episodes.forEach((e,ei)=>{
-            const code=`S${String(e.seasonNum||'?').padStart(2,'0')} E${String(e.episode_number||'?').padStart(2,'0')}`;
-            rows+=`<div class="pl-show-row">
-              <span class="drag-handle" style="color:#23A8E0;font-size:0.6rem;width:18px;text-align:center;">▶</span>
-              <img class="pl-show-img" src="${e.showPoster?IMG+'w92'+e.showPoster:''}" onerror="this.style.background='#1a1a1a'" style="opacity:0.75;" />
-              <div style="flex:1;min-width:0;">
-                <div style="font-size:0.58rem;color:var(--blue);font-weight:700;letter-spacing:1px;margin-bottom:1px;">${code}</div>
-                <div class="pl-show-name" style="font-size:0.82rem;">${e.name||'Episode'}</div>
-                <div class="pl-show-year">${e.showName||''}</div>
-              </div>
-              <button class="pl-remove-btn" onclick="removeEpFromPlaylist(${pi},${ei})" title="Remove">✕</button>
-            </div>`;
-          });
-          return rows;
-        })()}
-      </div>`).join('');
+        <div class="pl-card-body">
+          <div class="pl-card-body-inner">
+            ${buildPlCardItemsHtml(p, pi)}
+            <button type="button" class="pl-add-show-btn" onclick="showAddShowFromPlaylistToast(event)">+ ${t('btn.addShow')}</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
   }
+  html+=`</div>`;
   showMain(html);
 }
 
@@ -1564,6 +1601,8 @@ function createInlinePlaylist(){
 
 function deletePlaylist(i){
   playlists.splice(i,1);
+  if(expandedPlaylistIndex===i)expandedPlaylistIndex=null;
+  else if(expandedPlaylistIndex!==null&&expandedPlaylistIndex>i)expandedPlaylistIndex--;
   savePlaylists();
   renderPlaylistPage();
 }
@@ -1587,13 +1626,11 @@ function removeEpFromPlaylist(pi,ei){
 
 // Opens the Playlist tab and highlights the playlist at the given index.
 function openPlaylistFromHomeCard(index) {
+  expandedPlaylistIndex = index;
   setNav('playlist');
-  // Small delay to let the playlist screen render before trying to expand.
   setTimeout(() => {
-    const rows = document.querySelectorAll('.pl-card');
-    if (rows[index]) {
-      rows[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    const card = document.querySelector(`.pl-card[data-pl-index="${index}"]`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 150);
 }
 
@@ -3262,6 +3299,15 @@ document.addEventListener('click',e=>{
     return;
   }
   if(!e.target.closest('.search-wrap')&&!e.target.closest('#search-overlay')) closeSearch();
+  if(currentNav==='playlist'&&expandedPlaylistIndex!==null){
+    const card=e.target.closest('.pl-card');
+    if(card?.classList.contains('expanded')&&card.contains(e.target)){
+      if(e.target.closest('.pl-card-body'))return;
+      if(e.target.closest('.pl-card-actions'))return;
+      if(e.target.closest('.pl-card-header'))return;
+    }
+    if(!e.target.closest('.pl-card-header'))collapseExpandedPlaylist();
+  }
 });
 
 // ---- PWA SETUP ----
