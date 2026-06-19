@@ -352,16 +352,16 @@ body.light-mode .queue-ep-title{color:#111;}
 .options-carousel-smiley svg{display:block;width:56px;height:56px;}
 .options-carousel-hero-text{font-family:'Press Start 2P',monospace;font-size:18px;color:#23A8E0;line-height:1.4;text-shadow:0 0 8px var(--blue-glow);word-break:break-word;}
 .options-carousel-step-label{font-family:'Press Start 2P',monospace;font-size:9px;color:#23A8E0;letter-spacing:1px;margin-bottom:12px;text-shadow:0 0 8px rgba(35,168,224,0.4);}
-.options-carousel-title{font-family:var(--font-system);font-size:15px;font-weight:600;color:#ffffff;margin-bottom:8px;line-height:1.4;}
+.options-carousel-title{font-family:'Press Start 2P',monospace;font-size:11px;font-weight:400;color:#ffffff;margin-bottom:8px;line-height:1.6;}
 .options-carousel-desc{font-family:var(--font-system);font-size:13px;color:var(--body-text);line-height:1.6;max-width:520px;}
 .options-carousel-nav{display:flex;align-items:flex-end;justify-content:space-between;margin-top:16px;min-height:36px;}
-.options-carousel-arrow{background:none;border:none;color:#23A8E0;font-family:var(--font-system);font-size:20px;font-weight:600;line-height:1;padding:4px 10px;cursor:pointer;transition:opacity 0.15s;}
+.options-carousel-arrow{background:none;border:none;color:#23A8E0;font-family:'Press Start 2P',monospace;font-size:11px;font-weight:400;line-height:1;padding:4px 10px;cursor:pointer;transition:opacity 0.15s;}
 .options-carousel-arrow:hover{opacity:0.8;}
 .options-carousel-arrow[hidden],.options-carousel-next-intro[hidden]{display:none;}
 .options-carousel-next-intro{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:auto;}
 .options-carousel-hint{font-family:var(--font-system);font-size:11px;color:#666666;line-height:1;text-transform:lowercase;}
 .options-carousel-hint.is-dismissed{display:none;}
-.options-carousel-next-label{background:none;border:none;color:#23A8E0;font-family:var(--font-system);font-size:13px;font-weight:600;line-height:1;padding:4px 0;cursor:pointer;transition:opacity 0.15s;}
+.options-carousel-next-label{background:none;border:none;color:#23A8E0;font-family:'Press Start 2P',monospace;font-size:9px;font-weight:400;line-height:1;padding:4px 0;cursor:pointer;transition:opacity 0.15s;}
 .options-carousel-next-label:hover{opacity:0.85;}
 .options-carousel-back{margin-right:auto;}
 .options-carousel-next-arrow{margin-left:auto;}
