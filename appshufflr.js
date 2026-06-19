@@ -31,7 +31,8 @@ en:{
 'options.languageDesc':"Choose Shufflr's display language.",
 'options.feedbackDesc':'Got an idea or found a bug? We want to hear it.',
 'options.feedbackPlaceholder':'Type your feedback here...',
-'greeting.hello':'HELLO','greeting.signIn':'SIGN IN TO GET STARTED',
+'greeting.hello':'HELLO','greeting.signIn':'SIGN IN TO GET STARTED','greeting.thankYou':'THANK YOU',
+'carousel.clickMe':'click me','carousel.next':'NEXT >',
 'empty.noPlaylists':'No playlists yet.',
 'empty.noPlaylistsHint':'On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.',
 'empty.noYourShows':'Shows you add to playlists will appear here.',
@@ -75,7 +76,8 @@ es:{
 'options.languageDesc':'Elige el idioma de Shufflr.',
 'options.feedbackDesc':'¿Tienes una idea o encontraste un error? Queremos saberlo.',
 'options.feedbackPlaceholder':'Escribe tus comentarios aquí...',
-'greeting.hello':'HOLA','greeting.signIn':'INICIA SESIÓN PARA EMPEZAR',
+'greeting.hello':'HOLA','greeting.signIn':'INICIA SESIÓN PARA EMPEZAR','greeting.thankYou':'GRACIAS',
+'carousel.clickMe':'haz clic','carousel.next':'SIGUIENTE >',
 'empty.noPlaylists':'Aún no hay listas.',
 'empty.noPlaylistsHint':'En Max, pulsa el botón Shufflr y usa el menú de listas para crear una. Aparecerá aquí automáticamente.',
 'empty.noYourShows':'Las series que añadas a listas aparecerán aquí.',
@@ -119,7 +121,8 @@ fr:{
 'options.languageDesc':"Choisissez la langue d'affichage de Shufflr.",
 'options.feedbackDesc':'Une idée ou un bug ? Dites-le nous.',
 'options.feedbackPlaceholder':'Écrivez vos commentaires ici...',
-'greeting.hello':'BONJOUR','greeting.signIn':'CONNECTEZ-VOUS POUR COMMENCER',
+'greeting.hello':'BONJOUR','greeting.signIn':'CONNECTEZ-VOUS POUR COMMENCER','greeting.thankYou':'MERCI',
+'carousel.clickMe':'cliquez ici','carousel.next':'SUIVANT >',
 'empty.noPlaylists':'Pas encore de playlists.',
 'empty.noPlaylistsHint':'Sur Max, appuyez sur Shufflr et utilisez le menu playlist pour en créer une. Elle apparaîtra ici automatiquement.',
 'empty.noYourShows':'Les séries que vous ajoutez aux playlists apparaîtront ici.',
@@ -163,7 +166,8 @@ pt:{
 'options.languageDesc':'Escolha o idioma de exibição do Shufflr.',
 'options.feedbackDesc':'Tem uma ideia ou encontrou um bug? Queremos saber.',
 'options.feedbackPlaceholder':'Digite seu feedback aqui...',
-'greeting.hello':'OLÁ','greeting.signIn':'ENTRE PARA COMEÇAR',
+'greeting.hello':'OLÁ','greeting.signIn':'ENTRE PARA COMEÇAR','greeting.thankYou':'OBRIGADO',
+'carousel.clickMe':'clique aqui','carousel.next':'PRÓXIMO >',
 'empty.noPlaylists':'Nenhuma playlist ainda.',
 'empty.noPlaylistsHint':'No Max, toque no botão Shufflr e use o menu de playlists para criar uma. Ela aparecerá aqui automaticamente.',
 'empty.noYourShows':'As séries que você adicionar às playlists aparecerão aqui.',
@@ -207,7 +211,8 @@ ja:{
 'options.languageDesc':'Shufflrの表示言語を選択してください。',
 'options.feedbackDesc':'アイデアやバグを見つけましたか？お知らせください。',
 'options.feedbackPlaceholder':'フィードバックを入力...',
-'greeting.hello':'こんにちは','greeting.signIn':'ログインして始める',
+'greeting.hello':'こんにちは','greeting.signIn':'ログインして始める','greeting.thankYou':'ありがとう',
+'carousel.clickMe':'クリック','carousel.next':'次へ >',
 'empty.noPlaylists':'プレイリストはまだありません。',
 'empty.noPlaylistsHint':'MaxでShufflrボタンを押し、プレイリストメニューから作成してください。ここに自動的に表示されます。',
 'empty.noYourShows':'プレイリストに追加した番組がここに表示されます。',
@@ -263,15 +268,6 @@ function applyStaticTranslations(){
 function applyTranslationsToDOM(){
   applyStaticTranslations();
   document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=t(el.getAttribute('data-i18n-html'));});
-  const greetingEl=document.querySelector('.options-greeting-text');
-  if(greetingEl){
-    let loggedIn=false;
-    try{
-      const raw=localStorage.getItem(SHUFFLR_SUPABASE_SESSION_KEY);
-      loggedIn=!!(raw&&JSON.parse(raw)?.userId);
-    }catch(e){}
-    greetingEl.textContent=loggedIn?t('greeting.hello'):t('greeting.signIn');
-  }
 }
 
 function rerenderCurrentTab(){
@@ -3149,38 +3145,92 @@ function setLanguage(code){
     btn.classList.toggle('active',btn.dataset.langCode===code);
   });
   applyTranslationsToDOM();
+  updateOptionsCarouselView();
+}
+
+let optionsCarouselIndex=0;
+let optionsCarouselHintDismissed=false;
+
+const OPTIONS_CAROUSEL_STEP_KEYS=[
+  {step:'help.step1',title:'help.title1',desc:'help.desc1'},
+  {step:'help.step2',title:'help.title2',desc:'help.desc2'},
+  {step:'help.step3',title:'help.title3',desc:'help.desc3'},
+  {step:'help.step4',title:'help.title4',desc:'help.desc4'},
+];
+
+function buildOptionsCarouselHtml(){
+  const stepSlides=OPTIONS_CAROUSEL_STEP_KEYS.map((k,i)=>`
+    <div class="options-carousel-slide" data-slide="${i+1}"${optionsCarouselIndex===i+1?'':' hidden'}>
+      <div class="options-carousel-step-label" data-i18n="${k.step}">${t(k.step)}</div>
+      <div class="options-carousel-title" data-i18n="${k.title}">${t(k.title)}</div>
+      <div class="options-carousel-desc" data-i18n="${k.desc}">${t(k.desc)}</div>
+    </div>`).join('');
+
+  return `<div class="options-carousel-card" id="options-carousel">
+    <div class="options-carousel-viewport">
+      <div class="options-carousel-slide options-carousel-slide-intro" data-slide="0"${optionsCarouselIndex===0?'':' hidden'}>
+        <div class="options-carousel-intro">
+          <div class="options-carousel-smiley">${YOUR_SHOWS_SMILEY_SVG}</div>
+          <div class="options-carousel-hero-text" data-i18n="greeting.hello">${t('greeting.hello')}</div>
+        </div>
+      </div>
+      ${stepSlides}
+      <div class="options-carousel-slide options-carousel-slide-outro" data-slide="5"${optionsCarouselIndex===5?'':' hidden'}>
+        <div class="options-carousel-intro">
+          <div class="options-carousel-smiley">${YOUR_SHOWS_SMILEY_SVG}</div>
+          <div class="options-carousel-hero-text" data-i18n="greeting.thankYou">${t('greeting.thankYou')}</div>
+        </div>
+      </div>
+    </div>
+    <div class="options-carousel-nav">
+      <button type="button" class="options-carousel-arrow options-carousel-back" onclick="goOptionsCarousel(-1)" aria-label="Previous">&lt;</button>
+      <button type="button" class="options-carousel-arrow options-carousel-next-arrow" onclick="goOptionsCarousel(1)" aria-label="Next">&gt;</button>
+      <div class="options-carousel-next-intro">
+        <span class="options-carousel-hint${optionsCarouselHintDismissed?' is-dismissed':''}" data-i18n="carousel.clickMe">${t('carousel.clickMe')}</span>
+        <button type="button" class="options-carousel-next-label" onclick="goOptionsCarouselIntroNext()" data-i18n="carousel.next">${t('carousel.next')}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function updateOptionsCarouselView(){
+  const root=document.getElementById('options-carousel');
+  if(!root)return;
+  root.querySelectorAll('.options-carousel-slide').forEach(slide=>{
+    const slideIndex=parseInt(slide.dataset.slide,10);
+    slide.hidden=slideIndex!==optionsCarouselIndex;
+  });
+  const backBtn=root.querySelector('.options-carousel-back');
+  const nextArrow=root.querySelector('.options-carousel-next-arrow');
+  const nextIntro=root.querySelector('.options-carousel-next-intro');
+  const hint=root.querySelector('.options-carousel-hint');
+  if(backBtn)backBtn.hidden=optionsCarouselIndex===0;
+  if(nextArrow)nextArrow.hidden=optionsCarouselIndex===0||optionsCarouselIndex===5;
+  if(nextIntro)nextIntro.hidden=optionsCarouselIndex!==0;
+  if(hint)hint.classList.toggle('is-dismissed',optionsCarouselHintDismissed);
+}
+
+function goOptionsCarousel(delta){
+  const next=Math.max(0,Math.min(5,optionsCarouselIndex+delta));
+  if(next===optionsCarouselIndex)return;
+  if(delta>0&&optionsCarouselIndex===0)optionsCarouselHintDismissed=true;
+  optionsCarouselIndex=next;
+  updateOptionsCarouselView();
+}
+
+function goOptionsCarouselIntroNext(){
+  optionsCarouselHintDismissed=true;
+  goOptionsCarousel(1);
 }
 
 function renderOptionsPage(){
-  let loggedIn=false;
-  try{
-    const raw=localStorage.getItem(SHUFFLR_SUPABASE_SESSION_KEY);
-    loggedIn=!!(raw&&JSON.parse(raw)?.userId);
-  }catch(e){}
-  const greetingText=loggedIn?t('greeting.hello'):t('greeting.signIn');
   const lang=getSavedLanguage();
   const langButtons=SHUFFLR_LANGUAGES.map(l=>(
     `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" data-lang-code="${l.code}" onclick="setLanguage('${l.code}')">${l.label}</button>`
   )).join('');
-  const helpKeys=[
-    {step:'help.step1',title:'help.title1',desc:'help.desc1'},
-    {step:'help.step2',title:'help.title2',desc:'help.desc2'},
-    {step:'help.step3',title:'help.title3',desc:'help.desc3'},
-    {step:'help.step4',title:'help.title4',desc:'help.desc4'},
-  ];
-  const helpItems=helpKeys.map(k=>(
-    `<div class="options-help-item">
-      <div class="options-help-step" data-i18n="${k.step}">${t(k.step)}</div>
-      <div class="options-help-title" data-i18n="${k.title}">${t(k.title)}</div>
-      <div class="options-help-desc" data-i18n="${k.desc}">${t(k.desc)}</div>
-    </div>`
-  )).join('');
 
   const html=`<div class="options-page">
-    <div class="options-greeting-card">
-      <div class="options-greeting-smiley">${YOUR_SHOWS_SMILEY_SVG}</div>
-      <div class="options-greeting-text">${greetingText}</div>
-    </div>
+    ${buildOptionsCarouselHtml()}
 
     <div class="options-section">
       <div class="options-section-title" data-i18n="options.language">${t('options.language')}</div>
@@ -3219,17 +3269,10 @@ function renderOptionsPage(){
         <button type="button" class="options-btn options-btn-primary" onclick="submitOptionsFeedback()" data-i18n="btn.submit">${t('btn.submit')}</button>
       </div>
     </div>
-
-    <div class="options-section">
-      <div class="options-section-title" data-i18n="options.help">${t('options.help')}</div>
-      <div class="options-section-body">
-        <div class="options-help-list">${helpItems}</div>
-        <button type="button" class="options-btn options-btn-primary" onclick="showHelp()" data-i18n="btn.replayOnboarding">${t('btn.replayOnboarding')}</button>
-      </div>
-    </div>
   </div>`;
 
   showMain(html);
+  updateOptionsCarouselView();
   document.body.focus();
   const s = document.querySelector('input[placeholder*="Search"]');
   if (s) { s.setAttribute('disabled', 'true'); setTimeout(() => s.removeAttribute('disabled'), 500); }
