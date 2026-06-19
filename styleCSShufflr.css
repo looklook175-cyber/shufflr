@@ -1224,3 +1224,39 @@ body.light-mode .sidebar::-webkit-scrollbar-corner,
 body.light-mode .main::-webkit-scrollbar-corner {
   background: #f5f5f5;
 }
+
+/* ============================================================
+   FOUNTAIN OF DREAMS BACKGROUND — easy to remove: delete from
+   here to END FOUNTAIN OF DREAMS
+   ============================================================ */
+
+#content-area {
+  position: relative;
+  overflow: hidden;
+}
+
+#fountain-canvas {
+  position: fixed;
+  top: 0;
+  left: 210px;
+  width: calc(100% - 210px);
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#content-area::after {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  left: 210px;
+  width: calc(100% - 210px);
+  height: 220px;
+  background: radial-gradient(ellipse at 50% 100%, rgba(120, 40, 200, 0.18) 0%, rgba(35, 168, 224, 0.07) 55%, transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ============================================================
+   END FOUNTAIN OF DREAMS
+   ============================================================ */
