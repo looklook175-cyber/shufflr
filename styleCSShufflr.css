@@ -114,7 +114,7 @@ body.light-mode .rating-bar{background:#ffffff;border-color:#dddddd;}
 body.light-mode .pl-card{background:#ffffff;border-color:#dddddd;}
 body.light-mode .pl-card-header{border-color:#dddddd;}
 body.light-mode .pl-show-row{border-color:#dddddd;}
-body.light-mode .pl-playlist-info{background:rgba(0,0,0,0.9);border-color:#23A8E0;color:#fff;}
+body.light-mode .pl-playlist-info{background:#f0f0f0;border-color:#23A8E0;color:#111;}
 body.light-mode .shuffle-result-card{background:#ffffff;border-color:#23A8E0;}
 body.light-mode .shuffle-result-body{background:#ffffff;}
 body.light-mode .ep-name{color:#111111;}
@@ -434,7 +434,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-show-row.drag-over{border-top:2px solid var(--blue);}
 .drag-handle{color:var(--muted);font-size:0.9rem;cursor:grab;padding:0 6px;flex-shrink:0;user-select:none;}
 .pl-empty{padding:16px;font-family:var(--font-system);font-size:13px;color:var(--body-text);text-align:center;}
-.pl-playlist-info{margin-top:12px;padding:10px 16px;background:rgba(0,0,0,0.9);border:1px solid #23A8E0;border-radius:8px;font-family:monospace;font-size:11px;color:#fff;line-height:1.6;}
+.pl-playlist-info{display:inline-block;width:fit-content;max-width:100%;margin-top:12px;padding:10px 16px;background:var(--content);border:1px solid #23A8E0;border-radius:8px;font-family:monospace;font-size:11px;color:#fff;line-height:1.6;}
 .pl-delete-btn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:0.7rem;padding:4px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;}
 .pl-delete-btn:hover{border-color:#ff4455;color:#ff4455;}
 
