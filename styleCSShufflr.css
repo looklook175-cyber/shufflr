@@ -340,7 +340,9 @@ body.light-mode .queue-ep-title{color:#111;}
 .options-greeting-card{display:flex;align-items:center;gap:16px;padding:16px 18px;background:var(--surface2);border:1px solid #23A8E0;border-radius:10px;margin-bottom:28px;box-shadow:0 0 16px rgba(35,168,224,0.12);}
 .options-greeting-smiley{flex-shrink:0;display:flex;align-items:center;justify-content:center;}
 .options-greeting-smiley svg{display:block;}
-.options-greeting-text{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#23A8E0;line-height:1.7;text-shadow:0 0 8px var(--blue-glow);}
+.options-greeting-text{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#23A8E0;line-height:1.7;text-shadow:0 0 8px var(--blue-glow);word-break:break-word;}
+.nav-item span{line-height:1.4;}
+.sidebar-label{word-break:break-word;}
 .options-section{margin-bottom:28px;padding-bottom:24px;border-bottom:1px solid var(--border);}
 .options-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
 .options-section-title{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#23A8E0;letter-spacing:2px;margin-bottom:14px;text-shadow:0 0 8px var(--blue-glow);}

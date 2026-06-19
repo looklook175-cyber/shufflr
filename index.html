@@ -58,8 +58,8 @@
 <!-- CONNECT MODAL -->
 <div id="connect-modal">
   <div class="connect-card">
-    <div class="connect-title">YOUR SERVICE</div>
-    <div class="connect-sub">Pick the service you use. Episode links will open there.</div>
+    <div class="connect-title" data-i18n="connect.yourService">YOUR SERVICE</div>
+    <div class="connect-sub" data-i18n="connect.pickService">Pick the service you use. Episode links will open there.</div>
     <div class="service-list" id="service-list">
       <div class="service-row" data-svc="netflix"><div><div class="service-name">Netflix</div></div><button class="service-connect-btn" onclick="selectService(this,'netflix')">Connect</button></div>
       <div class="service-row" data-svc="max"><div><div class="service-name">Max</div></div><button class="service-connect-btn" onclick="selectService(this,'max')">Connect</button></div>
@@ -72,22 +72,22 @@
       <div class="service-row" data-svc="appletv"><div><div class="service-name">Apple TV+</div></div><button class="service-connect-btn" onclick="selectService(this,'appletv')">Connect</button></div>
       <div class="service-row" data-svc="crunchyroll"><div><div class="service-name">Crunchyroll</div></div><button class="service-connect-btn" onclick="selectService(this,'crunchyroll')">Connect</button></div>
     </div>
-    <button class="close-modal-btn" onclick="closeConnect()">Done</button>
+    <button class="close-modal-btn" onclick="closeConnect()" data-i18n="connect.done">Done</button>
   </div>
 </div>
 
 <!-- PLAYLIST MODAL -->
 <div id="playlist-modal">
   <div class="playlist-card">
-    <div class="playlist-card-title">ADD TO PLAYLIST</div>
-    <div class="playlist-card-sub">Choose a playlist or create a new one.</div>
+    <div class="playlist-card-title" data-i18n="modal.addToPlaylist">ADD TO PLAYLIST</div>
+    <div class="playlist-card-sub" data-i18n="modal.choosePlaylist">Choose a playlist or create a new one.</div>
     <div id="playlist-max-notice" class="playlist-max-notice" hidden></div>
     <div class="playlist-modal-list" id="playlist-modal-list"></div>
     <div class="new-playlist-wrap">
       <input class="new-playlist-input" id="new-playlist-input" placeholder="New playlist name..." />
-      <button class="create-playlist-btn" onclick="createPlaylist()">Create</button>
+      <button class="create-playlist-btn" onclick="createPlaylist()" data-i18n="btn.create">Create</button>
     </div>
-    <button class="close-modal-btn" onclick="closePlaylistModal()">Cancel</button>
+    <button class="close-modal-btn" onclick="closePlaylistModal()" data-i18n="btn.cancel">Cancel</button>
   </div>
 </div>
 
@@ -124,7 +124,7 @@
   <div class="timer-progress"><div class="timer-progress-fill" id="timer-progress-fill" style="width:100%"></div></div>
   <div style="display:flex;align-items:center;justify-content:space-between;">
     <div class="timer-phase-label" id="timer-sub-label">Opening your service now...</div>
-    <button class="timer-cancel" onclick="cancelTimer()">Cancel</button>
+    <button class="timer-cancel" onclick="cancelTimer()" data-i18n="btn.cancel">Cancel</button>
   </div>
 </div>
 
@@ -135,7 +135,7 @@
 <div class="topbar" style="position:relative;z-index:100;">
   <div class="logo-box" onclick="goHome()" style="cursor:pointer;">SHUFFLR</div>
   <div class="search-wrap">
-    <input class="search-input" id="search-input" type="text" placeholder="Search shows or movies..." autocomplete="off" oninput="handleSearch()" onfocus="onSearchFocus()" />
+    <input class="search-input" id="search-input" type="text" data-i18n-placeholder="search.placeholder" placeholder="Search shows or movies..." autocomplete="off" oninput="handleSearch()" onfocus="onSearchFocus()" />
     <button class="shuffle-search-btn" onclick="triggerShuffle()" title="Shuffle (Space)">
       <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
@@ -144,7 +144,7 @@
     </button>
     <div class="dropdown" id="dropdown" style="z-index:101;"></div>
   </div>
-  <button class="theme-btn" onclick="toggleTheme()" id="theme-btn">Dark</button>
+  <button class="theme-btn" onclick="toggleTheme()" id="theme-btn" data-i18n="theme.dark">Dark</button>
 </div>
 
 
@@ -152,18 +152,18 @@
 <div class="app-layout">
   <div class="sidebar">
     <div class="sidebar-section">
-      <div class="sidebar-label">Browse</div>
-      <div class="nav-item active" id="nav-shows" onclick="setNav('shows')"><div class="nav-dot"></div>Shows</div>
-      <div class="nav-item" id="nav-playlist" onclick="setNav('playlist')"><div class="nav-dot"></div>Playlist</div>
-      <div class="nav-item" id="nav-options" onclick="setNav('options')"><div class="nav-dot"></div>Options</div>
+      <div class="sidebar-label" data-i18n="sidebar.browse">Browse</div>
+      <div class="nav-item active" id="nav-shows" onclick="setNav('shows')"><div class="nav-dot"></div><span data-i18n="nav.shows">Shows</span></div>
+      <div class="nav-item" id="nav-playlist" onclick="setNav('playlist')"><div class="nav-dot"></div><span data-i18n="nav.playlist">Playlist</span></div>
+      <div class="nav-item" id="nav-options" onclick="setNav('options')"><div class="nav-dot"></div><span data-i18n="nav.options">Options</span></div>
     </div>
     <div id="seasons-sidebar-block" style="display:none;">
       <div class="sidebar-divider"></div>
-      <div class="sidebar-section"><div class="sidebar-label">Seasons</div></div>
+      <div class="sidebar-section"><div class="sidebar-label" data-i18n="sidebar.seasons">Seasons</div></div>
       <div id="seasons-list"></div>
     </div>
     <div class="connect-wrap">
-      <button class="connect-btn" id="service-connect-btn" onclick="openConnect()">Connect Your Service</button>
+      <button class="connect-btn" id="service-connect-btn" onclick="openConnect()" data-i18n="connect.connectYourService">Connect Your Service</button>
     </div>
   </div>
   <div class="main" id="main-content">

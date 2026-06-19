@@ -14,6 +14,246 @@ async function detectRegion(){
   }
 }
 const IMG='https://image.tmdb.org/t/p/';
+const SHUFFLR_TRANSLATIONS={
+en:{
+'nav.shows':'Shows','nav.playlist':'Playlist','nav.options':'Options',
+'sidebar.browse':'Browse','sidebar.seasons':'Seasons',
+'search.placeholder':'Search shows or movies...','search.recentLabel':'Recent Searches',
+'section.yourPlaylists':'-- YOUR PLAYLISTS --','section.yourShows':'-- YOUR SHOWS --',
+'section.recentlyWatchedMax':'-- RECENTLY WATCHED ON MAX --','section.myPlaylists':'MY PLAYLISTS',
+'section.becauseYouWatched':'-- BECAUSE YOU WATCHED',
+'btn.logOut':'Log Out','btn.save':'Save','btn.play':'Play','btn.edit':'Edit','btn.addShow':'Add Show',
+'btn.createNewPlaylist':'Create New Playlist','btn.shuffle':'Shuffle','btn.back':'Back',
+'btn.logIn':'Log In','btn.signUp':'Sign Up','btn.delete':'Delete','btn.share':'Share',
+'btn.create':'Create','btn.cancel':'Cancel','btn.confirm':'Confirm','btn.done':'Done','btn.next':'NEXT',
+'btn.submit':'Submit','btn.replayOnboarding':'Replay Onboarding',
+'options.language':'LANGUAGE','options.account':'ACCOUNT','options.feedback':'FEEDBACK','options.help':'HELP',
+'options.languageDesc':"Choose Shufflr's display language.",
+'options.feedbackDesc':'Got an idea or found a bug? We want to hear it.',
+'options.feedbackPlaceholder':'Type your feedback here...',
+'greeting.hello':'HELLO','greeting.signIn':'SIGN IN TO GET STARTED',
+'empty.noPlaylists':'No playlists yet.',
+'empty.noPlaylistsHint':'On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.',
+'empty.noPlaylistsPlaylistTab':'No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.',
+'empty.noRecentlyWatched':'Start watching on Max to see your history here.',
+'empty.noEpisodes':'No episodes found. Try a lower rating.','empty.nothingAdded':'Nothing added yet.',
+'empty.loading':'LOADING...',
+'auth.email':'Email','auth.password':'Password',
+'theme.dark':'Dark','theme.light':'Light',
+'connect.connectYourService':'Connect Your Service','connect.connected':'Connected','connect.connect':'Connect',
+'connect.yourService':'YOUR SERVICE','connect.pickService':'Pick the service you use. Episode links will open there.',
+'connect.done':'Done',
+'pl.newPlaylistPlaceholder':'New playlist name...','pl.addShowHint':'Add shows directly from Max using the + button in the Shufflr dropdown',
+'pl.show':'show','pl.shows':'shows','pl.item':'item','pl.items':'items','pl.fullShow':'Full Show',
+'modal.addToPlaylist':'ADD TO PLAYLIST','modal.choosePlaylist':'Choose a playlist or create a new one.',
+'toast.feedbackSent':'FEEDBACK SENT!','toast.playlistCopied':'PLAYLIST COPIED!',
+'label.upNext':'▶ UP NEXT','label.movie':'MOVIE','btn.readMore':'Read more','btn.readLess':'Read less',
+'ob.step1':'STEP 1 OF 4','ob.title1':'SEARCH ANY SHOW OR MOVIE','ob.desc1':"Shufflr doesn't stream. We help you decide. Type any show or movie into the search bar and select it to load all its episodes instantly.",
+'ob.step2':'STEP 2 OF 4','ob.title2':'HIT SHUFFLE','ob.desc2':'Press the shuffle arrows or hit Space on your keyboard to get 3 random episode picks from your show.',
+'ob.step3':'STEP 3 OF 4','ob.title3':'FILTER & BUILD PLAYLISTS','ob.desc3':'Use the rating slider to filter top episodes, block seasons, and build playlists across multiple shows.',
+'ob.step4':'STEP 4 OF 4','ob.title4':'PICK YOUR SERVICE','ob.desc4':'Which streaming service do you use most? Episode links will open there. You can change this any time in settings.',
+'drawer.close':'Close','drawer.cancelAdd':'Cancel',
+},
+es:{
+'nav.shows':'Series','nav.playlist':'Lista','nav.options':'Opciones',
+'sidebar.browse':'Explorar','sidebar.seasons':'Temporadas',
+'search.placeholder':'Buscar series o películas...','search.recentLabel':'Búsquedas recientes',
+'section.yourPlaylists':'-- TUS LISTAS --','section.yourShows':'-- TUS SERIES --',
+'section.recentlyWatchedMax':'-- VISTO RECIENTEMENTE EN MAX --','section.myPlaylists':'MIS LISTAS',
+'section.becauseYouWatched':'-- PORQUE VISTE',
+'btn.logOut':'Cerrar sesión','btn.save':'Guardar','btn.play':'Reproducir','btn.edit':'Editar','btn.addShow':'Añadir serie',
+'btn.createNewPlaylist':'Crear nueva lista','btn.shuffle':'Aleatorio','btn.back':'Volver',
+'btn.logIn':'Iniciar sesión','btn.signUp':'Registrarse','btn.delete':'Eliminar','btn.share':'Compartir',
+'btn.create':'Crear','btn.cancel':'Cancelar','btn.confirm':'Confirmar','btn.done':'Listo','btn.next':'SIGUIENTE',
+'btn.submit':'Enviar','btn.replayOnboarding':'Repetir tutorial',
+'options.language':'IDIOMA','options.account':'CUENTA','options.feedback':'COMENTARIOS','options.help':'AYUDA',
+'options.languageDesc':'Elige el idioma de Shufflr.',
+'options.feedbackDesc':'¿Tienes una idea o encontraste un error? Queremos saberlo.',
+'options.feedbackPlaceholder':'Escribe tus comentarios aquí...',
+'greeting.hello':'HOLA','greeting.signIn':'INICIA SESIÓN PARA EMPEZAR',
+'empty.noPlaylists':'Aún no hay listas.',
+'empty.noPlaylistsHint':'En Max, pulsa el botón Shufflr y usa el menú de listas para crear una. Aparecerá aquí automáticamente.',
+'empty.noPlaylistsPlaylistTab':'Aún no hay listas.<br>Crea una arriba y añade series desde Max con el botón + del menú Shufflr.',
+'empty.noRecentlyWatched':'Empieza a ver en Max para ver tu historial aquí.',
+'empty.noEpisodes':'No se encontraron episodios. Prueba con una calificación más baja.','empty.nothingAdded':'Nada añadido aún.',
+'empty.loading':'CARGANDO...',
+'auth.email':'Correo','auth.password':'Contraseña',
+'theme.dark':'Oscuro','theme.light':'Claro',
+'connect.connectYourService':'Conectar tu servicio','connect.connected':'Conectado','connect.connect':'Conectar',
+'connect.yourService':'TU SERVICIO','connect.pickService':'Elige el servicio que usas. Los enlaces se abrirán allí.',
+'connect.done':'Listo',
+'pl.newPlaylistPlaceholder':'Nombre de la nueva lista...','pl.addShowHint':'Añade series desde Max con el botón + del menú Shufflr',
+'pl.show':'serie','pl.shows':'series','pl.item':'elemento','pl.items':'elementos','pl.fullShow':'Serie completa',
+'modal.addToPlaylist':'AÑADIR A LISTA','modal.choosePlaylist':'Elige una lista o crea una nueva.',
+'toast.feedbackSent':'¡COMENTARIO ENVIADO!','toast.playlistCopied':'¡LISTA COPIADA!',
+'label.upNext':'▶ A CONTINUACIÓN','label.movie':'PELÍCULA','btn.readMore':'Leer más','btn.readLess':'Leer menos',
+'ob.step1':'PASO 1 DE 4','ob.title1':'BUSCA CUALQUIER SERIE O PELÍCULA','ob.desc1':'Shufflr no transmite. Te ayudamos a decidir. Escribe una serie o película en la barra de búsqueda y selecciónala para cargar todos sus episodios al instante.',
+'ob.step2':'PASO 2 DE 4','ob.title2':'PULSA ALEATORIO','ob.desc2':'Pulsa las flechas de aleatorio o la tecla Espacio para obtener 3 episodios al azar de tu serie.',
+'ob.step3':'PASO 3 DE 4','ob.title3':'FILTRA Y CREA LISTAS','ob.desc3':'Usa el control de calificación para filtrar episodios, bloquear temporadas y crear listas con varias series.',
+'ob.step4':'PASO 4 DE 4','ob.title4':'ELIGE TU SERVICIO','ob.desc4':'¿Qué servicio de streaming usas más? Los enlaces se abrirán allí. Puedes cambiarlo en cualquier momento en ajustes.',
+'drawer.close':'Cerrar','drawer.cancelAdd':'Cancelar',
+},
+fr:{
+'nav.shows':'Séries','nav.playlist':'Playlist','nav.options':'Options',
+'sidebar.browse':'Parcourir','sidebar.seasons':'Saisons',
+'search.placeholder':'Rechercher séries ou films...','search.recentLabel':'Recherches récentes',
+'section.yourPlaylists':'-- VOS PLAYLISTS --','section.yourShows':'-- VOS SÉRIES --',
+'section.recentlyWatchedMax':'-- RÉCEMMENT VU SUR MAX --','section.myPlaylists':'MES PLAYLISTS',
+'section.becauseYouWatched':'-- PARCE QUE VOUS AVEZ VU',
+'btn.logOut':'Déconnexion','btn.save':'Enregistrer','btn.play':'Lire','btn.edit':'Modifier','btn.addShow':'Ajouter une série',
+'btn.createNewPlaylist':'Créer une playlist','btn.shuffle':'Mélanger','btn.back':'Retour',
+'btn.logIn':'Connexion','btn.signUp':'Inscription','btn.delete':'Supprimer','btn.share':'Partager',
+'btn.create':'Créer','btn.cancel':'Annuler','btn.confirm':'Confirmer','btn.done':'Terminé','btn.next':'SUIVANT',
+'btn.submit':'Envoyer','btn.replayOnboarding':'Revoir le tutoriel',
+'options.language':'LANGUE','options.account':'COMPTE','options.feedback':'COMMENTAIRES','options.help':'AIDE',
+'options.languageDesc':"Choisissez la langue d'affichage de Shufflr.",
+'options.feedbackDesc':'Une idée ou un bug ? Dites-le nous.',
+'options.feedbackPlaceholder':'Écrivez vos commentaires ici...',
+'greeting.hello':'BONJOUR','greeting.signIn':'CONNECTEZ-VOUS POUR COMMENCER',
+'empty.noPlaylists':'Pas encore de playlists.',
+'empty.noPlaylistsHint':'Sur Max, appuyez sur Shufflr et utilisez le menu playlist pour en créer une. Elle apparaîtra ici automatiquement.',
+'empty.noPlaylistsPlaylistTab':'Pas encore de playlists.<br>Créez-en une ci-dessus, puis ajoutez des séries depuis Max avec le bouton + du menu Shufflr.',
+'empty.noRecentlyWatched':'Regardez sur Max pour voir votre historique ici.',
+'empty.noEpisodes':'Aucun épisode trouvé. Essayez une note plus basse.','empty.nothingAdded':'Rien ajouté pour l\'instant.',
+'empty.loading':'CHARGEMENT...',
+'auth.email':'E-mail','auth.password':'Mot de passe',
+'theme.dark':'Sombre','theme.light':'Clair',
+'connect.connectYourService':'Connecter votre service','connect.connected':'Connecté','connect.connect':'Connecter',
+'connect.yourService':'VOTRE SERVICE','connect.pickService':'Choisissez le service que vous utilisez. Les liens s\'ouvriront là.',
+'connect.done':'Terminé',
+'pl.newPlaylistPlaceholder':'Nom de la nouvelle playlist...','pl.addShowHint':'Ajoutez des séries depuis Max avec le bouton + du menu Shufflr',
+'pl.show':'série','pl.shows':'séries','pl.item':'élément','pl.items':'éléments','pl.fullShow':'Série complète',
+'modal.addToPlaylist':'AJOUTER À LA PLAYLIST','modal.choosePlaylist':'Choisissez une playlist ou créez-en une nouvelle.',
+'toast.feedbackSent':'COMMENTAIRE ENVOYÉ !','toast.playlistCopied':'PLAYLIST COPIÉE !',
+'label.upNext':'▶ À SUIVRE','label.movie':'FILM','btn.readMore':'Lire plus','btn.readLess':'Lire moins',
+'ob.step1':'ÉTAPE 1 SUR 4','ob.title1':'RECHERCHEZ UNE SÉRIE OU UN FILM','ob.desc1':'Shufflr ne diffuse pas. Nous vous aidons à choisir. Tapez une série ou un film dans la barre de recherche pour charger tous ses épisodes instantanément.',
+'ob.step2':'ÉTAPE 2 SUR 4','ob.title2':'APPUYEZ SUR MÉLANGER','ob.desc2':'Appuyez sur les flèches de mélange ou la barre d\'espace pour obtenir 3 épisodes aléatoires.',
+'ob.step3':'ÉTAPE 3 SUR 4','ob.title3':'FILTRER ET CRÉER DES PLAYLISTS','ob.desc3':'Utilisez le curseur de note pour filtrer les épisodes, bloquer des saisons et créer des playlists.',
+'ob.step4':'ÉTAPE 4 SUR 4','ob.title4':'CHOISISSEZ VOTRE SERVICE','ob.desc4':'Quel service utilisez-vous le plus ? Les liens s\'ouvriront là. Vous pouvez changer à tout moment dans les réglages.',
+'drawer.close':'Fermer','drawer.cancelAdd':'Annuler',
+},
+pt:{
+'nav.shows':'Séries','nav.playlist':'Playlist','nav.options':'Opções',
+'sidebar.browse':'Explorar','sidebar.seasons':'Temporadas',
+'search.placeholder':'Buscar séries ou filmes...','search.recentLabel':'Pesquisas recentes',
+'section.yourPlaylists':'-- SUAS PLAYLISTS --','section.yourShows':'-- SUAS SÉRIES --',
+'section.recentlyWatchedMax':'-- ASSISTIDO RECENTEMENTE NO MAX --','section.myPlaylists':'MINHAS PLAYLISTS',
+'section.becauseYouWatched':'-- PORQUE VOCÊ ASSISTIU',
+'btn.logOut':'Sair','btn.save':'Salvar','btn.play':'Reproduzir','btn.edit':'Editar','btn.addShow':'Adicionar série',
+'btn.createNewPlaylist':'Criar nova playlist','btn.shuffle':'Aleatório','btn.back':'Voltar',
+'btn.logIn':'Entrar','btn.signUp':'Cadastrar','btn.delete':'Excluir','btn.share':'Compartilhar',
+'btn.create':'Criar','btn.cancel':'Cancelar','btn.confirm':'Confirmar','btn.done':'Concluído','btn.next':'PRÓXIMO',
+'btn.submit':'Enviar','btn.replayOnboarding':'Rever tutorial',
+'options.language':'IDIOMA','options.account':'CONTA','options.feedback':'FEEDBACK','options.help':'AJUDA',
+'options.languageDesc':'Escolha o idioma de exibição do Shufflr.',
+'options.feedbackDesc':'Tem uma ideia ou encontrou um bug? Queremos saber.',
+'options.feedbackPlaceholder':'Digite seu feedback aqui...',
+'greeting.hello':'OLÁ','greeting.signIn':'ENTRE PARA COMEÇAR',
+'empty.noPlaylists':'Nenhuma playlist ainda.',
+'empty.noPlaylistsHint':'No Max, toque no botão Shufflr e use o menu de playlists para criar uma. Ela aparecerá aqui automaticamente.',
+'empty.noPlaylistsPlaylistTab':'Nenhuma playlist ainda.<br>Crie uma acima e adicione séries do Max com o botão + do menu Shufflr.',
+'empty.noRecentlyWatched':'Comece a assistir no Max para ver seu histórico aqui.',
+'empty.noEpisodes':'Nenhum episódio encontrado. Tente uma nota mais baixa.','empty.nothingAdded':'Nada adicionado ainda.',
+'empty.loading':'CARREGANDO...',
+'auth.email':'E-mail','auth.password':'Senha',
+'theme.dark':'Escuro','theme.light':'Claro',
+'connect.connectYourService':'Conectar seu serviço','connect.connected':'Conectado','connect.connect':'Conectar',
+'connect.yourService':'SEU SERVIÇO','connect.pickService':'Escolha o serviço que você usa. Os links abrirão lá.',
+'connect.done':'Concluído',
+'pl.newPlaylistPlaceholder':'Nome da nova playlist...','pl.addShowHint':'Adicione séries do Max com o botão + do menu Shufflr',
+'pl.show':'série','pl.shows':'séries','pl.item':'item','pl.items':'itens','pl.fullShow':'Série completa',
+'modal.addToPlaylist':'ADICIONAR À PLAYLIST','modal.choosePlaylist':'Escolha uma playlist ou crie uma nova.',
+'toast.feedbackSent':'FEEDBACK ENVIADO!','toast.playlistCopied':'PLAYLIST COPIADA!',
+'label.upNext':'▶ A SEGUIR','label.movie':'FILME','btn.readMore':'Ler mais','btn.readLess':'Ler menos',
+'ob.step1':'PASSO 1 DE 4','ob.title1':'BUSQUE QUALQUER SÉRIE OU FILME','ob.desc1':'O Shufflr não transmite. Ajudamos você a decidir. Digite uma série ou filme na barra de busca para carregar todos os episódios instantaneamente.',
+'ob.step2':'PASSO 2 DE 4','ob.title2':'TOQUE EM ALEATÓRIO','ob.desc2':'Pressione as setas de aleatório ou a barra de espaço para obter 3 episódios aleatórios.',
+'ob.step3':'PASSO 3 DE 4','ob.title3':'FILTRAR E CRIAR PLAYLISTS','ob.desc3':'Use o controle de nota para filtrar episódios, bloquear temporadas e criar playlists.',
+'ob.step4':'PASSO 4 DE 4','ob.title4':'ESCOLHA SEU SERVIÇO','ob.desc4':'Qual serviço você mais usa? Os links abrirão lá. Você pode mudar a qualquer momento nas configurações.',
+'drawer.close':'Fechar','drawer.cancelAdd':'Cancelar',
+},
+ja:{
+'nav.shows':'番組','nav.playlist':'プレイリスト','nav.options':'設定',
+'sidebar.browse':'閲覧','sidebar.seasons':'シーズン',
+'search.placeholder':'番組や映画を検索...','search.recentLabel':'最近の検索',
+'section.yourPlaylists':'-- あなたのプレイリスト --','section.yourShows':'-- あなたの番組 --',
+'section.recentlyWatchedMax':'-- MAXで最近視聴 --','section.myPlaylists':'マイプレイリスト',
+'section.becauseYouWatched':'-- 視聴履歴に基づくおすすめ',
+'btn.logOut':'ログアウト','btn.save':'保存','btn.play':'再生','btn.edit':'編集','btn.addShow':'番組を追加',
+'btn.createNewPlaylist':'新規プレイリスト','btn.shuffle':'シャッフル','btn.back':'戻る',
+'btn.logIn':'ログイン','btn.signUp':'登録','btn.delete':'削除','btn.share':'共有',
+'btn.create':'作成','btn.cancel':'キャンセル','btn.confirm':'確認','btn.done':'完了','btn.next':'次へ',
+'btn.submit':'送信','btn.replayOnboarding':'チュートリアルを再生',
+'options.language':'言語','options.account':'アカウント','options.feedback':'フィードバック','options.help':'ヘルプ',
+'options.languageDesc':'Shufflrの表示言語を選択してください。',
+'options.feedbackDesc':'アイデアやバグを見つけましたか？お知らせください。',
+'options.feedbackPlaceholder':'フィードバックを入力...',
+'greeting.hello':'こんにちは','greeting.signIn':'ログインして始める',
+'empty.noPlaylists':'プレイリストはまだありません。',
+'empty.noPlaylistsHint':'MaxでShufflrボタンを押し、プレイリストメニューから作成してください。ここに自動的に表示されます。',
+'empty.noPlaylistsPlaylistTab':'プレイリストはまだありません。<br>上で作成し、MaxのShufflrメニューの+ボタンから番組を追加してください。',
+'empty.noRecentlyWatched':'Maxで視聴を始めると、履歴がここに表示されます。',
+'empty.noEpisodes':'エピソードが見つかりません。評価を下げてみてください。','empty.nothingAdded':'まだ何も追加されていません。',
+'empty.loading':'読み込み中...',
+'auth.email':'メール','auth.password':'パスワード',
+'theme.dark':'ダーク','theme.light':'ライト',
+'connect.connectYourService':'サービスを接続','connect.connected':'接続済み','connect.connect':'接続',
+'connect.yourService':'サービス','connect.pickService':'使用するサービスを選んでください。リンクはそこで開きます。',
+'connect.done':'完了',
+'pl.newPlaylistPlaceholder':'新しいプレイリスト名...','pl.addShowHint':'MaxのShufflrメニューの+ボタンから番組を追加',
+'pl.show':'番組','pl.shows':'番組','pl.item':'項目','pl.items':'項目','pl.fullShow':'全話',
+'modal.addToPlaylist':'プレイリストに追加','modal.choosePlaylist':'プレイリストを選ぶか新規作成してください。',
+'toast.feedbackSent':'送信しました！','toast.playlistCopied':'コピーしました！',
+'label.upNext':'▶ 次のエピソード','label.movie':'映画','btn.readMore':'続きを読む','btn.readLess':'折りたたむ',
+'ob.step1':'ステップ 1/4','ob.title1':'番組や映画を検索','ob.desc1':'Shufflrは配信しません。選ぶお手伝いをします。検索バーに入力して、全エピソードをすぐ読み込みましょう。',
+'ob.step2':'ステップ 2/4','ob.title2':'シャッフルを押す','ob.desc2':'シャッフル矢印またはスペースキーで、ランダムに3話選びます。',
+'ob.step3':'ステップ 3/4','ob.title3':'フィルターとプレイリスト','ob.desc3':'評価スライダーでエピソードを絞り、シーズンをブロックし、プレイリストを作れます。',
+'ob.step4':'ステップ 4/4','ob.title4':'サービスを選択','ob.desc4':'よく使うストリーミングサービスは？リンクはそこで開きます。設定でいつでも変更できます。',
+'drawer.close':'閉じる','drawer.cancelAdd':'キャンセル',
+},
+};
+
+function getSavedLanguage(){
+  return localStorage.getItem('shufflrLanguage')||localStorage.getItem('shufflr_language')||'en';
+}
+
+function t(key){
+  const lang=getSavedLanguage();
+  const table=SHUFFLR_TRANSLATIONS[lang]||SHUFFLR_TRANSLATIONS.en;
+  return table[key]??SHUFFLR_TRANSLATIONS.en[key]??key;
+}
+
+function applyStaticTranslations(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.getAttribute('data-i18n'));});
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{el.placeholder=t(el.getAttribute('data-i18n-placeholder'));});
+  const search=document.getElementById('search-input');
+  if(search&&!search.hasAttribute('data-i18n-placeholder'))search.placeholder=t('search.placeholder');
+  const themeBtn=document.getElementById('theme-btn');
+  if(themeBtn)themeBtn.textContent=t(isLightMode?'theme.light':'theme.dark');
+  if(typeof updateConnectBtnLabel==='function')updateConnectBtnLabel();
+  document.querySelectorAll('#service-list .service-connect-btn').forEach(b=>{
+    b.textContent=b.classList.contains('connected')?t('connect.connected'):t('connect.connect');
+  });
+}
+
+function rerenderCurrentTab(){
+  if(currentNav==='playlist')renderPlaylistPage();
+  else if(currentNav==='options')renderOptionsPage();
+  else if(currentNav==='shows'){
+    if(!currentShow)renderHomeScreen('shows');
+    else if(currentType==='movie')renderMovieMain(currentShow);
+    else renderMain();
+  }
+}
+
+function getObSteps(){
+  return[
+    {step:t('ob.step1'),title:t('ob.title1'),desc:t('ob.desc1')},
+    {step:t('ob.step2'),title:t('ob.title2'),desc:t('ob.desc2')},
+    {step:t('ob.step3'),title:t('ob.title3'),desc:t('ob.desc3')},
+    {step:t('ob.step4'),title:t('ob.title4'),desc:t('ob.desc4'),picker:true},
+  ];
+}
+
 let currentShow=null,currentType='tv',allSeasons=[],blockedSeasons=new Set();
 let selectedSeason=null,allEpisodes={},currentNav='shows';
 let minRating=0,searchTimer=null,isLightMode=false;
@@ -338,7 +578,7 @@ function buildYourShowsSectionHtml(section){
   const items=section.items||[];
   if(!items.length)return'';
 
-  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- YOUR SHOWS --</div><div class="h-scroll-wrap">`;
+  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div><div class="h-scroll-wrap">`;
   items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
     const showKey=getHomeShowDedupeKey(s);
     html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}">
@@ -533,8 +773,8 @@ async function buildYourPlaylistsHtml() {
   if (!displayPlaylists.length) {
     return `
     <div class="genre-section" style="margin-top:16px;">
-      <div class="genre-title">-- YOUR PLAYLISTS --</div>
-      <div class="pl-empty-state"><p>No playlists yet.</p><p>On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.</p></div>
+      <div class="genre-title">${t('section.yourPlaylists')}</div>
+      <div class="pl-empty-state"><p>${t('empty.noPlaylists')}</p><p>${t('empty.noPlaylistsHint')}</p></div>
     </div>`;
   }
 
@@ -542,7 +782,7 @@ async function buildYourPlaylistsHtml() {
     const index = allPlaylists.indexOf(playlist);
     const playlistItems = playlist.shows || [];
     const itemCount = playlistItems.length;
-    const countLabel = `${itemCount} show${itemCount !== 1 ? 's' : ''}`;
+    const countLabel = `${itemCount} ${itemCount !== 1 ? t('pl.shows') : t('pl.show')}`;
     const posterHtml = buildPlaylistCoverPosterHtml(playlist, index);
 
     return `
@@ -566,7 +806,7 @@ async function buildYourPlaylistsHtml() {
 
   return `
     <div class="genre-section pl-home-section" style="margin-top:16px;">
-      <div class="genre-title">-- YOUR PLAYLISTS --</div>
+      <div class="genre-title">${t('section.yourPlaylists')}</div>
       <div class="h-scroll-wrap">${cards}</div>
       <div class="pl-home-drawer" id="pl-home-drawer" hidden></div>
     </div>`;
@@ -575,12 +815,12 @@ async function buildYourPlaylistsHtml() {
 async function buildRecentlyWatchedOnMaxHtml(entries){
   if (!entries?.length) {
     return `<div class="genre-section" style="margin-top:16px;">
-      <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
-      <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">Start watching on Max to see your history here.</div></div>
+      <div class="genre-title">${t('section.recentlyWatchedMax')}</div>
+      <div class="empty-state" style="padding:12px 0;"><div class="empty-sub">${t('empty.noRecentlyWatched')}</div></div>
     </div>`;
   }
   return `<div class="genre-section" style="margin-top:16px;">
-    <div class="genre-title">-- RECENTLY WATCHED ON MAX --</div>
+    <div class="genre-title">${t('section.recentlyWatchedMax')}</div>
     <div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div>
   </div>`;
 }
@@ -628,6 +868,7 @@ window.addEventListener('load',()=>{
     setTimeout(()=>{
       ls.style.display='none';
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
+      applyStaticTranslations();
       updateConnectBtnLabel();
       renderHomeScreen('shows');
       // Ask for notification permission on load (like a normal app)
@@ -643,17 +884,11 @@ document.addEventListener('keydown',e=>{
 });
 
 // ONBOARDING
-const obSteps=[
-  {step:'STEP 1 OF 4',title:'SEARCH ANY SHOW OR MOVIE',desc:"Shufflr doesn't stream. We help you decide. Type any show or movie into the search bar and select it to load all its episodes instantly."},
-  {step:'STEP 2 OF 4',title:'HIT SHUFFLE',desc:'Press the shuffle arrows or hit Space on your keyboard to get 3 random episode picks from your show.'},
-  {step:'STEP 3 OF 4',title:'FILTER & BUILD PLAYLISTS',desc:'Use the rating slider to filter top episodes, block seasons, and build playlists across multiple shows.'},
-  {step:'STEP 4 OF 4',title:'PICK YOUR SERVICE',desc:'Which streaming service do you use most? Episode links will open there. You can change this any time in settings.', picker:true},
-];
 let obIndex=0;
 function nextOnboard(){
   obIndex++;
-  if(obIndex>=obSteps.length){closeHelp();localStorage.setItem('shufflr_onboarded','1');return;}
-  const s=obSteps[obIndex];
+  if(obIndex>=getObSteps().length){closeHelp();localStorage.setItem('shufflr_onboarded','1');return;}
+  const s=getObSteps()[obIndex];
   document.getElementById('ob-step').textContent=s.step;
   document.getElementById('ob-title').textContent=s.title;
   document.getElementById('ob-desc').textContent=s.desc;
@@ -661,13 +896,13 @@ function nextOnboard(){
   if(s.picker){
     document.getElementById('ob-desc').innerHTML=s.desc;
     document.getElementById('ob-service-picker').style.display='grid';
-    document.querySelector('.onboard-btn').textContent='DONE';
+    document.querySelector('.onboard-btn').textContent=t('btn.done');
     // pre-select saved
     const saved=localStorage.getItem('shufflr_service')||'netflix';
     document.querySelectorAll('.ob-service-btn').forEach(b=>b.classList.toggle('selected',b.dataset.svc===saved));
   } else {
     document.getElementById('ob-service-picker').style.display='none';
-    if(obIndex===obSteps.length-2) document.querySelector('.onboard-btn').textContent='NEXT';
+    if(obIndex===getObSteps().length-2) document.querySelector('.onboard-btn').textContent=t('btn.next');
   }
 }
 function pickObService(el, svc){
@@ -680,7 +915,7 @@ function pickObService(el, svc){
 function toggleTheme(){
   isLightMode=!isLightMode;
   document.body.classList.toggle('light-mode',isLightMode);
-  document.getElementById('theme-btn').textContent=isLightMode?'Light':'Dark';
+  document.getElementById('theme-btn').textContent=t(isLightMode?'theme.light':'theme.dark');
 }
 
 // CONNECT
@@ -689,8 +924,8 @@ function openConnect(){
   const saved=localStorage.getItem('shufflr_service');
   document.querySelectorAll('#service-list .service-connect-btn').forEach(b=>{
     const svc=b.closest('.service-row').dataset.svc;
-    if(svc===saved){b.textContent='Connected';b.classList.add('connected');}
-    else{b.textContent='Connect';b.classList.remove('connected');}
+    if(svc===saved){b.textContent=t('connect.connected');b.classList.add('connected');}
+    else{b.textContent=t('connect.connect');b.classList.remove('connected');}
   });
   document.getElementById('connect-modal').classList.add('open');
 }
@@ -698,11 +933,11 @@ function closeConnect(){document.getElementById('connect-modal').classList.remov
 function selectService(btn, svc){
   // Deselect all
   document.querySelectorAll('#service-list .service-connect-btn').forEach(b=>{
-    b.textContent='Connect';b.classList.remove('connected');
+    b.textContent=t('connect.connect');b.classList.remove('connected');
   });
   // Select this one
   localStorage.setItem('shufflr_service', svc);
-  btn.textContent='Connected';
+  btn.textContent=t('connect.connected');
   btn.classList.add('connected');
   // Update sidebar button label
   updateConnectBtnLabel();
@@ -713,9 +948,9 @@ function updateConnectBtnLabel(){
   const btn=document.getElementById('service-connect-btn');
   if(!btn) return;
   if(saved&&names[saved]){
-    btn.innerHTML=`<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e;margin-right:7px;vertical-align:middle;flex-shrink:0;"></span>${names[saved]} Connected`;
+    btn.innerHTML=`<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e;margin-right:7px;vertical-align:middle;flex-shrink:0;"></span>${names[saved]} ${t('connect.connected')}`;
   } else {
-    btn.innerHTML='Connect Your Service';
+    btn.innerHTML=t('connect.connectYourService');
   }
   btn.style.borderColor='';
   btn.style.color='';
@@ -781,7 +1016,7 @@ function showRecent(){
   if(document.getElementById('search-input').value.trim()){return;}
   const filtered=recentShows.filter(s=>!s.release_date);
   if(!filtered.length){drop.classList.remove('open');return;}
-  drop.innerHTML='<div class="recent-label">Recent Searches</div>'+
+  drop.innerHTML='<div class="recent-label">'+t('search.recentLabel')+'</div>'+
     filtered.slice(0,5).map((s,i)=>`
       <div class="recent-item" onclick="selectRecent(${recentShows.indexOf(s)})">
         <img class="recent-img" src="${s.poster_path?IMG+'w92'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" />
@@ -838,7 +1073,7 @@ async function _loadShow(show){
 
 // SEASONS
 async function loadSeasons(id){
-  showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">LOADING...</div></div>');
+  showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">'+t('empty.loading')+'</div></div>');
   try{
     const r=await fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${KEY}`);
     const d=await r.json();
@@ -973,7 +1208,7 @@ function getHeroHTML(show,type){
         ${type==='movie'&&show.runtime?`<span>${show.runtime} min</span>`:''}
       </div>
       <div id="${oid}" style="font-size:0.76rem;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${overview}</div>
-      ${overview.length>120?`<button onclick="toggleOv('${oid}',this)" style="background:none;border:none;color:var(--blue);font-size:0.7rem;padding:2px 0 4px;cursor:pointer;font-family:'DM Sans',sans-serif;">Read more</button>`:''}
+      ${overview.length>120?`<button onclick="toggleOv('${oid}',this)" style="background:none;border:none;color:var(--blue);font-size:0.7rem;padding:2px 0 4px;cursor:pointer;font-family:'DM Sans',sans-serif;">${t('btn.readMore')}</button>`:''}
     </div>
   </div>
   <div id="providers-container" class="wtw-box">
@@ -987,7 +1222,7 @@ function toggleOv(id,btn){
   const clamped=el.style.webkitLineClamp!=='unset';
   el.style.webkitLineClamp=clamped?'unset':'3';
   el.style.overflow=clamped?'visible':'hidden';
-  btn.textContent=clamped?'Read less':'Read more';
+  btn.textContent=clamped?t('btn.readLess'):t('btn.readMore');
 }
 
 // MOVIES
@@ -1003,13 +1238,13 @@ async function renderMovieMain(show){
   const fallbackLink=getEpLink();
   const backBtn=`<button class="back-btn" onclick="goBackHome()">
     <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-    Back
+    ${t('btn.back')}
   </button>`;
   const html=backBtn+getHeroHTML(currentShow,'movie')+
   `<div class="shuffle-result-card" style="margin-top:4px;">
     ${currentShow.backdrop_path?`<img class="shuffle-result-still" src="${IMG+'w780'+currentShow.backdrop_path}" />`:''}
     <div class="shuffle-result-body">
-      <div class="shuffle-result-label">MOVIE</div>
+      <div class="shuffle-result-label">${t('label.movie')}</div>
       <div class="shuffle-result-title">${showName}</div>
       <div class="shuffle-result-meta">
         <span>${((currentShow.release_date)||'').slice(0,4)}</span>
@@ -1036,7 +1271,7 @@ async function renderMovieMain(show){
 async function renderMain(doShuffle=false){
   return new Promise(async(resolve)=>{
   if(!currentShow||currentType!=='tv')return;
-  showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">LOADING...</div></div>');
+  showMain('<div class="empty-state"><div class="empty-title" style="animation:blink 0.8s infinite">'+t('empty.loading')+'</div></div>');
   const seasonsToLoad=selectedSeason
     ?allSeasons.filter(s=>s.season_number===selectedSeason)
     :allSeasons.filter(s=>!blockedSeasons.has(s.season_number));
@@ -1059,7 +1294,7 @@ async function renderMain(doShuffle=false){
 
   let html=`<button class="back-btn" onclick="goBackHome()">
     <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-    Back
+    ${t('btn.back')}
   </button>`;
   html+=getHeroHTML(currentShow,'tv');
   html+=getRatingHTML();
@@ -1068,17 +1303,17 @@ async function renderMain(doShuffle=false){
       <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
         <polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line>
-      </svg>SHUFFLE
+      </svg>${t('btn.shuffle').toUpperCase()}
     </button>
     <button class="shuffle-btn" id="play-btn" onclick="pressAndPlay()" style="background:var(--blue);color:#000;border-color:var(--blue);flex-shrink:0;flex:0 0 auto;padding:13px 18px;" title="Open your connected streaming service">
-      ▶ PLAY
+      ▶ ${t('btn.play').toUpperCase()}
     </button>
   </div>`;
 
   if(highlightedEps.length){
     html+=`<div class="queue-wrap" id="queue-wrap">
       <div class="queue-header">
-        <div class="queue-label">▶ UP NEXT</div>
+        <div class="queue-label">${t('label.upNext')}</div>
 
       </div>`;
     highlightedEps.forEach((e,i)=>{
@@ -1120,7 +1355,7 @@ async function renderMain(doShuffle=false){
     seasonGroups[sNum].forEach(e=>{html+=renderEpRow(e);});
     html+=`</div></div>`;
   });
-  if(!flatEps.length)html+=`<div class="empty-state"><div class="empty-sub">No episodes found. Try a lower rating.</div></div>`;
+  if(!flatEps.length)html+=`<div class="empty-state"><div class="empty-sub">${t('empty.noEpisodes')}</div></div>`;
   showMain(html);
   const _tvShowName=currentShow.name||currentShow.title||'';
   const _tvProviderTimeout=setTimeout(()=>{
@@ -1227,21 +1462,21 @@ function shareEp(e,url){
 function getPlaylistAddShowSection(){
   return `<div class="pl-add-show-section">
     <span class="pl-coming-soon-badge">Coming Soon</span>
-    <button class="pl-add-show-btn" type="button" disabled aria-disabled="true">+ Add Show</button>
-    <p class="pl-add-show-hint">Add shows directly from Max using the + button in the Shufflr dropdown</p>
+    <button class="pl-add-show-btn" type="button" disabled aria-disabled="true">+ ${t('btn.addShow')}</button>
+    <p class="pl-add-show-hint">${t('pl.addShowHint')}</p>
   </div>`;
 }
 
 function renderPlaylistPage(){
   let html=`<div class="playlist-page-header">
-    <div class="playlist-page-title">MY PLAYLISTS</div>
+    <div class="playlist-page-title">${t('section.myPlaylists')}</div>
   </div>
   <div class="new-pl-row">
-    <input class="new-pl-input" id="inline-pl-input" placeholder="New playlist name..." />
-    <button class="new-pl-btn" onclick="createInlinePlaylist()">+ Create</button>
+    <input class="new-pl-input" id="inline-pl-input" placeholder="${t('pl.newPlaylistPlaceholder')}" />
+    <button class="new-pl-btn" onclick="createInlinePlaylist()">+ ${t('btn.create')}</button>
   </div>`;
   if(!playlists.length){
-    html+=`<div class="empty-state"><div class="empty-sub">No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.</div></div>`;
+    html+=`<div class="empty-state"><div class="empty-sub">${t('empty.noPlaylistsPlaylistTab')}</div></div>`;
     html+=getPlaylistAddShowSection();
   } else {
     html+=playlists.map((p,pi)=>`
@@ -1249,23 +1484,23 @@ function renderPlaylistPage(){
         <div class="pl-card-header">
           <div>
             <div class="pl-card-name">${p.name}</div>
-            <div class="pl-card-count">${(p.shows||[]).length+(p.episodes||[]).length} item${((p.shows||[]).length+(p.episodes||[]).length)!==1?'s':''}</div>
+            <div class="pl-card-count">${(p.shows||[]).length+(p.episodes||[]).length} ${((p.shows||[]).length+(p.episodes||[]).length)!==1?t('pl.items'):t('pl.item')}</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <button class="pl-shuffle-btn" onclick="sharePlaylist(${pi})" style="border-color:var(--muted);color:var(--muted);">
               <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-              SHARE
+              ${t('btn.share').toUpperCase()}
             </button>
             <button class="pl-shuffle-btn" onclick="playPlaylist(${pi})" style="background:var(--blue);color:#000;border-color:var(--blue);" title="Open your connected streaming service">
-              ▶ PLAY
+              ▶ ${t('btn.play').toUpperCase()}
             </button>
-            <button class="pl-delete-btn" onclick="deletePlaylist(${pi})">Delete</button>
+            <button class="pl-delete-btn" onclick="deletePlaylist(${pi})">${t('btn.delete')}</button>
           </div>
         </div>
         ${(()=>{
           const shows=(p.shows||[]);
           const episodes=(p.episodes||[]);
-          if(!shows.length&&!episodes.length) return '<div class="pl-empty">Nothing added yet.</div>';
+          if(!shows.length&&!episodes.length) return '<div class="pl-empty">'+t('empty.nothingAdded')+'</div>';
           let rows='';
           shows.forEach((s,si)=>{
             rows+=`<div class="pl-show-row" draggable="true"
@@ -1278,7 +1513,7 @@ function renderPlaylistPage(){
               <img class="pl-show-img" src="${s.poster_path?IMG+'w92'+s.poster_path:''}" onerror="this.style.background='#1a1a1a'" />
               <div style="flex:1;min-width:0;">
                 <div class="pl-show-name">${s.name||s.title}</div>
-                <div class="pl-show-year">${((s.first_air_date||s.release_date)||'').slice(0,4)} · Full Show</div>
+                <div class="pl-show-year">${((s.first_air_date||s.release_date)||'').slice(0,4)} · ${t('pl.fullShow')}</div>
               </div>
               <button class="pl-remove-btn" onclick="removeShowFromPlaylist(${pi},${si})" title="Remove">✕</button>
             </div>`;
@@ -1428,12 +1663,12 @@ function updatePlaylistDrawerContent(playlist, playlistIndex) {
   drawerAddShowAllCandidates = [];
 
   drawer.innerHTML = `
-    <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="Close">✕</button>
+    <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="${t('drawer.close')}">✕</button>
     <div class="pl-drawer-title">${escapeHtml(playlist.name || 'Untitled')}</div>
     <div class="pl-drawer-actions">
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="playRandomShowFromDrawer(${playlistIndex})">▶ Play</button>
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})">✎ Edit</button>
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="openDrawerAddShowMode(${playlistIndex})">＋ Add Show</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="playRandomShowFromDrawer(${playlistIndex})">▶ ${t('btn.play')}</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})">✎ ${t('btn.edit')}</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="openDrawerAddShowMode(${playlistIndex})">＋ ${t('btn.addShow')}</button>
     </div>
     <div class="pl-drawer-shows" id="pl-drawer-body"></div>`;
   renderDrawerShowList(playlistIndex, playlist);
@@ -1559,7 +1794,7 @@ function renderDrawerAddShowPicker(playlistIndex) {
   if (!drawerAddShowAllCandidates.length) {
     body.innerHTML = `
       <div class="pl-drawer-add-mode">
-        <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+        <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ ${t('drawer.cancelAdd')}</button>
         <div class="pl-drawer-empty">Add shows from Max using the Shufflr button</div>
         ${createBtn}
       </div>`;
@@ -1569,7 +1804,7 @@ function renderDrawerAddShowPicker(playlistIndex) {
   body.innerHTML = `
     <div class="pl-drawer-add-mode">
       <div class="pl-drawer-add-toolbar">
-        <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ Cancel</button>
+        <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ ${t('drawer.cancelAdd')}</button>
         <input type="text" class="pl-drawer-add-filter" id="pl-drawer-add-filter" placeholder="Filter shows..." oninput="filterDrawerAddShowPicker(${playlistIndex})" autocomplete="off" />
       </div>
       <div class="pl-drawer-add-picker" id="pl-drawer-add-picker"></div>
@@ -2315,8 +2550,8 @@ function ensurePlaylistNameModal() {
       <label class="shufflr-pl-name-modal-label" id="shufflr-pl-name-label" for="shufflr-pl-name-input">Playlist name:</label>
       <input type="text" class="shufflr-pl-name-modal-input" id="shufflr-pl-name-input" autocomplete="off" />
       <div class="shufflr-pl-name-modal-actions">
-        <button type="button" class="shufflr-pl-name-modal-btn shufflr-pl-name-modal-btn-cancel" id="shufflr-pl-name-cancel">Cancel</button>
-        <button type="button" class="shufflr-pl-name-modal-btn shufflr-pl-name-modal-btn-confirm" id="shufflr-pl-name-confirm">Confirm</button>
+        <button type="button" class="shufflr-pl-name-modal-btn shufflr-pl-name-modal-btn-cancel" id="shufflr-pl-name-cancel">${t('btn.cancel')}</button>
+        <button type="button" class="shufflr-pl-name-modal-btn shufflr-pl-name-modal-btn-confirm" id="shufflr-pl-name-confirm">${t('btn.confirm')}</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -2547,12 +2782,12 @@ function goBackHome(){
 // HELP
 function showHelp(){
   obIndex=0;
-  const s=obSteps[0];
+  const s=getObSteps()[0];
   document.getElementById('ob-step').textContent=s.step;
   document.getElementById('ob-title').textContent=s.title;
   document.getElementById('ob-desc').textContent=s.desc;
   document.querySelectorAll('.onboard-dot').forEach((d,i)=>d.classList.toggle('active',i===0));
-  document.querySelector('.onboard-btn').textContent='NEXT';
+  document.querySelector('.onboard-btn').textContent=t('btn.next');
   document.getElementById('onboarding').style.display='flex';
 }
 function closeHelp(){
@@ -2712,7 +2947,7 @@ async function renderHomeScreen(navType){
   if(yourShows.length){
     html+=buildYourShowsSectionHtml(yourShowsSection);
     html+=`<div class="genre-section" id="recs-section" style="margin-top:4px;">
-      <div class="genre-title">-- BECAUSE YOU WATCHED <span id="recs-title" style="color:var(--blue);">${(yourShows[0].name||yourShows[0].title||'').toUpperCase()}</span> --</div>
+      <div class="genre-title">${t('section.becauseYouWatched')} <span id="recs-title" style="color:var(--blue);">${(yourShows[0].name||yourShows[0].title||'').toUpperCase()}</span> --</div>
       <div class="h-scroll-wrap" id="recs-wrap">
         ${[1,2,3,4].map(()=>`<div class="ep-card-h" style="background:var(--surface);border-color:var(--border);"><div style="width:100%;height:220px;background:var(--surface2);border-radius:0;"></div><div class="ep-card-h-body"><div style="height:10px;background:var(--border);border-radius:4px;margin-bottom:6px;width:80%;"></div><div style="height:8px;background:var(--border);border-radius:4px;width:50%;"></div></div></div>`).join('')}
       </div>
@@ -2838,19 +3073,16 @@ async function homeTileClick(id,type){
 // OPTIONS
 const SHUFFLR_LANGUAGES=[
   {code:'en',label:'English'},
-  {code:'es',label:'Spanish'},
-  {code:'fr',label:'French'},
-  {code:'pt',label:'Portuguese'},
-  {code:'ja',label:'Japanese'},
+  {code:'es',label:'Español'},
+  {code:'fr',label:'Français'},
+  {code:'pt',label:'Português'},
+  {code:'ja',label:'日本語'},
 ];
 
-function getSavedLanguage(){
-  return localStorage.getItem('shufflr_language')||'en';
-}
-
 function setLanguage(code){
-  localStorage.setItem('shufflr_language',code);
-  if(currentNav==='options')renderOptionsPage();
+  localStorage.setItem('shufflrLanguage',code);
+  applyStaticTranslations();
+  rerenderCurrentTab();
 }
 
 function renderOptionsPage(){
@@ -2859,12 +3091,12 @@ function renderOptionsPage(){
     const raw=localStorage.getItem(SHUFFLR_SUPABASE_SESSION_KEY);
     loggedIn=!!(raw&&JSON.parse(raw)?.userId);
   }catch(e){}
-  const greetingText=loggedIn?'HELLO':'SIGN IN TO GET STARTED';
+  const greetingText=loggedIn?t('greeting.hello'):t('greeting.signIn');
   const lang=getSavedLanguage();
   const langButtons=SHUFFLR_LANGUAGES.map(l=>(
     `<button type="button" class="options-lang-btn ${lang===l.code?'active':''}" onclick="setLanguage('${l.code}')">${l.label}</button>`
   )).join('');
-  const helpItems=obSteps.map(s=>(
+  const helpItems=getObSteps().map(s=>(
     `<div class="options-help-item">
       <div class="options-help-step">${s.step}</div>
       <div class="options-help-title">${s.title}</div>
@@ -2879,28 +3111,28 @@ function renderOptionsPage(){
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">LANGUAGE</div>
+      <div class="options-section-title">${t('options.language')}</div>
       <div class="options-section-body">
-        <p class="options-desc">Choose Shufflr's display language.</p>
+        <p class="options-desc">${t('options.languageDesc')}</p>
         <div class="options-lang-group">${langButtons}</div>
       </div>
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">ACCOUNT</div>
+      <div class="options-section-title">${t('options.account')}</div>
       <div class="options-section-body">
         <div id="auth-section" class="auth-section">
           <div id="auth-logged-out">
-            <input class="options-input auth-input" id="auth-email" type="email" placeholder="Email" autocomplete="email" />
-            <input class="options-input auth-input" id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+            <input class="options-input auth-input" id="auth-email" type="email" placeholder="${t('auth.email')}" autocomplete="email" />
+            <input class="options-input auth-input" id="auth-password" type="password" placeholder="${t('auth.password')}" autocomplete="current-password" />
             <div class="auth-btn-row">
-              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-signup-btn">Sign Up</button>
-              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-login-btn">Log In</button>
+              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-signup-btn">${t('btn.signUp')}</button>
+              <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-login-btn">${t('btn.logIn')}</button>
             </div>
           </div>
           <div id="auth-logged-in" style="display:none;">
             <div class="auth-user-email options-account-email" id="auth-user-email"></div>
-            <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn">Log Out</button>
+            <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn">${t('btn.logOut')}</button>
           </div>
           <div id="auth-message" class="auth-message" style="display:none;"></div>
         </div>
@@ -2908,19 +3140,19 @@ function renderOptionsPage(){
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">FEEDBACK</div>
+      <div class="options-section-title">${t('options.feedback')}</div>
       <div class="options-section-body">
-        <p class="options-desc">Got an idea or found a bug? We want to hear it.</p>
-        <textarea id="options-feedback-text" class="options-textarea" placeholder="Type your feedback here..."></textarea>
-        <button type="button" class="options-btn options-btn-primary" onclick="submitOptionsFeedback()">Submit</button>
+        <p class="options-desc">${t('options.feedbackDesc')}</p>
+        <textarea id="options-feedback-text" class="options-textarea" placeholder="${t('options.feedbackPlaceholder')}"></textarea>
+        <button type="button" class="options-btn options-btn-primary" onclick="submitOptionsFeedback()">${t('btn.submit')}</button>
       </div>
     </div>
 
     <div class="options-section">
-      <div class="options-section-title">HELP</div>
+      <div class="options-section-title">${t('options.help')}</div>
       <div class="options-section-body">
         <div class="options-help-list">${helpItems}</div>
-        <button type="button" class="options-btn options-btn-primary" onclick="showHelp()">Replay Onboarding</button>
+        <button type="button" class="options-btn options-btn-primary" onclick="showHelp()">${t('btn.replayOnboarding')}</button>
       </div>
     </div>
   </div>`;
@@ -2937,7 +3169,7 @@ function submitOptionsFeedback(){
   if(!text)return;
   console.log('[Shufflr Feedback]',text);
   document.getElementById('options-feedback-text').value='';
-  showToast('FEEDBACK SENT!');
+  showToast(t('toast.feedbackSent'));
 }
 
 // SHARE PLAYLIST
@@ -2945,7 +3177,7 @@ function sharePlaylist(pi){
   const p=playlists[pi];
   const shows=p.shows.map(s=>s.name||s.title).join(', ');
   const text=`Check out my Shufflr playlist "${p.name}": ${shows}`;
-  navigator.clipboard.writeText(text).then(()=>showToast('PLAYLIST COPIED!'));
+  navigator.clipboard.writeText(text).then(()=>showToast(t('toast.playlistCopied')));
 }
 
 // DRAG TO REORDER
