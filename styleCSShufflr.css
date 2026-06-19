@@ -101,7 +101,7 @@ body.light-mode .logo-box{color:#111111;}
 .connect-btn:hover{background:rgba(35,168,224,0.1);box-shadow:0 0 14px rgba(35,168,224,0.3);}
 
 /* MAIN */
-.main{flex:1;overflow-y:auto;padding:20px;background:var(--content);}
+.main{flex:1;overflow-y:auto;padding:16px 20px 20px 16px;background:var(--content);}
 body.light-mode .main{background:#f0f0f0;}
 body.light-mode .nav-item{color:#666666;}
 body.light-mode .nav-item:hover{background:#d8d8d8;color:#111;}
