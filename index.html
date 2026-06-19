@@ -132,7 +132,7 @@
 <div id="search-overlay" onclick="closeSearch()" style="display:none;position:fixed;inset:0;z-index:99;"></div>
 
 <!-- TOPBAR -->
-<div class="topbar" style="position:relative;z-index:100;">
+<div class="topbar" id="top-bar" style="position:relative;z-index:100;">
   <div class="logo-box" onclick="goHome()" style="cursor:pointer;">SHUFFLR</div>
   <div class="search-wrap">
     <input class="search-input" id="search-input" type="text" data-i18n-placeholder="search.placeholder" placeholder="Search shows or movies..." autocomplete="off" oninput="handleSearch()" onfocus="onSearchFocus()" />
@@ -150,7 +150,7 @@
 
 <!-- LAYOUT -->
 <div class="app-layout">
-  <div class="sidebar">
+  <div class="sidebar" id="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label" data-i18n="sidebar.browse">Browse</div>
       <div class="nav-item active" id="nav-shows" onclick="setNav('shows')"><div class="nav-dot"></div><span data-i18n="nav.shows">Shows</span></div>
