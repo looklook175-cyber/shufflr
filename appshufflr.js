@@ -270,6 +270,49 @@ function applyTranslationsToDOM(){
   document.querySelectorAll('[data-i18n-html]').forEach(el=>{el.innerHTML=t(el.getAttribute('data-i18n-html'));});
 }
 
+function ensureHiddenAuthField(id,type){
+  let el=document.getElementById(id);
+  if(!el){
+    el=document.createElement('input');
+    el.id=id;
+    el.type=type;
+    el.style.display='none';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function triggerSidebarAuth(action){
+  const email=document.getElementById('sidebar-email')?.value?.trim()||'';
+  const password=document.getElementById('sidebar-password')?.value||'';
+  ensureHiddenAuthField('auth-email','email').value=email;
+  ensureHiddenAuthField('auth-password','password').value=password;
+  const btnId=action==='signup'?'auth-signup-btn':'auth-login-btn';
+  let btn=document.getElementById(btnId);
+  if(!btn){
+    btn=document.createElement('button');
+    btn.id=btnId;
+    btn.type='button';
+    btn.style.display='none';
+    document.body.appendChild(btn);
+  }
+  btn.click();
+}
+
+async function renderSidebarAuth(){
+  document.getElementById('sidebar-auth')?.remove();
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(loggedIn)return;
+  const navOptions=document.getElementById('nav-options');
+  if(!navOptions)return;
+  navOptions.insertAdjacentHTML('afterend',`<div id="sidebar-auth" style="padding: 16px 12px; border-top: 1px solid #222; margin-top: 12px;">
+  <input id="sidebar-email" type="email" placeholder="email" style="width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 6px 8px; font-size: 9px; font-family: 'Press Start 2P', monospace; margin-bottom: 8px; border-radius: 3px;" />
+  <input id="sidebar-password" type="password" placeholder="password" style="width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 6px 8px; font-size: 9px; font-family: 'Press Start 2P', monospace; margin-bottom: 8px; border-radius: 3px;" />
+  <button id="sidebar-login-btn" style="width: 100%; background: transparent; border: 1px solid #23A8E0; color: #23A8E0; font-family: 'Press Start 2P', monospace; font-size: 8px; padding: 6px; cursor: pointer; margin-bottom: 6px; border-radius: 3px;">LOG IN</button>
+  <button id="sidebar-signup-btn" style="width: 100%; background: transparent; border: 1px solid #555; color: #aaa; font-family: 'Press Start 2P', monospace; font-size: 8px; padding: 6px; cursor: pointer; border-radius: 3px;">SIGN UP</button>
+</div>`);
+}
+
 function rerenderCurrentTab(){
   if(currentNav==='playlist')renderPlaylistPage();
   else if(currentNav==='options')renderOptionsPage();
@@ -338,6 +381,7 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
 });
 
 window.addEventListener('shufflr-auth-changed',()=>{
+  renderSidebarAuth();
   if(currentNav==='shows'&&!currentShow){
     renderHomeScreen('shows');
   }else if(currentNav==='options'){
@@ -906,6 +950,7 @@ window.addEventListener('load',()=>{
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
       applyStaticTranslations();
       updateConnectBtnLabel();
+      renderSidebarAuth();
       renderHomeScreen('shows');
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
@@ -3344,6 +3389,16 @@ function closeSearch(){
 }
 // Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
+  if(e.target?.id==='sidebar-login-btn'){
+    e.preventDefault();
+    triggerSidebarAuth('login');
+    return;
+  }
+  if(e.target?.id==='sidebar-signup-btn'){
+    e.preventDefault();
+    triggerSidebarAuth('signup');
+    return;
+  }
   const yourShowCard=e.target.closest('.your-show-card');
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
@@ -3648,6 +3703,7 @@ setTimeout(() => {
 }, 45000);
 
 document.addEventListener('DOMContentLoaded', function() {
+  renderSidebarAuth();
   // ============================================================
   // SIDEBAR & TOPBAR STARS — remove: delete from here to END STARS JS
   // ============================================================
