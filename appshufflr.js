@@ -3187,14 +3187,14 @@ function buildOptionsCarouselHtml(){
       <button type="button" class="options-carousel-arrow options-carousel-next-arrow" onclick="goOptionsCarousel(1)" aria-label="Next">&gt;</button>
       <div class="options-carousel-next-intro">
         <span class="options-carousel-hint${optionsCarouselHintDismissed?' is-dismissed':''}" data-i18n="carousel.clickMe">${t('carousel.clickMe')}</span>
-        <div style="text-align: center; margin-bottom: 8px;">
-  <svg width="80" height="90" viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" style="display:block; margin: 0 auto 2px auto;">
-    <!-- arrow shaft -->
-    <line x1="40" y1="5" x2="40" y2="65" stroke="#23A8E0" stroke-width="5" stroke-linecap="round"/>
-    <!-- arrowhead pointing down -->
-    <polyline points="22,48 40,70 58,48" stroke="#23A8E0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <div style="text-align: center; margin-bottom: 4px;">
+  <svg width="60" height="75" viewBox="0 0 60 75" xmlns="http://www.w3.org/2000/svg" style="display:block; margin: 0 auto;">
+    <!-- hand-drawn style curved arrow shaft -->
+    <path d="M30 4 C28 20, 32 35, 29 58" stroke="#23A8E0" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+    <!-- hand-drawn arrowhead pointing down -->
+    <path d="M15 47 C20 56, 29 63, 30 65 C31 63, 40 55, 46 47" stroke="#23A8E0" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
   </svg>
-  <div style="font-family: 'Caveat', cursive; color: #23A8E0; font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: 1px;">CLICK<br>HERE</div>
+  <div style="font-family: 'Caveat', cursive; color: #23A8E0; font-size: 20px; font-weight: 700; line-height: 1.1; margin-top: -4px;">CLICK<br>HERE</div>
 </div>
         <button type="button" class="options-carousel-next-label" onclick="goOptionsCarouselIntroNext()" data-i18n="carousel.next">${t('carousel.next')}</button>
       </div>
