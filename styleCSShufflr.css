@@ -336,7 +336,7 @@ body.light-mode .queue-ep-title{color:#111;}
 .home-wrap{padding:0;}
 .genre-section{margin-bottom:20px;}
 .home-wrap > .genre-section:first-child{margin-top:0 !important;}
-.genre-title{font-family:'Press Start 2P',monospace;font-size:9px;font-weight:400;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
+.genre-title{font-family:'Press Start 2P',monospace;font-size:11px;font-weight:400;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
 .your-show-card{cursor:pointer;width:130px;}
 .your-show-card img{width:100%;height:185px !important;object-fit:cover;background:var(--surface2);}
 .your-show-card *{pointer-events:none;}
