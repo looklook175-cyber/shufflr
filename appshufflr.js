@@ -2926,6 +2926,8 @@ function renderOptionsPage(){
   </div>`;
 
   showMain(html);
+  const searchInput = document.querySelector('#search-input, .search-input, input[type="search"], input[placeholder*="Search"]');
+  if (searchInput) searchInput.blur();
   document.activeElement?.blur();
   if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
 }
