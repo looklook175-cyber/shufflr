@@ -654,6 +654,39 @@ async function resolveDrawerShowPosters(shows){
   await resolveCardPostersFromTmdb(lookupMap,'w92');
 }
 
+function buildPlRowPosterHtml(item,pi,index,kind){
+  const showKey=`pl-row:${kind}:${pi}:${index}`;
+  const path=kind==='show'?getShowPosterPathFromShow(item):item.showPoster;
+  const posterUrl=buildPosterUrl(path,'w92');
+  const epStyle=kind==='ep'?' style="opacity:0.75;"':'';
+  const emptyStyle=kind==='ep'?' style="opacity:0.75;background:#1a1a1a;"':' style="background:#1a1a1a;"';
+  if(posterUrl){
+    return `<img class="pl-show-img" data-show-key="${escapeHtml(showKey)}" src="${posterUrl}" onerror="this.style.background='#1a1a1a'"${epStyle} />`;
+  }
+  return `<img class="pl-show-img" data-show-key="${escapeHtml(showKey)}" src="" onerror="this.style.background='#1a1a1a'"${emptyStyle} />`;
+}
+
+async function resolvePlaylistRowPosters(sourcePlaylists){
+  const lookupMap=new Map();
+  (sourcePlaylists||playlists).forEach((p,pi)=>{
+    (p.shows||[]).forEach((show,si)=>{
+      if(buildPosterUrl(getShowPosterPathFromShow(show),'w92'))return;
+      const showKey=`pl-row:show:${pi}:${si}`;
+      const query=stripServiceSuffixFromShowName(getShowLabel(show));
+      if(!showKey||!query)return;
+      lookupMap.set(showKey,query);
+    });
+    (p.episodes||[]).forEach((ep,ei)=>{
+      if(buildPosterUrl(ep.showPoster,'w92'))return;
+      const showKey=`pl-row:ep:${pi}:${ei}`;
+      const query=stripServiceSuffixFromShowName(ep.showName||'');
+      if(!showKey||!query)return;
+      lookupMap.set(showKey,query);
+    });
+  });
+  await resolveCardPostersFromTmdb(lookupMap,'w92');
+}
+
 function buildYourShowsSectionHtml(section){
   const items=section.items||[];
   let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div>`;
@@ -1556,7 +1589,7 @@ function buildPlCardItemsHtml(p, pi) {
       ondrop="dragDrop(event,${pi},${si})"
       ondragend="dragEnd(event)">
       <span class="drag-handle">⠿</span>
-      <img class="pl-show-img" src="${s.poster_path ? IMG + 'w92' + s.poster_path : ''}" onerror="this.style.background='#1a1a1a'" />
+      ${buildPlRowPosterHtml(s, pi, si, 'show')}
       <div style="flex:1;min-width:0;">
         <div class="pl-show-name">${s.name || s.title}</div>
         <div class="pl-show-year">${((s.first_air_date || s.release_date) || '').slice(0, 4)} · ${t('pl.fullShow')}</div>
@@ -1568,7 +1601,7 @@ function buildPlCardItemsHtml(p, pi) {
     const code = `S${String(e.seasonNum || '?').padStart(2, '0')} E${String(e.episode_number || '?').padStart(2, '0')}`;
     rows += `<div class="pl-show-row">
       <span class="drag-handle" style="color:#23A8E0;font-size:0.6rem;width:18px;text-align:center;">▶</span>
-      <img class="pl-show-img" src="${e.showPoster ? IMG + 'w92' + e.showPoster : ''}" onerror="this.style.background='#1a1a1a'" style="opacity:0.75;" />
+      ${buildPlRowPosterHtml(e, pi, ei, 'ep')}
       <div style="flex:1;min-width:0;">
         <div style="font-size:0.58rem;color:var(--blue);font-weight:700;letter-spacing:1px;margin-bottom:1px;">${code}</div>
         <div class="pl-show-name" style="font-size:0.82rem;">${e.name || 'Episode'}</div>
@@ -1644,6 +1677,7 @@ function renderPlaylistPage(){
   }
   html+=`</div>`;
   showMain(html);
+  resolvePlaylistRowPosters(playlists);
 }
 
 function createInlinePlaylist(){
