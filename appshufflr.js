@@ -2341,7 +2341,9 @@ function playRandomShowFromDrawer(playlistIndex) {
   launchShowFromDrawer(playlistIndex, Math.floor(Math.random() * shows.length));
 }
 
-function launchShowFromDrawer(playlistIndex, showIndex) {
+async function launchShowFromDrawer(playlistIndex, showIndex) {
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(!loggedIn){showToast('You must sign in to use this feature.');return;}
   const playlist = homePlaylistsCache[playlistIndex];
   const show = (playlist?.shows || [])[showIndex];
   if (!playlist || !show) return;
