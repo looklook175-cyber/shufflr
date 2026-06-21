@@ -568,6 +568,7 @@ let nowPlayingShufflePickedAt=0;
 let nowPlayingShufflePlaylistIndex=null;
 let nowPlayingShuffleShowIndex=null;
 let nowPlayingStaticAnimId=null;
+let nowPlayingPosterGlitchTimer=null;
 const NOW_PLAYING_SHUFFLE_TTL_MS=3600000;
 
 function isNowPlayingLive(){
@@ -683,6 +684,84 @@ function stopNowPlayingStatic(){
     cancelAnimationFrame(nowPlayingStaticAnimId);
     nowPlayingStaticAnimId=null;
   }
+  stopNowPlayingPosterGlitch();
+}
+
+function stopNowPlayingPosterGlitch(){
+  if(nowPlayingPosterGlitchTimer){
+    clearTimeout(nowPlayingPosterGlitchTimer);
+    nowPlayingPosterGlitchTimer=null;
+  }
+  const slot=document.getElementById('now-playing-card-slot');
+  if(!slot)return;
+  slot.querySelectorAll('.now-playing-poster').forEach(poster=>{
+    poster.classList.remove('now-playing-poster-glitch','now-playing-poster-glitch--shift','now-playing-poster-glitch--flash','now-playing-poster-glitch--tear');
+    poster.style.removeProperty('--glitch-duration');
+    poster.style.removeProperty('--glitch-shift');
+  });
+  slot.querySelectorAll('.now-playing-poster-tear-strip').forEach(strip=>{
+    strip.classList.remove('is-glitching');
+    strip.style.removeProperty('--glitch-duration');
+    strip.style.removeProperty('--glitch-shift');
+    strip.style.clipPath='';
+  });
+}
+
+function startNowPlayingPosterGlitch(){
+  stopNowPlayingPosterGlitch();
+  function scheduleNext(){
+    const poster=document.querySelector('#now-playing-card-slot .now-playing-vcr-wrap .now-playing-poster');
+    if(!poster)return;
+    const delay=2200+Math.random()*4800;
+    nowPlayingPosterGlitchTimer=setTimeout(()=>{
+      const types=['shift','flash','tear'];
+      const type=types[Math.floor(Math.random()*types.length)];
+      const duration=100+Math.random()*100|0;
+      poster.style.setProperty('--glitch-duration',`${duration}ms`);
+      if(type==='shift'){
+        const px=(Math.random()>0.5?1:-1)*(2+Math.random()*3|0);
+        poster.style.setProperty('--glitch-shift',`${px}px`);
+        poster.classList.add('now-playing-poster-glitch','now-playing-poster-glitch--shift');
+      }else if(type==='flash'){
+        poster.classList.add('now-playing-poster-glitch','now-playing-poster-glitch--flash');
+      }else{
+        const wrap=poster.closest('.now-playing-vcr-wrap');
+        let strip=wrap?.querySelector('.now-playing-poster-tear-strip');
+        if(!strip&&wrap){
+          strip=document.createElement('img');
+          strip.className='now-playing-poster-tear-strip';
+          strip.alt='';
+          strip.setAttribute('aria-hidden','true');
+          wrap.insertBefore(strip,poster.nextSibling);
+        }
+        if(strip&&poster.src){
+          strip.src=poster.currentSrc||poster.src;
+          const h=poster.offsetHeight||100;
+          const bandTop=Math.floor(Math.random()*Math.max(1,h-3));
+          const offset=(Math.random()>0.5?1:-1)*(3+Math.random()*4|0);
+          strip.style.clipPath=`inset(${bandTop}px 0 ${h-bandTop-2}px 0)`;
+          strip.style.setProperty('--glitch-duration',`${duration}ms`);
+          strip.style.setProperty('--glitch-shift',`${offset}px`);
+          strip.classList.add('is-glitching');
+        }
+        poster.classList.add('now-playing-poster-glitch','now-playing-poster-glitch--tear');
+      }
+      nowPlayingPosterGlitchTimer=setTimeout(()=>{
+        poster.classList.remove('now-playing-poster-glitch','now-playing-poster-glitch--shift','now-playing-poster-glitch--flash','now-playing-poster-glitch--tear');
+        poster.style.removeProperty('--glitch-duration');
+        poster.style.removeProperty('--glitch-shift');
+        const wrap=poster.closest('.now-playing-vcr-wrap');
+        const strip=wrap?.querySelector('.now-playing-poster-tear-strip');
+        if(strip){
+          strip.classList.remove('is-glitching');
+          strip.style.removeProperty('--glitch-duration');
+          strip.style.removeProperty('--glitch-shift');
+        }
+        scheduleNext();
+      },duration);
+    },delay);
+  }
+  scheduleNext();
 }
 
 function startNowPlayingStatic(canvas){
@@ -763,6 +842,7 @@ function initNowPlayingPosterOverlay(){
   canvas.width=canvas.offsetWidth||166;
   canvas.height=canvas.offsetHeight||100;
   startNowPlayingPosterVcrOverlay(canvas);
+  startNowPlayingPosterGlitch();
 }
 
 async function resolveNowPlayingPoster(showName,showKey='now-playing:live'){
