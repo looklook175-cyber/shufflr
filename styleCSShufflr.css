@@ -89,7 +89,7 @@ body.light-mode .logo-box{color:#111111;}
 .block-btn:hover{color:#ff4455!important;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .connect-wrap{padding:8px 12px 12px;}
 .sidebar-bottom{margin-top:auto;flex-shrink:0;padding-bottom:20px;}
-#nav-options::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
+.sidebar-section::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
 .sidebar-now-playing-divider{display:none;}
 .auth-section{margin-bottom:12px;}
 .auth-input{width:100%;padding:8px 10px;margin-bottom:8px;background:var(--chrome-elevated);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:0.78rem;}
