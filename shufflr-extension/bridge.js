@@ -1,5 +1,5 @@
 // Shufflr — Web app bridge (content script on shufflr-app.netlify.app)
-// Receives SHUFFLR_SYNC_PLAYLISTS from Max via chrome.tabs.sendMessage and forwards to the page.
+// Receives SHUFFLR_SYNC_PLAYLISTS and SHUFFLR_SYNC_SAVED_SHOWS from Max via chrome.tabs.sendMessage and forwards to the page.
 
 (function () {
   const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
@@ -106,6 +106,17 @@
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (event.data?.type === 'SHUFFLR_GET_SAVED_SHOWS') {
+      chrome.storage.local.get('shufflr_saved_shows', (result) => {
+        const savedShows = result.shufflr_saved_shows || [];
+        window.postMessage({ type: 'SHUFFLR_SAVED_SHOWS_RESPONSE', savedShows }, '*');
+      });
+      return;
+    }
+    if (event.data?.type === 'SHUFFLR_SAVE_SAVED_SHOWS') {
+      chrome.storage.local.set({ shufflr_saved_shows: event.data.savedShows || [] });
+      return;
+    }
     if (event.data?.type === 'SHUFFLR_GET_PLAYLISTS') {
       chrome.storage.local.get('shufflr_playlists', (result) => {
         const playlists = result.shufflr_playlists || [];
@@ -142,6 +153,18 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     console.log('[Shufflr] bridge.js received message:', message?.type);
+    if (message?.type === 'SHUFFLR_SYNC_SAVED_SHOWS') {
+      window.postMessage({
+        type: 'SHUFFLR_SYNC_SAVED_SHOWS',
+        source: 'shufflr-extension',
+        payload: message.payload || [],
+      }, '*');
+
+      console.log('[Shufflr] bridge.js — forwarded saved shows sync to web app');
+      sendResponse({ ok: true });
+      return true;
+    }
+
     if (message?.type === 'SHUFFLR_SYNC_PLAYLISTS') {
       window.postMessage({
         type: 'SHUFFLR_SYNC_PLAYLISTS',

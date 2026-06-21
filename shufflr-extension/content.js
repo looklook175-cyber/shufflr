@@ -5,6 +5,7 @@ const SHUFFLR_PENDING_KEY = 'shufflr_pending';
 const SHUFFLR_SHOW_PAGE_KEY = 'shufflr_show_page';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY = 'shufflr_active_playlist';
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists';
+const SHUFFLR_SAVED_SHOWS_KEY = 'shufflr_saved_shows';
 const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
@@ -363,6 +364,43 @@ async function broadcastPlaylistsToMaxTabs(playlists) {
   }
 }
 
+async function syncSavedShowsToWebApp(savedShows) {
+  if (!isChromeContextValid()) return;
+  if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
+
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://shufflr-app.netlify.app/*' });
+    await Promise.all(tabs.map(tab => new Promise(resolve => {
+      try {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'SHUFFLR_SYNC_SAVED_SHOWS',
+          payload: savedShows,
+        }, () => {
+          try {
+            if (handleChromeRuntimeLastError()) {
+              resolve();
+              return;
+            }
+            if (chrome.runtime.lastError) {
+              console.log('[Shufflr] Saved shows web sync skipped:', chrome.runtime.lastError.message);
+            }
+          } catch (err) {
+            if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          }
+          resolve();
+        });
+      } catch (err) {
+        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+        resolve();
+      }
+    })));
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) {
+      handleExtensionContextInvalidated();
+    }
+  }
+}
+
 async function syncPlaylistsToWebApp(playlists) {
   if (!isChromeContextValid()) return;
   if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
@@ -478,6 +516,15 @@ function startNowPlayingHeartbeat() {
   }
   if (nowPlayingHeartbeatTimer) return;
   nowPlayingHeartbeatTimer = setInterval(tickNowPlayingHeartbeat, 20000);
+}
+
+async function setShufflrSavedShowsInStorage(savedShows, { syncToWebApp = false } = {}) {
+  if (!isChromeContextValid()) return;
+  const ok = await chromeStorageLocalSet({ [SHUFFLR_SAVED_SHOWS_KEY]: savedShows });
+  if (!ok) return;
+  if (syncToWebApp) {
+    await syncSavedShowsToWebApp(savedShows);
+  }
 }
 
 async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } = {}) {
@@ -1264,6 +1311,97 @@ urlObserver.observe(document.body, { childList: true, subtree: true });
 
 // ── INJECT SHUFFLE BUTTON ──────────────────────────────────────────────────
 let dropdownPlaylists = [];
+
+function readSavedShowsFromStorage() {
+  if (!isChromeContextValid()) return Promise.resolve([]);
+  return new Promise(resolve => {
+    try {
+      chrome.storage.local.get(SHUFFLR_SAVED_SHOWS_KEY, result => {
+        try {
+          if (handleChromeRuntimeLastError()) {
+            resolve([]);
+            return;
+          }
+          const savedShows = result[SHUFFLR_SAVED_SHOWS_KEY];
+          resolve(Array.isArray(savedShows) ? savedShows : []);
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          resolve([]);
+        }
+      });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      resolve([]);
+    }
+  });
+}
+
+function savedShowMatchesCurrent(savedShow, { maxId, title }) {
+  const savedMaxId = savedShow?.maxId || savedShow?.maxShowId || savedShow?.max_id;
+  if (maxId && savedMaxId && String(savedMaxId) === String(maxId)) return true;
+  const savedName = normalizeShowName(getPlaylistShowTitle(savedShow));
+  const currentName = normalizeShowName(title);
+  return !!(savedName && currentName && savedName === currentName);
+}
+
+async function writeSavedShowsToStorage(savedShows, { syncToWebApp = true } = {}) {
+  if (!isChromeContextValid()) return;
+  await setShufflrSavedShowsInStorage(savedShows, { syncToWebApp });
+}
+
+async function updateSaveShowButtonState() {
+  const btn = document.getElementById('shufflr-save-show-btn');
+  if (!btn) return;
+  const maxId = getCurrentMaxShowUuid();
+  const title = getCurrentShowTitle();
+  const savedShows = await readSavedShowsFromStorage();
+  const alreadySaved = savedShows.some(show => savedShowMatchesCurrent(show, { maxId, title }));
+  btn.textContent = alreadySaved ? '✓ Saved' : '+ Save';
+  btn.classList.toggle('saved', alreadySaved);
+  btn.disabled = alreadySaved;
+  btn.title = alreadySaved ? 'Show already saved to Your Shows' : 'Save show to Your Shows';
+}
+
+async function saveCurrentShowToSavedList() {
+  if (!isChromeContextValid()) return;
+  const maxId = getCurrentMaxShowUuid();
+  if (!maxId) {
+    showToast('Could not find show ID');
+    return;
+  }
+
+  const title = getCurrentShowTitle();
+  const savedShows = await readSavedShowsFromStorage();
+  if (savedShows.some(show => savedShowMatchesCurrent(show, { maxId, title }))) {
+    await updateSaveShowButtonState();
+    showToast('Already saved');
+    return;
+  }
+
+  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY) || '';
+  const entry = {
+    title,
+    name: title,
+    maxId,
+    service: 'max',
+  };
+  if (showPage.includes('/show/')) {
+    entry.url = showPage.split('?')[0];
+  } else if (location.href.includes('/show/')) {
+    entry.url = location.href.split('?')[0];
+  }
+
+  savedShows.push(entry);
+  await writeSavedShowsToStorage(savedShows);
+  showToast('Saved to Your Shows');
+  await updateSaveShowButtonState();
+}
+
+function onSaveShowBtnClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  void saveCurrentShowToSavedList();
+}
 
 function readPlaylistsFromStorage() {
   if (!isChromeContextValid()) return Promise.resolve([]);
@@ -3017,6 +3155,7 @@ function onPlaylistDropdownKeydown(event) {
 function bindShufflrButtonHandlers() {
   const shuffleBtn = document.getElementById('shufflr-btn');
   const playlistToggle = document.getElementById('shufflr-playlist-toggle');
+  const saveShowBtn = document.getElementById('shufflr-save-show-btn');
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
 
   if (shuffleBtn) {
@@ -3027,6 +3166,11 @@ function bindShufflrButtonHandlers() {
   if (playlistToggle) {
     playlistToggle.removeEventListener('click', togglePlaylistDropdown);
     playlistToggle.addEventListener('click', togglePlaylistDropdown);
+  }
+
+  if (saveShowBtn) {
+    saveShowBtn.removeEventListener('click', onSaveShowBtnClick);
+    saveShowBtn.addEventListener('click', onSaveShowBtnClick);
   }
 
   if (dropdown) {
@@ -3047,6 +3191,7 @@ function bindShufflrButtonHandlers() {
 function teardownShufflrButtonHandlers() {
   const shuffleBtn = document.getElementById('shufflr-btn');
   const playlistToggle = document.getElementById('shufflr-playlist-toggle');
+  const saveShowBtn = document.getElementById('shufflr-save-show-btn');
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
 
   if (shuffleBtn) {
@@ -3054,6 +3199,9 @@ function teardownShufflrButtonHandlers() {
   }
   if (playlistToggle) {
     playlistToggle.removeEventListener('click', togglePlaylistDropdown);
+  }
+  if (saveShowBtn) {
+    saveShowBtn.removeEventListener('click', onSaveShowBtnClick);
   }
   if (dropdown) {
     dropdown.removeEventListener('click', onPlaylistDropdownClick);
@@ -3106,6 +3254,7 @@ function injectShufflrStyles() {
     }
     #shufflr-btn,
     #shufflr-playlist-toggle,
+    #shufflr-save-show-btn,
     #shufflr-playlist-dropdown,
     .shufflr-pl-row,
     .shufflr-pl-shuffle-btn,
@@ -3187,6 +3336,40 @@ function injectShufflrStyles() {
       background: #1a6bff;
       color: #000;
       box-shadow: 0 0 30px rgba(26,107,255,0.7);
+    }
+    #shufflr-save-show-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 68px;
+      padding: 0 12px;
+      opacity: 0.90;
+      background: rgba(15, 15, 20, 0.75);
+      border: 2px solid #1a6bff;
+      border-radius: 12px;
+      color: #1a6bff;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 0 20px rgba(26,107,255,0.4);
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+      white-space: nowrap;
+    }
+    #shufflr-save-show-btn:hover:not(:disabled) {
+      background: #1a6bff;
+      color: #000;
+      box-shadow: 0 0 30px rgba(26,107,255,0.7);
+    }
+    #shufflr-save-show-btn.saved,
+    #shufflr-save-show-btn:disabled {
+      border-color: rgba(34, 197, 94, 0.75);
+      color: #22c55e;
+      box-shadow: 0 0 18px rgba(34, 197, 94, 0.35);
+      cursor: default;
+      opacity: 1;
     }
     #shufflr-playlist-dropdown {
       display: none;
@@ -3620,6 +3803,7 @@ function injectShufflrButton(video) {
         </div>
         <button type="button" id="shufflr-playlist-toggle" title="Play from playlist" aria-label="Open playlist menu">▴</button>
       </div>
+      <button type="button" id="shufflr-save-show-btn" title="Save show to Your Shows">+ Save</button>
     </div>
   `;
   document.body.appendChild(wrap);
@@ -3646,6 +3830,7 @@ function injectShufflrButton(video) {
   }
 
   void fullyRestoreArmedShuffleSessionAfterInject();
+  void updateSaveShowButtonState();
 }
 
 function attachVideoListeners(video) {
@@ -5788,6 +5973,39 @@ async function maybeAutoClickShowPageResume() {
   }, 300);
 }
 
+function installMaxSavedShowsSyncListener() {
+  if (IS_SHUFFLR_WEB_APP) return;
+  if (!isChromeContextValid()) return;
+
+  try {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== 'SHUFFLR_SYNC_SAVED_SHOWS') return;
+      const savedShows = message.payload || message.savedShows || [];
+      if (!Array.isArray(savedShows)) {
+        sendResponse({ ok: false });
+        return true;
+      }
+      setShufflrSavedShowsInStorage(savedShows, { syncToWebApp: false }).then(async () => {
+        console.log('[Shufflr] Saved shows updated from web app');
+        await updateSaveShowButtonState();
+        sendResponse({ ok: true });
+      });
+      return true;
+    });
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  }
+
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local' || !changes[SHUFFLR_SAVED_SHOWS_KEY]) return;
+      void updateSaveShowButtonState();
+    });
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+  }
+}
+
 // Max tabs: accept SHUFFLR_SYNC_PLAYLISTS from web app and refresh storage-backed UI.
 function installMaxPlaylistSyncListener() {
   if (IS_SHUFFLR_WEB_APP) return;
@@ -5947,6 +6165,7 @@ async function checkForLaunchPlaylist() {
 
 if (!IS_SHUFFLR_WEB_APP) {
 installMaxPlaylistSyncListener();
+installMaxSavedShowsSyncListener();
 void checkForLaunchStandaloneShow();
 void checkForLaunchPlaylist();
 void readShuffleSettings().then(settings => {

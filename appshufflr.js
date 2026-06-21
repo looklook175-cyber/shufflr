@@ -339,9 +339,23 @@ let minRating=0,searchTimer=null,isLightMode=false;
 let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
+const SHUFFLR_SAVED_SHOWS_KEY='shufflr_saved_shows';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
+let savedShows=JSON.parse(localStorage.getItem(SHUFFLR_SAVED_SHOWS_KEY)||'[]');
 let expandedPlaylistIndex=null;
+
+function handleExtensionSavedShowsSync(payload){
+  savedShows=Array.isArray(payload)?payload:[];
+  localStorage.setItem(SHUFFLR_SAVED_SHOWS_KEY,JSON.stringify(savedShows));
+  window.postMessage({type:'SHUFFLR_SYNC_SAVED_SHOWS',source:'shufflr-web',savedShows},'*');
+  try{
+    if(typeof chrome!=='undefined'&&chrome.storage&&chrome.storage.local){
+      chrome.storage.local.set({[SHUFFLR_SAVED_SHOWS_KEY]:savedShows});
+    }
+  }catch(e){}
+  if(currentNav==='shows'&&!currentShow)renderHomeScreen('shows');
+}
 
 function handleExtensionPlaylistSync(payload){
   playlists=Array.isArray(payload)?payload:[];
@@ -355,6 +369,24 @@ function handleExtensionPlaylistSync(payload){
   if(currentNav==='playlist')renderPlaylistPage();
   const modal=document.getElementById('playlist-modal');
   if(modal?.classList.contains('open'))renderPlaylistModal();
+}
+
+function installExtensionSavedShowsSync(){
+  if(typeof chrome!=='undefined'&&chrome.runtime&&chrome.runtime.onMessage){
+    chrome.runtime.onMessage.addListener((message,_sender,sendResponse)=>{
+      if(message?.type!=='SHUFFLR_SYNC_SAVED_SHOWS')return;
+      handleExtensionSavedShowsSync(message.payload);
+      sendResponse({ok:true});
+      return true;
+    });
+  }
+
+  window.addEventListener('message',(event)=>{
+    if(event.source!==window)return;
+    if(event.data?.source!=='shufflr-extension')return;
+    if(event.data?.type!=='SHUFFLR_SYNC_SAVED_SHOWS')return;
+    handleExtensionSavedShowsSync(event.data.payload);
+  });
 }
 
 function installExtensionPlaylistSync(){
@@ -376,6 +408,7 @@ function installExtensionPlaylistSync(){
 }
 
 installExtensionPlaylistSync();
+installExtensionSavedShowsSync();
 
 window.addEventListener('shufflr-playlists-merged',(event)=>{
   handleExtensionPlaylistSync(event.detail);
@@ -436,7 +469,7 @@ function getHomeShowDedupeKey(show){
   return'';
 }
 
-function getActivePlaylistShowsForHome(allPlaylists=playlists){
+function getActivePlaylistShowsForHome(allPlaylists=playlists,standaloneSavedShows=savedShows){
   const seen=new Set();
   const items=[];
   const source=Array.isArray(allPlaylists)?allPlaylists:playlists;
@@ -450,6 +483,15 @@ function getActivePlaylistShowsForHome(allPlaylists=playlists){
       seen.add(key);
       items.push({show,playlistIndex:pi,showIndex:si});
     }
+  }
+  const savedSource=Array.isArray(standaloneSavedShows)?standaloneSavedShows:savedShows;
+  for(let i=0;i<savedSource.length;i++){
+    const show=savedSource[i];
+    if(show?.release_date)continue;
+    const key=getHomeShowDedupeKey(show);
+    if(!key||seen.has(key))continue;
+    seen.add(key);
+    items.push({show,savedShowIndex:i,savedOnly:true});
   }
   return{items};
 }
@@ -1091,9 +1133,12 @@ function buildYourShowsSectionHtml(section){
     return html;
   }
   html+=`<div class="h-scroll-wrap">`;
-  items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
+  items.forEach(({show:s,playlistIndex:pi,showIndex:si,savedOnly,savedShowIndex})=>{
     const showKey=getHomeShowDedupeKey(s);
-    html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}">
+    const attrs=savedOnly
+      ? `data-saved-only="1" data-saved-show-index="${savedShowIndex}"`
+      : `data-show-playlist-index="${pi}" data-show-index="${si}"`;
+    html+=`<div class="ep-card-h your-show-card" ${attrs}>
       ${buildYourShowsPosterHtml(s,showKey)}
       <div class="ep-card-h-body">
         <div class="ep-card-h-name">${s.name||s.title||''}</div>
@@ -1245,6 +1290,30 @@ async function buildRecentlyWatchedMaxCardsHtml(entries) {
     return buildRecentlyWatchedMaxCardHtml(entry, description);
   }));
   return cards.join('');
+}
+
+function getSavedShowsFromBridge() {
+  return new Promise((resolve) => {
+    if (window.shufflrSavedShows && Array.isArray(window.shufflrSavedShows)) {
+      return resolve(window.shufflrSavedShows);
+    }
+
+    const handler = (event) => {
+      if (event.source !== window) return;
+      if (event.data && event.data.type === 'SHUFFLR_SAVED_SHOWS_RESPONSE') {
+        window.removeEventListener('message', handler);
+        resolve(event.data.savedShows || []);
+      }
+    };
+    window.addEventListener('message', handler);
+
+    window.postMessage({ type: 'SHUFFLR_GET_SAVED_SHOWS' }, '*');
+
+    setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve(JSON.parse(localStorage.getItem(SHUFFLR_SAVED_SHOWS_KEY) || '[]'));
+    }, 2000);
+  });
 }
 
 function getPlaylistsFromBridge() {
@@ -2931,8 +3000,7 @@ async function shufflePlaylist(pi){
   }
 }
 
-async function openYourShowDetailPage(pi,si){
-  const show=playlists[pi]?.shows?.[si];
+async function openShowDetailFromHome(show){
   if(!show)return;
   const hasTmdbId=show?.id!=null&&/^\d+$/.test(String(show.id));
 
@@ -2965,6 +3033,14 @@ async function openYourShowDetailPage(pi,si){
     console.error(e);
     showToast('SEARCH FAILED');
   }
+}
+
+async function openYourShowDetailPage(pi,si){
+  await openShowDetailFromHome(playlists[pi]?.shows?.[si]);
+}
+
+async function openSavedShowDetailPage(savedIndex){
+  await openShowDetailFromHome(savedShows[savedIndex]);
 }
 
 // PLAYLIST MODAL
@@ -3565,7 +3641,13 @@ async function renderHomeScreen(navType){
     homePlaylistsCache = bridgePlaylists;
   }
 
-  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists);
+  const bridgeSavedShows=await getSavedShowsFromBridge();
+  if(Array.isArray(bridgeSavedShows)){
+    savedShows=bridgeSavedShows;
+    localStorage.setItem(SHUFFLR_SAVED_SHOWS_KEY,JSON.stringify(savedShows));
+  }
+
+  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists, savedShows);
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
@@ -3932,6 +4014,11 @@ document.addEventListener('click',e=>{
   }
   const yourShowCard=e.target.closest('.your-show-card');
   if(yourShowCard){
+    if(yourShowCard.dataset.savedOnly==='1'){
+      const savedIndex=parseInt(yourShowCard.dataset.savedShowIndex,10);
+      if(Number.isFinite(savedIndex))openSavedShowDetailPage(savedIndex);
+      return;
+    }
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
     const si=parseInt(yourShowCard.dataset.showIndex,10);
     if(Number.isFinite(pi)&&Number.isFinite(si))openYourShowDetailPage(pi,si);
