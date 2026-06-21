@@ -134,6 +134,7 @@
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    console.log('[Shufflr] bridge.js received message:', message?.type);
     if (message?.type === 'SHUFFLR_SYNC_PLAYLISTS') {
       window.postMessage({
         type: 'SHUFFLR_SYNC_PLAYLISTS',

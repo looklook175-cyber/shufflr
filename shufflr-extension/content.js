@@ -411,6 +411,7 @@ async function syncNowPlayingToWebApp(showName) {
 
   try {
     const tabs = await chrome.tabs.query({ url: 'https://shufflr-app.netlify.app/*' });
+    console.log('[Shufflr] Now-playing tab query found:', tabs.length, 'tab(s)');
     await Promise.all(tabs.map(tab => new Promise(resolve => {
       try {
         chrome.tabs.sendMessage(tab.id, {
@@ -421,6 +422,9 @@ async function syncNowPlayingToWebApp(showName) {
             if (handleChromeRuntimeLastError()) {
               resolve();
               return;
+            }
+            if (chrome.runtime.lastError) {
+              console.log('[Shufflr] Now-playing sync skipped:', chrome.runtime.lastError.message);
             }
           } catch (err) {
             if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
