@@ -1359,6 +1359,20 @@ body.light-mode .main::-webkit-scrollbar-corner {
   display: block;
   background: #1a1a1a;
 }
+.now-playing-vcr-wrap .now-playing-poster {
+  animation: now-playing-tape-wobble 3.6s ease-in-out infinite;
+}
+@keyframes now-playing-tape-wobble {
+  0% { transform: translateY(0); }
+  11% { transform: translateY(-1px); }
+  24% { transform: translateY(1px); }
+  38% { transform: translateY(-0.5px); }
+  52% { transform: translateY(1.5px); }
+  67% { transform: translateY(-1.5px); }
+  81% { transform: translateY(0.5px); }
+  93% { transform: translateY(-1px); }
+  100% { transform: translateY(0); }
+}
 .now-playing-scanlines {
   position: absolute;
   inset: 0;

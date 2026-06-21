@@ -715,8 +715,9 @@ function startNowPlayingPosterVcrOverlay(canvas){
   if(!ctx)return;
   const w=canvas.width;
   const h=canvas.height;
-  const staticAlpha=72;
-  const bandHeight=3;
+  const staticAlpha=18;
+  const staticDensity=0.32;
+  const bandHeight=2;
   const cycleMs=10000;
   const sweepDurationMs=7000;
   const sweepStart=performance.now();
@@ -733,9 +734,12 @@ function startNowPlayingPosterVcrOverlay(canvas){
     const imageData=ctx.createImageData(w,h);
     const data=imageData.data;
     for(let i=0;i<data.length;i+=4){
+      if(Math.random()>staticDensity){
+        data[i+3]=0;
+        continue;
+      }
       const v=(Math.random()*255)|0;
-      const spike=Math.random()<0.12;
-      const alpha=spike?Math.min(255,staticAlpha+55):staticAlpha+(Math.random()*28|0);
+      const alpha=staticAlpha+(Math.random()*10|0);
       data[i]=v;
       data[i+1]=v;
       data[i+2]=v;
@@ -744,12 +748,8 @@ function startNowPlayingPosterVcrOverlay(canvas){
     ctx.putImageData(imageData,0,0);
 
     if(trackCenter>=-bandHeight&&trackCenter<=h+bandHeight){
-      ctx.fillStyle='rgba(255,255,255,0.38)';
+      ctx.fillStyle='rgba(110,110,110,0.32)';
       ctx.fillRect(0,bandTop,w,bandHeight);
-      ctx.fillStyle='rgba(255,0,60,0.22)';
-      ctx.fillRect(1,bandTop,w,bandHeight);
-      ctx.fillStyle='rgba(0,80,255,0.22)';
-      ctx.fillRect(-1,bandTop,w,bandHeight);
     }
 
     nowPlayingStaticAnimId=requestAnimationFrame(draw);
