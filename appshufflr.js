@@ -34,11 +34,11 @@ en:{
 'greeting.hello':'HELLO','greeting.signIn':'SIGN IN TO GET STARTED','greeting.thankYou':'THANK YOU',
 'carousel.clickMe':'click me','carousel.next':'CLICK HERE >',
 'empty.noPlaylists':'No playlists yet',
-'empty.noPlaylistsHint':'Hit Shufflr on Max and use the dropdown to create one',
+'empty.noPlaylistsHint':'Hit Shufflr on your selected service and use the dropdown to create one and save shows.',
 'empty.noYourShowsTitle':'Nothing tuned in yet',
 'empty.noYourShowsHint':'Shows you add to playlists will appear here',
 'empty.noPlaylistsPlaylistTab':'No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.',
-'empty.noRecentlyWatched':'Episodes you watch on Max will appear here.',
+'empty.noRecentlyWatched':'Episodes you watch will appear here.',
 'empty.noEpisodes':'No episodes found. Try a lower rating.','empty.nothingAdded':'Nothing added yet.',
 'empty.loading':'LOADING...',
 'auth.email':'Email','auth.password':'Password',
@@ -1304,7 +1304,7 @@ async function syncWelcomeBanner(show){
   banner.id='shufflr-welcome-banner';
   banner.innerHTML=`
       <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your shows.</p>
-      <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, then create playlists from any show.</p>
+      <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</p>
       <div class="shufflr-welcome-banner-actions">
         <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>
         <span class="shufflr-welcome-banner-divider" aria-hidden="true"></span>
