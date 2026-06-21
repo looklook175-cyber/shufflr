@@ -175,6 +175,7 @@ function handleExtensionContextInvalidated() {
     clearInterval(showPageAutoplayPollTimer);
     showPageAutoplayPollTimer = null;
   }
+  clearNowPlayingHeartbeat();
   if (shufflrEpisodeEndedClearTimer) {
     clearTimeout(shufflrEpisodeEndedClearTimer);
     shufflrEpisodeEndedClearTimer = null;
@@ -398,6 +399,79 @@ async function syncPlaylistsToWebApp(playlists) {
     }
     console.error('[Shufflr] syncPlaylistsToWebApp error:', err);
   }
+}
+
+async function syncNowPlayingToWebApp(showName) {
+  if (!isChromeContextValid()) return;
+  if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
+  const name = String(showName || '').trim();
+  if (!name) return;
+
+  const payload = { showName: name, timestamp: Date.now() };
+
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://shufflr-app.netlify.app/*' });
+    await Promise.all(tabs.map(tab => new Promise(resolve => {
+      try {
+        chrome.tabs.sendMessage(tab.id, {
+          type: 'SHUFFLR_NOW_PLAYING',
+          payload,
+        }, () => {
+          try {
+            if (handleChromeRuntimeLastError()) {
+              resolve();
+              return;
+            }
+          } catch (err) {
+            if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          }
+          resolve();
+        });
+      } catch (err) {
+        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+        resolve();
+      }
+    })));
+  } catch (err) {
+    if (isExtensionContextInvalidatedError(err)) {
+      handleExtensionContextInvalidated();
+      return;
+    }
+    console.error('[Shufflr] syncNowPlayingToWebApp error:', err);
+  }
+}
+
+let nowPlayingHeartbeatTimer = null;
+
+function clearNowPlayingHeartbeat() {
+  if (nowPlayingHeartbeatTimer) {
+    clearInterval(nowPlayingHeartbeatTimer);
+    nowPlayingHeartbeatTimer = null;
+  }
+}
+
+function tickNowPlayingHeartbeat() {
+  if (!isChromeContextValid()) {
+    clearNowPlayingHeartbeat();
+    return;
+  }
+  if (!isVideoWatchUrl(location.href)) {
+    clearNowPlayingHeartbeat();
+    return;
+  }
+  const showName = getMaxPlayerShowName();
+  if (!showName || !String(showName).trim()) return;
+  void syncNowPlayingToWebApp(showName);
+}
+
+function startNowPlayingHeartbeat() {
+  if (IS_SHUFFLR_WEB_APP) return;
+  if (!isVideoWatchUrl(location.href)) {
+    clearNowPlayingHeartbeat();
+    return;
+  }
+  if (nowPlayingHeartbeatTimer) return;
+  nowPlayingHeartbeatTimer = setInterval(tickNowPlayingHeartbeat, 20000);
 }
 
 async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } = {}) {
@@ -1139,6 +1213,12 @@ const urlObserver = new MutationObserver(() => {
     const prevUrl = lastUrl;
     lastUrl = location.href;
     armedUrlPollLastHref = location.href;
+    if (isVideoWatchUrl(prevUrl) && !isVideoWatchUrl(location.href)) {
+      clearNowPlayingHeartbeat();
+    }
+    if (isVideoWatchUrl(location.href)) {
+      startNowPlayingHeartbeat();
+    }
     timeupdateWatcherVideo = null;
     timeupdateWatcherHandler = null;
     removeShufflrUI();
@@ -3842,6 +3922,9 @@ function onVideoPlaying() {
   prefetchEpisodeList();
   showFullscreenRestorePrompt();
   void maybeLogWatchHistoryOnPlay();
+  if (isVideoWatchUrl(location.href)) {
+    startNowPlayingHeartbeat();
+  }
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }

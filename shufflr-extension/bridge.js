@@ -134,16 +134,26 @@
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== 'SHUFFLR_SYNC_PLAYLISTS') return;
+    if (message?.type === 'SHUFFLR_SYNC_PLAYLISTS') {
+      window.postMessage({
+        type: 'SHUFFLR_SYNC_PLAYLISTS',
+        source: 'shufflr-extension',
+        payload: message.payload || [],
+      }, '*');
 
-    window.postMessage({
-      type: 'SHUFFLR_SYNC_PLAYLISTS',
-      source: 'shufflr-extension',
-      payload: message.payload || [],
-    }, '*');
+      console.log('[Shufflr] bridge.js — forwarded playlist sync to web app');
+      sendResponse({ ok: true });
+      return true;
+    }
 
-    console.log('[Shufflr] bridge.js — forwarded playlist sync to web app');
-    sendResponse({ ok: true });
-    return true;
+    if (message?.type === 'SHUFFLR_NOW_PLAYING') {
+      window.postMessage({
+        type: 'SHUFFLR_NOW_PLAYING',
+        source: 'shufflr-extension',
+        payload: message.payload || {},
+      }, '*');
+      sendResponse({ ok: true });
+      return true;
+    }
   });
 })();
