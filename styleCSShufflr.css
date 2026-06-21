@@ -600,6 +600,9 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-empty-state p {
   margin: 0 0 8px 0;
 }
+.pl-empty-state:not(.pl-empty-state--visual) {
+  text-align: center;
+}
 .pl-empty-state--visual {
   text-align: center;
   padding: 20px 4px 12px;
@@ -617,7 +620,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .home-empty-desc {
   font-family: var(--font-system);
   font-size: 13px;
-  color: var(--muted);
+  color: var(--body-text);
   line-height: 1.5;
 }
 .home-empty-static-wrap {
