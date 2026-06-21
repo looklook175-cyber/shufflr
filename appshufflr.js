@@ -1289,6 +1289,7 @@ function shufflrWelcomeDismiss(){
 }
 
 function shufflrWelcomeGoToSetup(){
+  shufflrWelcomeDismiss();
   setNav('options');
 }
 
