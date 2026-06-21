@@ -33,9 +33,10 @@ en:{
 'options.feedbackPlaceholder':'Type your feedback here...',
 'greeting.hello':'HELLO','greeting.signIn':'SIGN IN TO GET STARTED','greeting.thankYou':'THANK YOU',
 'carousel.clickMe':'click me','carousel.next':'CLICK HERE >',
-'empty.noPlaylists':'No playlists yet.',
-'empty.noPlaylistsHint':'On Max, hit the Shufflr button and use the playlist dropdown to create one. It will appear here automatically.',
-'empty.noYourShows':'Shows you add to playlists will appear here.',
+'empty.noPlaylists':'No playlists yet',
+'empty.noPlaylistsHint':'Hit Shufflr on Max and use the dropdown to create one',
+'empty.noYourShowsTitle':'Nothing tuned in yet',
+'empty.noYourShowsHint':'Shows you add to playlists will appear here',
 'empty.noPlaylistsPlaylistTab':'No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.',
 'empty.noRecentlyWatched':'Episodes you watch on Max will appear here.',
 'empty.noEpisodes':'No episodes found. Try a lower rating.','empty.nothingAdded':'Nothing added yet.',
@@ -1085,7 +1086,7 @@ function buildYourShowsSectionHtml(section){
   const items=section.items||[];
   let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div>`;
   if(!items.length){
-    html+=`<div class="pl-empty-state"><p>${t('empty.noYourShows')}</p></div></div>`;
+    html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyTvIconHtml()}<p class="home-empty-title">${t('empty.noYourShowsTitle')}</p><p class="home-empty-desc">${t('empty.noYourShowsHint')}</p></div></div>`;
     return html;
   }
   html+=`<div class="h-scroll-wrap">`;
@@ -1273,6 +1274,40 @@ function getPlaylistsFromBridge() {
   });
 }
 
+const SHUFFLR_WELCOME_BANNER_DISMISSED_KEY='shufflr_welcome_banner_dismissed';
+
+function shufflrWelcomeDismiss(){
+  sessionStorage.setItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY,'1');
+  document.getElementById('shufflr-welcome-banner')?.remove();
+}
+
+function shufflrWelcomeGoToSetup(){
+  setNav('options');
+}
+
+async function buildWelcomeBannerHtml(){
+  if(sessionStorage.getItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY))return '';
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(loggedIn)return '';
+  return `
+    <div class="shufflr-welcome-banner" id="shufflr-welcome-banner">
+      <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your shows.</p>
+      <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, then create playlists from any show.</p>
+      <div class="shufflr-welcome-banner-actions">
+        <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--primary" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>
+        <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeDismiss()">Continue as guest</button>
+      </div>
+    </div>`;
+}
+
+function buildHomeEmptyStaticHtml(){
+  return `<div class="home-empty-static" aria-hidden="true"></div>`;
+}
+
+function buildHomeEmptyTvIconHtml(){
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="13" width="30" height="18" fill="#3a5a6a"/><rect x="7" y="15" width="26" height="13" fill="#2a4550"/><rect x="17" y="31" width="6" height="2" fill="#3a5a6a"/><rect x="11" y="33" width="18" height="2" fill="#3a5a6a"/><rect x="19" y="7" width="2" height="6" fill="#3a5a6a"/><rect x="13" y="5" width="2" height="2" fill="#3a5a6a"/><rect x="25" y="5" width="2" height="2" fill="#3a5a6a"/><rect x="10" y="3" width="8" height="2" fill="#3a5a6a" transform="rotate(-30 14 4)"/><rect x="22" y="3" width="8" height="2" fill="#3a5a6a" transform="rotate(30 26 4)"/></svg></div>`;
+}
+
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
 async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
@@ -1284,7 +1319,7 @@ async function buildYourPlaylistsHtml() {
     return `
     <div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">${t('section.yourPlaylists')}</div>
-      <div class="pl-empty-state"><p>${t('empty.noPlaylists')}</p><p>${t('empty.noPlaylistsHint')}</p></div>
+      <div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyStaticHtml()}<p class="home-empty-title">${t('empty.noPlaylists')}</p><p class="home-empty-desc">${t('empty.noPlaylistsHint')}</p></div>
     </div>`;
   }
 
@@ -3483,6 +3518,10 @@ async function renderHomeScreen(navType){
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
+
+  if(homeNavType==='shows'){
+    html+=await buildWelcomeBannerHtml();
+  }
 
   html += await buildYourPlaylistsHtml();
 
