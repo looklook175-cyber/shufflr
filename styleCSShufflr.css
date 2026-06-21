@@ -89,7 +89,8 @@ body.light-mode .logo-box{color:#111111;}
 .block-btn:hover{color:#ff4455!important;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .connect-wrap{padding:8px 12px 12px;}
 .sidebar-bottom{margin-top:auto;flex-shrink:0;padding-bottom:20px;}
-.sidebar-now-playing-divider{height:1px;background:#2a2a2a;margin:0 12px 12px;}
+#nav-options::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
+.sidebar-now-playing-divider{display:none;}
 .auth-section{margin-bottom:12px;}
 .auth-input{width:100%;padding:8px 10px;margin-bottom:8px;background:var(--chrome-elevated);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:0.78rem;}
 .auth-input:focus{outline:none;border-color:var(--blue);}
@@ -1231,7 +1232,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
 
 /* NOW PLAYING SIDEBAR CARD */
 #now-playing-card-host {
-  padding: 0 12px 8px;
+  padding: 20px 12px 8px;
 }
 #now-playing-card {
   background: var(--surface2);
