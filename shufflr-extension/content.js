@@ -10,6 +10,7 @@ const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
 const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_LAUNCH_SHOW_URL_KEY = 'shufflr_launch_show_url';
+const SHUFFLR_LAUNCH_STANDALONE_KEY = 'shufflr_launch_standalone';
 const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
@@ -5870,6 +5871,38 @@ async function updatePlaylistShowUrl() {
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────
+async function checkForLaunchStandaloneShow() {
+  if (!isChromeContextValid()) return;
+  const result = await chrome.storage.local.get([
+    SHUFFLR_LAUNCH_SHOW_URL_KEY,
+    SHUFFLR_LAUNCH_STANDALONE_KEY,
+  ]);
+  const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
+  const isStandaloneLaunch = result[SHUFFLR_LAUNCH_STANDALONE_KEY];
+  if (!isStandaloneLaunch || !launchUrl) return;
+
+  const currentUrl = window.location.href.split('?')[0];
+  let launchPath = '';
+  try {
+    launchPath = new URL(launchUrl).pathname;
+  } catch {
+    return;
+  }
+  if (!launchPath || !currentUrl.includes(launchPath)) return;
+
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
+  await clearActivePlaylist();
+  armedPlaylistCached = false;
+  await setStandaloneShuffleEnabled(true);
+  shufflrActive = true;
+
+  setTimeout(() => {
+    if (!isChromeContextValid()) return;
+    tryInjectButton();
+  }, 1500);
+}
+
 async function checkForLaunchPlaylist() {
   if (!isChromeContextValid()) return;
   const result = await chrome.storage.local.get([
@@ -5914,6 +5947,7 @@ async function checkForLaunchPlaylist() {
 
 if (!IS_SHUFFLR_WEB_APP) {
 installMaxPlaylistSyncListener();
+void checkForLaunchStandaloneShow();
 void checkForLaunchPlaylist();
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;

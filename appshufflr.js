@@ -661,8 +661,7 @@ function onNowPlayingShuffleClick(){
 function onNowPlayingShufflePosterClick(){
   if(!isNowPlayingShuffleActive())return;
   if(nowPlayingShufflePlaylistIndex==null||nowPlayingShuffleShowIndex==null)return;
-  homePlaylistsCache=playlists;
-  launchShowFromDrawer(nowPlayingShufflePlaylistIndex,nowPlayingShuffleShowIndex);
+  launchShowStandaloneFromNowPlaying(nowPlayingShufflePlaylistIndex,nowPlayingShuffleShowIndex);
 }
 
 function installNowPlayingShufflePosterClick(){
@@ -1998,6 +1997,22 @@ function setActivePlaylistViaBridge(playlist, launchUrl) {
     playlist,
     launchUrl,
   }, '*');
+}
+
+function setStandaloneLaunchViaBridge(launchUrl) {
+  window.postMessage({
+    type: 'SHUFFLR_LAUNCH_STANDALONE_SHOW',
+    launchUrl,
+  }, '*');
+}
+
+function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
+  const show = playlists[playlistIndex]?.shows?.[showIndex];
+  if (!show) return;
+  const launchUrl = getShowMaxUrlFromPlaylistShow(show);
+  if (!launchUrl) return;
+  setStandaloneLaunchViaBridge(launchUrl);
+  window.open(launchUrl, '_blank');
 }
 
 function savePlaylistsViaBridge(allPl) {

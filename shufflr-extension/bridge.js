@@ -120,6 +120,13 @@
       });
       return;
     }
+    if (event.data?.type === 'SHUFFLR_LAUNCH_STANDALONE_SHOW') {
+      chrome.storage.local.set({
+        shufflr_launch_show_url: event.data.launchUrl,
+        shufflr_launch_standalone: true,
+      });
+      return;
+    }
     if (event.data?.type === 'SHUFFLR_SAVE_PLAYLISTS') {
       chrome.storage.local.set({ shufflr_playlists: event.data.playlists || [] });
       return;
