@@ -800,8 +800,19 @@ function installNowPlayingCardListener(){
   });
 }
 
+function ensureFloatingDownloadButton(){
+  if(document.getElementById('sidebar-download-btn'))return;
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.id='sidebar-download-btn';
+  btn.className='shufflr-download-float-btn';
+  btn.textContent='DOWNLOAD';
+  document.body.appendChild(btn);
+}
+
 installNowPlayingCardListener();
 initNowPlayingCard();
+ensureFloatingDownloadButton();
 
 function getShowPosterPathFromShow(show){
   return show?.poster_path||show?.posterPath||show?.showPoster||show?.poster||show?.image||'';
