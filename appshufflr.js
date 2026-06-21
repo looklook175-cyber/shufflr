@@ -3404,10 +3404,6 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'),2000);
 }
 function onSearchFocus(){
-  if(currentNav!=='shows'){
-    document.getElementById('search-input')?.blur();
-    return;
-  }
   showRecent();
 }
 function openDropdown(){
