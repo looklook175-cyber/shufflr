@@ -349,6 +349,7 @@ body.light-mode .queue-ep-title{color:#111;}
 .empty-sub{font-family:var(--font-system);font-size:13px;color:var(--body-text);line-height:1.6;}
 
 .home-wrap{padding:0;}
+.home-wrap > .shufflr-welcome-banner:first-child{margin-top:0;}
 .genre-section{margin-bottom:20px;}
 .home-wrap > .genre-section:first-child{margin-top:0 !important;}
 .genre-title{font-family:'Press Start 2P',monospace;font-size:11px;font-weight:400;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
@@ -640,10 +641,10 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   margin-bottom: 12px;
 }
 .shufflr-welcome-banner {
-  margin-top: 16px;
+  margin-top: 4px;
   margin-bottom: 4px;
-  padding: 10px 12px 11px;
-  background: var(--surface);
+  padding: 8px 12px 8px;
+  background: #000;
   border: 1px solid #23A8E0;
   border-radius: 10px;
   box-shadow: 0 0 16px rgba(35, 168, 224, 0.12);
@@ -653,7 +654,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   font-size: 0.42rem;
   color: #23A8E0;
   line-height: 1.6;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   text-shadow: 0 0 8px var(--blue-glow);
 }
 .shufflr-welcome-banner-desc {
@@ -661,19 +662,20 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   font-size: 14px;
   color: #e8e8e8;
   line-height: 1.55;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
 }
 .shufflr-welcome-banner-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  margin: 0;
 }
 .shufflr-welcome-banner-btn {
-  padding: 8px 11px;
+  padding: 7px 10px;
   border-radius: 8px;
   font-family: 'Press Start 2P', monospace;
   font-size: 0.38rem;
-  line-height: 1.6;
+  line-height: 1.5;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -698,7 +700,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   background: rgba(35, 168, 224, 0.08);
 }
 body.light-mode .shufflr-welcome-banner {
-  background: #ffffff;
+  background: #000;
 }
 body.light-mode .shufflr-welcome-banner-desc {
   color: #333344;
