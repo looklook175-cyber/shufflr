@@ -569,6 +569,7 @@ let nowPlayingShufflePickedAt=0;
 let nowPlayingShufflePlaylistIndex=null;
 let nowPlayingShuffleShowIndex=null;
 let nowPlayingStaticAnimId=null;
+let homeEmptyStaticAnimId=null;
 let nowPlayingPosterGlitchTimer=null;
 const NOW_PLAYING_SHUFFLE_TTL_MS=3600000;
 
@@ -1300,12 +1301,52 @@ async function buildWelcomeBannerHtml(){
     </div>`;
 }
 
+function stopHomeEmptyStatic(){
+  if(homeEmptyStaticAnimId){
+    cancelAnimationFrame(homeEmptyStaticAnimId);
+    homeEmptyStaticAnimId=null;
+  }
+}
+
+function startHomeEmptyStatic(canvas){
+  stopHomeEmptyStatic();
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return;
+  const w=canvas.width;
+  const h=canvas.height;
+  function draw(){
+    const imageData=ctx.createImageData(w,h);
+    const data=imageData.data;
+    for(let i=0;i<data.length;i+=4){
+      const spike=Math.random()<0.1;
+      const v=spike?(55+Math.random()*45|0):(Math.random()*32|0);
+      data[i]=v;
+      data[i+1]=v;
+      data[i+2]=v;
+      data[i+3]=255;
+    }
+    ctx.putImageData(imageData,0,0);
+    homeEmptyStaticAnimId=requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+function initHomeEmptyStatic(){
+  const canvas=document.querySelector('.home-empty-static-canvas');
+  if(!canvas)return;
+  const wrap=canvas.closest('.home-empty-static-wrap');
+  canvas.width=wrap?.offsetWidth||104;
+  canvas.height=wrap?.offsetHeight||68;
+  startHomeEmptyStatic(canvas);
+}
+
 function buildHomeEmptyStaticHtml(){
-  return `<div class="home-empty-static" aria-hidden="true"></div>`;
+  return `<div class="home-empty-static-wrap" aria-hidden="true"><canvas class="home-empty-static-canvas"></canvas></div>`;
 }
 
 function buildHomeEmptyTvIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="13" width="30" height="18" fill="#3a5a6a"/><rect x="7" y="15" width="26" height="13" fill="#2a4550"/><rect x="17" y="31" width="6" height="2" fill="#3a5a6a"/><rect x="11" y="33" width="18" height="2" fill="#3a5a6a"/><rect x="19" y="7" width="2" height="6" fill="#3a5a6a"/><rect x="13" y="5" width="2" height="2" fill="#3a5a6a"/><rect x="25" y="5" width="2" height="2" fill="#3a5a6a"/><rect x="10" y="3" width="8" height="2" fill="#3a5a6a" transform="rotate(-30 14 4)"/><rect x="22" y="3" width="8" height="2" fill="#3a5a6a" transform="rotate(30 26 4)"/></svg></div>`;
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg width="40" height="48" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="15" y="0" width="2" height="5" fill="#3a5a6a"/><rect x="4" y="6" width="24" height="22" fill="#3a5a6a"/><rect x="8" y="10" width="16" height="14" fill="#000"/><rect x="10" y="13" width="3" height="2" fill="#3a5a6a"/><rect x="19" y="13" width="3" height="2" fill="#3a5a6a"/><rect x="11" y="19" width="10" height="2" fill="#3a5a6a"/><rect x="14" y="28" width="4" height="2" fill="#3a5a6a"/><rect x="9" y="30" width="14" height="2" fill="#3a5a6a"/></svg></div>`;
 }
 
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
@@ -3550,8 +3591,12 @@ async function renderHomeScreen(navType){
   const recentlyWatchedEntries=recentSection.entries;
 
   html+=`</div>`;
+  stopHomeEmptyStatic();
   showMain(html);
-  setTimeout(()=>{ document.getElementById('main-content').scrollTop=homeScrollPos; },50);
+  setTimeout(()=>{
+    document.getElementById('main-content').scrollTop=homeScrollPos;
+    initHomeEmptyStatic();
+  },50);
 
   if(yourShows.length){
     resolveYourShowsPosters(yourShowsSection.items);
