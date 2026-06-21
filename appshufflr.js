@@ -761,8 +761,10 @@ function renderNowPlayingCard(){
   }
 
   setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="no-signal">
-    <div class="now-playing-poster-wrap">
+    <div class="now-playing-poster-wrap now-playing-vcr-wrap">
       <canvas class="now-playing-static-canvas" aria-hidden="true"></canvas>
+      <div class="now-playing-vcr-scanlines" aria-hidden="true"></div>
+      <div class="now-playing-vcr-chroma" aria-hidden="true"></div>
       <div class="now-playing-no-signal-text">NO SIGNAL</div>
     </div>
   </div>`);
