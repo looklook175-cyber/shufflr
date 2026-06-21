@@ -349,7 +349,6 @@ body.light-mode .queue-ep-title{color:#111;}
 .empty-sub{font-family:var(--font-system);font-size:13px;color:var(--body-text);line-height:1.6;}
 
 .home-wrap{padding:0;}
-.home-wrap > .shufflr-welcome-banner:first-child{margin-top:0;}
 .genre-section{margin-bottom:20px;}
 .home-wrap > .genre-section:first-child{margin-top:0 !important;}
 .genre-title{font-family:'Press Start 2P',monospace;font-size:11px;font-weight:400;color:var(--blue);letter-spacing:2px;margin-bottom:12px;text-shadow:0 0 8px var(--blue-glow);}
@@ -641,13 +640,19 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   margin-bottom: 12px;
 }
 .shufflr-welcome-banner {
-  margin-top: 4px;
-  margin-bottom: 4px;
+  position: fixed;
+  top: 60px;
+  right: 24px;
+  width: min(400px, calc(100vw - 48px));
+  max-width: 400px;
+  z-index: 8500;
+  margin: 0;
   padding: 8px 12px 8px;
   background: #000;
   border: 1px solid #23A8E0;
   border-radius: 10px;
   box-shadow: 0 0 16px rgba(35, 168, 224, 0.12);
+  box-sizing: border-box;
 }
 .shufflr-welcome-banner-title {
   font-family: 'Press Start 2P', monospace;

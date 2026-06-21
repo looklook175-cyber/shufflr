@@ -1277,28 +1277,36 @@ function getPlaylistsFromBridge() {
 
 const SHUFFLR_WELCOME_BANNER_DISMISSED_KEY='shufflr_welcome_banner_dismissed';
 
+function removeWelcomeBanner(){
+  document.getElementById('shufflr-welcome-banner')?.remove();
+}
+
 function shufflrWelcomeDismiss(){
   sessionStorage.setItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY,'1');
-  document.getElementById('shufflr-welcome-banner')?.remove();
+  removeWelcomeBanner();
 }
 
 function shufflrWelcomeGoToSetup(){
   setNav('options');
 }
 
-async function buildWelcomeBannerHtml(){
-  if(sessionStorage.getItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY))return '';
+async function syncWelcomeBanner(show){
+  removeWelcomeBanner();
+  if(!show)return;
+  if(sessionStorage.getItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY))return;
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
-  if(loggedIn)return '';
-  return `
-    <div class="shufflr-welcome-banner" id="shufflr-welcome-banner">
+  if(loggedIn)return;
+  const banner=document.createElement('div');
+  banner.className='shufflr-welcome-banner';
+  banner.id='shufflr-welcome-banner';
+  banner.innerHTML=`
       <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your shows.</p>
       <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, then create playlists from any show.</p>
       <div class="shufflr-welcome-banner-actions">
         <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--primary" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>
         <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeDismiss()">Continue as guest</button>
-      </div>
-    </div>`;
+      </div>`;
+  document.body.appendChild(banner);
 }
 
 function stopHomeEmptyStatic(){
@@ -1563,10 +1571,12 @@ function setNav(nav){
   if(nav==='playlist'){
     allSeasons=[];
     clearSeasonsSidebar();
+    removeWelcomeBanner();
     renderPlaylistPage();
   }else if(nav==='options'){
     allSeasons=[];
     clearSeasonsSidebar();
+    removeWelcomeBanner();
     renderOptionsPage();
   }else if(nav==='shows'){
     currentType='tv';
@@ -3560,10 +3570,6 @@ async function renderHomeScreen(navType){
 
   let html=`<div class="home-wrap">`;
 
-  if(homeNavType==='shows'){
-    html+=await buildWelcomeBannerHtml();
-  }
-
   html += await buildYourPlaylistsHtml();
 
   let playlistCardLookup=null;
@@ -3593,6 +3599,7 @@ async function renderHomeScreen(navType){
   html+=`</div>`;
   stopHomeEmptyStatic();
   showMain(html);
+  void syncWelcomeBanner(homeNavType==='shows');
   setTimeout(()=>{
     document.getElementById('main-content').scrollTop=homeScrollPos;
     initHomeEmptyStatic();
