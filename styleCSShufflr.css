@@ -1300,9 +1300,11 @@ body.light-mode .main::-webkit-scrollbar-corner {
   transition: filter 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 .now-playing-poster-wrap--launch:hover {
-  filter: brightness(1.12);
   border-color: #23A8E0;
   box-shadow: 0 0 10px rgba(35, 168, 224, 0.35);
+}
+.now-playing-poster-wrap--launch:hover .now-playing-poster {
+  filter: brightness(1.12);
 }
 .now-playing-poster {
   width: 100%;
@@ -1332,6 +1334,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
   position: absolute;
   top: 6px;
   right: 6px;
+  z-index: 4;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -1366,13 +1369,19 @@ body.light-mode .main::-webkit-scrollbar-corner {
   align-items: center;
   justify-content: center;
   z-index: 3;
-  font-family: 'Arial Black', 'Impact', sans-serif;
-  font-weight: 900;
-  font-size: 13px;
+  pointer-events: none;
+}
+.now-playing-no-signal-label {
+  display: inline-block;
+  background: #000000;
+  padding: 6px 10px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  line-height: 1.4;
   color: #ffffff;
-  -webkit-text-stroke: 2px #000000;
+  -webkit-text-stroke: 1px #000000;
   paint-order: stroke fill;
-  letter-spacing: 4px;
+  letter-spacing: 2px;
   text-shadow:
     2px 0 0 #000000,
     -2px 0 0 #000000,
@@ -1380,7 +1389,6 @@ body.light-mode .main::-webkit-scrollbar-corner {
     0 -2px 0 #000000,
     1px 1px 0 #000000,
     -1px -1px 0 #000000;
-  pointer-events: none;
   animation: now-playing-no-signal-glitch 2.4s steps(1, end) infinite;
 }
 @keyframes now-playing-no-signal-glitch {

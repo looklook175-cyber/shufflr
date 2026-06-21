@@ -737,9 +737,10 @@ function renderNowPlayingCard(){
   if(live){
     const showName=escapeHtml(nowPlayingShow);
     setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="live" data-show-name="${showName}">
-      <div class="now-playing-poster-wrap">
+      <div class="now-playing-poster-wrap now-playing-vcr-wrap">
         <img class="now-playing-poster" data-show-key="now-playing:live" src="" alt="" />
-        <div class="now-playing-scanlines" aria-hidden="true"></div>
+        <div class="now-playing-vcr-scanlines" aria-hidden="true"></div>
+        <div class="now-playing-vcr-chroma" aria-hidden="true"></div>
         <span class="now-playing-live-dot" aria-hidden="true"></span>
       </div>
       <div class="now-playing-title">${showName}</div>
@@ -751,8 +752,10 @@ function renderNowPlayingCard(){
   if(shuffleActive){
     const showName=escapeHtml(nowPlayingShuffleShow);
     setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="shuffle" data-show-name="${showName}">
-      <div class="now-playing-poster-wrap now-playing-poster-wrap--launch">
+      <div class="now-playing-poster-wrap now-playing-poster-wrap--launch now-playing-vcr-wrap">
         <img class="now-playing-poster" data-show-key="now-playing:shuffle" src="" alt="" />
+        <div class="now-playing-vcr-scanlines" aria-hidden="true"></div>
+        <div class="now-playing-vcr-chroma" aria-hidden="true"></div>
       </div>
       <div class="now-playing-title">${showName}</div>
     </div>`);
@@ -765,7 +768,7 @@ function renderNowPlayingCard(){
       <canvas class="now-playing-static-canvas" aria-hidden="true"></canvas>
       <div class="now-playing-vcr-scanlines" aria-hidden="true"></div>
       <div class="now-playing-vcr-chroma" aria-hidden="true"></div>
-      <div class="now-playing-no-signal-text">NO SIGNAL</div>
+      <div class="now-playing-no-signal-text"><span class="now-playing-no-signal-label">NO SIGNAL</span></div>
     </div>
   </div>`);
   const canvas=document.querySelector('#now-playing-card-slot .now-playing-static-canvas');
