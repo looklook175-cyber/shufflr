@@ -1305,7 +1305,8 @@ async function syncWelcomeBanner(show){
       <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your shows.</p>
       <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, then create playlists from any show.</p>
       <div class="shufflr-welcome-banner-actions">
-        <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--primary" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>
+        <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>
+        <span class="shufflr-welcome-banner-divider" aria-hidden="true"></span>
         <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeDismiss()">Continue as guest</button>
       </div>`;
   document.body.appendChild(banner);

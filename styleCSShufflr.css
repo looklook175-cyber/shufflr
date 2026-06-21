@@ -112,7 +112,7 @@ body.light-mode .logo-box{color:#111111;}
   box-shadow:0 0 22px #22c55e,0 0 9px #22c55e,0 0 4px #4ade80,0 0 28px rgba(34,197,94,0.45);
 }
 .connect-btn:hover{background:rgba(35,168,224,0.1);box-shadow:0 0 14px rgba(35,168,224,0.3);}
-.shufflr-download-float-btn{position:fixed;bottom:24px;right:24px;z-index:9000;padding:14px 22px;background:#0d0d0d;border:1px solid #23A8E0;border-radius:10px;color:#23A8E0;font-family:'Press Start 2P',monospace;font-size:0.52rem;cursor:default;transition:all 0.2s;box-shadow:0 0 18px rgba(35,168,224,0.4),0 0 8px rgba(35,168,224,0.35);line-height:1.8;letter-spacing:1px;}
+.shufflr-download-float-btn{position:fixed;bottom:24px;right:24px;z-index:9000;padding:14px 22px;background:#0d0d0d;border:1px solid #23A8E0;border-radius:10px;color:#fff;font-family:'Press Start 2P',monospace;font-size:0.52rem;cursor:default;transition:all 0.2s;box-shadow:0 0 18px rgba(35,168,224,0.4),0 0 8px rgba(35,168,224,0.35);line-height:1.8;letter-spacing:1px;}
 .shufflr-download-float-btn:hover{background:#1a1a1a;box-shadow:0 0 28px rgba(35,168,224,0.55),0 0 12px rgba(35,168,224,0.45);}
 
 /* MAIN */
@@ -674,6 +674,14 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   gap: 8px;
   flex-wrap: wrap;
   margin: 0;
+}
+.shufflr-welcome-banner-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 28px;
+  background: #3a3a3a;
+  flex-shrink: 0;
+  margin: 0 4px;
 }
 .shufflr-welcome-banner-btn {
   padding: 7px 10px;
