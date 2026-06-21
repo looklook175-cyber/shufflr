@@ -565,6 +565,8 @@ let nowPlayingShow=null;
 let nowPlayingLastSeen=0;
 let nowPlayingShuffleShow=null;
 let nowPlayingShufflePickedAt=0;
+let nowPlayingShufflePlaylistIndex=null;
+let nowPlayingShuffleShowIndex=null;
 let nowPlayingStaticAnimId=null;
 const NOW_PLAYING_SHUFFLE_TTL_MS=3600000;
 
@@ -580,6 +582,8 @@ function clearExpiredNowPlayingShuffle(){
   if(nowPlayingShuffleShow&&Date.now()-nowPlayingShufflePickedAt>=NOW_PLAYING_SHUFFLE_TTL_MS){
     nowPlayingShuffleShow=null;
     nowPlayingShufflePickedAt=0;
+    nowPlayingShufflePlaylistIndex=null;
+    nowPlayingShuffleShowIndex=null;
   }
 }
 
@@ -647,11 +651,29 @@ function onNowPlayingShuffleClick(){
   if(hint)hint.hidden=true;
   const pick=items[Math.floor(Math.random()*items.length)];
   const{show,playlistIndex,showIndex}=pick;
-  homePlaylistsCache=playlists;
-  launchShowFromDrawer(playlistIndex,showIndex);
   nowPlayingShuffleShow=getPlaylistShowLabel(show);
   nowPlayingShufflePickedAt=Date.now();
+  nowPlayingShufflePlaylistIndex=playlistIndex;
+  nowPlayingShuffleShowIndex=showIndex;
   renderNowPlayingCard();
+}
+
+function onNowPlayingShufflePosterClick(){
+  if(!isNowPlayingShuffleActive())return;
+  if(nowPlayingShufflePlaylistIndex==null||nowPlayingShuffleShowIndex==null)return;
+  homePlaylistsCache=playlists;
+  launchShowFromDrawer(nowPlayingShufflePlaylistIndex,nowPlayingShuffleShowIndex);
+}
+
+function installNowPlayingShufflePosterClick(){
+  if(window.__shufflrShufflePosterClickInstalled)return;
+  const slot=document.getElementById('now-playing-card-slot');
+  if(!slot)return;
+  slot.addEventListener('click',(e)=>{
+    if(!e.target.closest('.now-playing-poster-wrap--launch'))return;
+    onNowPlayingShufflePosterClick();
+  });
+  window.__shufflrShufflePosterClickInstalled=true;
 }
 
 function stopNowPlayingStatic(){
@@ -727,7 +749,7 @@ function renderNowPlayingCard(){
   if(shuffleActive){
     const showName=escapeHtml(nowPlayingShuffleShow);
     setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="shuffle" data-show-name="${showName}">
-      <div class="now-playing-poster-wrap">
+      <div class="now-playing-poster-wrap now-playing-poster-wrap--launch">
         <img class="now-playing-poster" data-show-key="now-playing:shuffle" src="" alt="" />
       </div>
       <div class="now-playing-title">${showName}</div>
@@ -752,6 +774,7 @@ function renderNowPlayingCard(){
 
 function initNowPlayingCard(){
   ensureNowPlayingCardHost();
+  installNowPlayingShufflePosterClick();
   renderNowPlayingCard();
   if(!window.__shufflrNowPlayingInterval){
     window.__shufflrNowPlayingInterval=setInterval(renderNowPlayingCard,5000);

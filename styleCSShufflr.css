@@ -1245,6 +1245,15 @@ body.light-mode .main::-webkit-scrollbar-corner {
   background: #1a1a1a;
   border: 1px solid #222;
 }
+.now-playing-poster-wrap--launch {
+  cursor: pointer;
+  transition: filter 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.now-playing-poster-wrap--launch:hover {
+  filter: brightness(1.12);
+  border-color: #23A8E0;
+  box-shadow: 0 0 10px rgba(35, 168, 224, 0.35);
+}
 .now-playing-poster {
   width: 100%;
   height: 100%;
