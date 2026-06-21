@@ -563,19 +563,95 @@ async function resolveRecentlyWatchedPosters(entries){
 
 let nowPlayingShow=null;
 let nowPlayingLastSeen=0;
+let nowPlayingShuffleShow=null;
+let nowPlayingShufflePickedAt=0;
 let nowPlayingStaticAnimId=null;
+const NOW_PLAYING_SHUFFLE_TTL_MS=3600000;
 
 function isNowPlayingLive(){
   return !!(nowPlayingShow&&Date.now()-nowPlayingLastSeen<45000);
 }
 
+function isNowPlayingShuffleActive(){
+  return !!(nowPlayingShuffleShow&&Date.now()-nowPlayingShufflePickedAt<NOW_PLAYING_SHUFFLE_TTL_MS);
+}
+
+function clearExpiredNowPlayingShuffle(){
+  if(nowPlayingShuffleShow&&Date.now()-nowPlayingShufflePickedAt>=NOW_PLAYING_SHUFFLE_TTL_MS){
+    nowPlayingShuffleShow=null;
+    nowPlayingShufflePickedAt=0;
+  }
+}
+
+function ensureNowPlayingShuffleControls(host){
+  const container=host||document.getElementById('now-playing-card-host');
+  if(!container)return;
+  if(!document.getElementById('now-playing-shuffle-btn')){
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.id='now-playing-shuffle-btn';
+    btn.className='now-playing-shuffle-btn';
+    btn.textContent='SHUFFLE';
+    btn.addEventListener('click',onNowPlayingShuffleClick);
+    container.appendChild(btn);
+  }
+  if(!document.getElementById('now-playing-shuffle-hint')){
+    const hint=document.createElement('div');
+    hint.id='now-playing-shuffle-hint';
+    hint.className='now-playing-shuffle-hint';
+    hint.hidden=true;
+    hint.textContent='Add shows to playlists to use shuffle.';
+    container.appendChild(hint);
+  }
+}
+
 function ensureNowPlayingCardHost(){
-  if(document.getElementById('now-playing-card-host'))return;
-  const connectWrap=document.querySelector('.connect-wrap');
-  if(!connectWrap)return;
-  const host=document.createElement('div');
-  host.id='now-playing-card-host';
-  connectWrap.parentNode.insertBefore(host,connectWrap);
+  let host=document.getElementById('now-playing-card-host');
+  if(!host){
+    const connectWrap=document.querySelector('.connect-wrap');
+    if(!connectWrap)return;
+    host=document.createElement('div');
+    host.id='now-playing-card-host';
+    connectWrap.parentNode.insertBefore(host,connectWrap);
+  }
+  if(!document.getElementById('now-playing-card-slot')){
+    const slot=document.createElement('div');
+    slot.id='now-playing-card-slot';
+    const existingCard=document.getElementById('now-playing-card');
+    if(existingCard){
+      existingCard.remove();
+      slot.appendChild(existingCard);
+    }
+    host.insertBefore(slot,host.firstChild);
+  }
+  ensureNowPlayingShuffleControls(host);
+}
+
+function setNowPlayingCardSlotHtml(html){
+  const slot=document.getElementById('now-playing-card-slot');
+  if(!slot)return;
+  slot.innerHTML=html;
+}
+
+function onNowPlayingShuffleClick(){
+  const{items}=getActivePlaylistShowsForHome();
+  const hint=document.getElementById('now-playing-shuffle-hint');
+  if(!items.length){
+    if(hint){
+      hint.hidden=false;
+      clearTimeout(window.__shufflrShuffleHintTimer);
+      window.__shufflrShuffleHintTimer=setTimeout(()=>{hint.hidden=true;},4000);
+    }
+    return;
+  }
+  if(hint)hint.hidden=true;
+  const pick=items[Math.floor(Math.random()*items.length)];
+  const{show,playlistIndex,showIndex}=pick;
+  homePlaylistsCache=playlists;
+  launchShowFromDrawer(playlistIndex,showIndex);
+  nowPlayingShuffleShow=getPlaylistShowLabel(show);
+  nowPlayingShufflePickedAt=Date.now();
+  renderNowPlayingCard();
 }
 
 function stopNowPlayingStatic(){
@@ -608,10 +684,10 @@ function startNowPlayingStatic(canvas){
   draw();
 }
 
-async function resolveNowPlayingPoster(showName){
+async function resolveNowPlayingPoster(showName,showKey='now-playing:live'){
   const query=stripServiceSuffixFromShowName(showName);
   if(!query)return;
-  const lookupMap=new Map([['now-playing:live',query]]);
+  const lookupMap=new Map([[showKey,query]]);
   await resolveCardPostersFromTmdb(lookupMap,'w185');
 }
 
@@ -620,36 +696,53 @@ function renderNowPlayingCard(){
   const host=document.getElementById('now-playing-card-host');
   if(!host)return;
 
+  clearExpiredNowPlayingShuffle();
+
   const live=isNowPlayingLive();
+  const shuffleActive=!live&&isNowPlayingShuffleActive();
   const card=document.getElementById('now-playing-card');
   const prevState=card?.dataset?.state;
   const prevShow=card?.dataset?.showName;
 
   if(live&&prevState==='live'&&prevShow===nowPlayingShow&&card)return;
+  if(shuffleActive&&prevState==='shuffle'&&prevShow===nowPlayingShuffleShow&&card)return;
+  if(!live&&!shuffleActive&&prevState==='no-signal'&&card)return;
 
   stopNowPlayingStatic();
 
   if(live){
     const showName=escapeHtml(nowPlayingShow);
-    host.innerHTML=`<div id="now-playing-card" data-state="live" data-show-name="${showName}">
+    setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="live" data-show-name="${showName}">
       <div class="now-playing-poster-wrap">
         <img class="now-playing-poster" data-show-key="now-playing:live" src="" alt="" />
         <div class="now-playing-scanlines" aria-hidden="true"></div>
         <span class="now-playing-live-dot" aria-hidden="true"></span>
       </div>
       <div class="now-playing-title">${showName}</div>
-    </div>`;
+    </div>`);
     void resolveNowPlayingPoster(nowPlayingShow);
     return;
   }
 
-  host.innerHTML=`<div id="now-playing-card" data-state="no-signal">
+  if(shuffleActive){
+    const showName=escapeHtml(nowPlayingShuffleShow);
+    setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="shuffle" data-show-name="${showName}">
+      <div class="now-playing-poster-wrap">
+        <img class="now-playing-poster" data-show-key="now-playing:shuffle" src="" alt="" />
+      </div>
+      <div class="now-playing-title">${showName}</div>
+    </div>`);
+    void resolveNowPlayingPoster(nowPlayingShuffleShow,'now-playing:shuffle');
+    return;
+  }
+
+  setNowPlayingCardSlotHtml(`<div id="now-playing-card" data-state="no-signal">
     <div class="now-playing-poster-wrap">
       <canvas class="now-playing-static-canvas" aria-hidden="true"></canvas>
       <div class="now-playing-no-signal-text">NO SIGNAL</div>
     </div>
-  </div>`;
-  const canvas=host.querySelector('.now-playing-static-canvas');
+  </div>`);
+  const canvas=document.querySelector('#now-playing-card-slot .now-playing-static-canvas');
   if(canvas){
     canvas.width=canvas.offsetWidth||166;
     canvas.height=canvas.offsetHeight||100;
