@@ -1351,15 +1351,26 @@ async function writeSavedShowsToStorage(savedShows, { syncToWebApp = true } = {}
 
 async function updateSaveShowButtonState() {
   const btn = document.getElementById('shufflr-save-show-btn');
-  if (!btn) return;
+  const badge = document.getElementById('shufflr-saved-badge');
+  const dropdown = document.getElementById('shufflr-playlist-dropdown');
   const maxId = getCurrentMaxShowUuid();
   const title = getCurrentShowTitle();
   const savedShows = await readSavedShowsFromStorage();
   const alreadySaved = savedShows.some(show => savedShowMatchesCurrent(show, { maxId, title }));
-  btn.textContent = alreadySaved ? '✓ Saved' : '+ Save';
-  btn.classList.toggle('saved', alreadySaved);
-  btn.disabled = alreadySaved;
-  btn.title = alreadySaved ? 'Show already saved to Your Shows' : 'Save show to Your Shows';
+
+  if (btn) {
+    btn.textContent = '+ Save';
+    btn.hidden = alreadySaved;
+    btn.disabled = false;
+    btn.title = 'Save show to Your Shows';
+  }
+
+  if (badge) {
+    badge.hidden = !alreadySaved;
+  }
+  if (dropdown) {
+    dropdown.classList.toggle('has-saved-badge', alreadySaved);
+  }
 }
 
 async function saveCurrentShowToSavedList() {
@@ -1780,7 +1791,18 @@ async function populatePlaylistDropdown() {
   if (!dropdown) return;
   dropdownPlaylists = await readPlaylistsFromStorage();
   const settings = await readShuffleSettings();
-  dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists, settings);
+  let body = document.getElementById('shufflr-playlist-dropdown-body');
+  if (!body) {
+    dropdown.innerHTML = `
+      <div id="shufflr-saved-badge" class="shufflr-pl-saved-badge" hidden aria-live="polite">✓ Saved</div>
+      <div id="shufflr-playlist-dropdown-body"></div>
+    `;
+    body = document.getElementById('shufflr-playlist-dropdown-body');
+  }
+  if (body) {
+    body.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists, settings);
+  }
+  await updateSaveShowButtonState();
 }
 
 function smartShuffleEpKey(seasonNum, epNum) {
@@ -3363,13 +3385,8 @@ function injectShufflrStyles() {
       color: #000;
       box-shadow: 0 0 30px rgba(26,107,255,0.7);
     }
-    #shufflr-save-show-btn.saved,
-    #shufflr-save-show-btn:disabled {
-      border-color: rgba(34, 197, 94, 0.75);
-      color: #22c55e;
-      box-shadow: 0 0 18px rgba(34, 197, 94, 0.35);
-      cursor: default;
-      opacity: 1;
+    #shufflr-save-show-btn[hidden] {
+      display: none;
     }
     #shufflr-playlist-dropdown {
       display: none;
@@ -3389,6 +3406,27 @@ function injectShufflrStyles() {
     }
     #shufflr-playlist-dropdown.open {
       display: block;
+    }
+    .shufflr-pl-saved-badge {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: rgba(255, 255, 255, 0.85);
+      font-family: monospace;
+      font-size: 10px;
+      letter-spacing: 0.3px;
+      line-height: 1;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .shufflr-pl-saved-badge[hidden] {
+      display: none !important;
+    }
+    #shufflr-playlist-dropdown.has-saved-badge .shufflr-pl-section:first-child .shufflr-pl-section-header {
+      padding-right: 62px;
     }
     .shufflr-pl-section {
       display: flex;
@@ -3786,7 +3824,10 @@ function injectShufflrButton(video) {
   wrap.innerHTML = `
     <div id="shufflr-button-group" class="shufflr-visible">
       <div id="shufflr-playlist-dropdown">
-        ${renderPlaylistDropdownContent([])}
+        <div id="shufflr-saved-badge" class="shufflr-pl-saved-badge" hidden aria-live="polite">✓ Saved</div>
+        <div id="shufflr-playlist-dropdown-body">
+          ${renderPlaylistDropdownContent([])}
+        </div>
       </div>
       <div id="shufflr-status"></div>
       <div id="shufflr-split">
