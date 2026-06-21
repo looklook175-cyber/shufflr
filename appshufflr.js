@@ -643,7 +643,9 @@ function setNowPlayingCardSlotHtml(html){
   slot.innerHTML=html;
 }
 
-function onNowPlayingShuffleClick(){
+async function onNowPlayingShuffleClick(){
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(!loggedIn){showToast('You must sign in to use this feature.');return;}
   const{items}=getActivePlaylistShowsForHome();
   const hint=document.getElementById('now-playing-shuffle-hint');
   if(!items.length){
@@ -2830,6 +2832,8 @@ function handoffActivePlaylistToExtension(payload){
   });
 }
 async function playPlaylist(pi){
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(!loggedIn){showToast('You must sign in to use this feature.');return;}
   const p=playlists[pi];
   if(!(p.shows||[]).length&&!(p.episodes||[]).length){showToast('NOTHING IN PLAYLIST');return;}
   const selectedService=localStorage.getItem('shufflr_service')||'netflix';

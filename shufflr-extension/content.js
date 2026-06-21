@@ -2667,6 +2667,11 @@ async function armPlaylistFromDropdown(playlistIndex) {
 
 async function playPlaylistFromDropdown(playlistIndex) {
   if (!isChromeContextValid()) return;
+  const session = await getStoredAuthSession();
+  if (!session?.userId || !session?.accessToken) {
+    showToast('You must sign in to use this feature.');
+    return;
+  }
   await armPlaylistFromDropdown(playlistIndex);
 }
 
