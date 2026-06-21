@@ -561,6 +561,124 @@ async function resolveRecentlyWatchedPosters(entries){
   await resolveCardPostersFromTmdb(lookupMap,'w300');
 }
 
+let nowPlayingShow=null;
+let nowPlayingLastSeen=0;
+let nowPlayingStaticAnimId=null;
+
+function isNowPlayingLive(){
+  return !!(nowPlayingShow&&Date.now()-nowPlayingLastSeen<45000);
+}
+
+function ensureNowPlayingCardHost(){
+  if(document.getElementById('now-playing-card-host'))return;
+  const connectWrap=document.querySelector('.connect-wrap');
+  if(!connectWrap)return;
+  const host=document.createElement('div');
+  host.id='now-playing-card-host';
+  connectWrap.parentNode.insertBefore(host,connectWrap);
+}
+
+function stopNowPlayingStatic(){
+  if(nowPlayingStaticAnimId){
+    cancelAnimationFrame(nowPlayingStaticAnimId);
+    nowPlayingStaticAnimId=null;
+  }
+}
+
+function startNowPlayingStatic(canvas){
+  stopNowPlayingStatic();
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return;
+  const w=canvas.width;
+  const h=canvas.height;
+  function draw(){
+    const imageData=ctx.createImageData(w,h);
+    const data=imageData.data;
+    for(let i=0;i<data.length;i+=4){
+      const v=(Math.random()*255)|0;
+      data[i]=v;
+      data[i+1]=v;
+      data[i+2]=v;
+      data[i+3]=255;
+    }
+    ctx.putImageData(imageData,0,0);
+    nowPlayingStaticAnimId=requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+async function resolveNowPlayingPoster(showName){
+  const query=stripServiceSuffixFromShowName(showName);
+  if(!query)return;
+  const lookupMap=new Map([['now-playing:live',query]]);
+  await resolveCardPostersFromTmdb(lookupMap,'w185');
+}
+
+function renderNowPlayingCard(){
+  ensureNowPlayingCardHost();
+  const host=document.getElementById('now-playing-card-host');
+  if(!host)return;
+
+  const live=isNowPlayingLive();
+  const card=document.getElementById('now-playing-card');
+  const prevState=card?.dataset?.state;
+  const prevShow=card?.dataset?.showName;
+
+  if(live&&prevState==='live'&&prevShow===nowPlayingShow&&card)return;
+
+  stopNowPlayingStatic();
+
+  if(live){
+    const showName=escapeHtml(nowPlayingShow);
+    host.innerHTML=`<div id="now-playing-card" data-state="live" data-show-name="${showName}">
+      <div class="now-playing-poster-wrap">
+        <img class="now-playing-poster" data-show-key="now-playing:live" src="" alt="" />
+        <div class="now-playing-scanlines" aria-hidden="true"></div>
+        <span class="now-playing-live-dot" aria-hidden="true"></span>
+      </div>
+      <div class="now-playing-title">${showName}</div>
+    </div>`;
+    void resolveNowPlayingPoster(nowPlayingShow);
+    return;
+  }
+
+  host.innerHTML=`<div id="now-playing-card" data-state="no-signal">
+    <div class="now-playing-poster-wrap">
+      <canvas class="now-playing-static-canvas" aria-hidden="true"></canvas>
+      <div class="now-playing-no-signal-text">NO SIGNAL</div>
+    </div>
+  </div>`;
+  const canvas=host.querySelector('.now-playing-static-canvas');
+  if(canvas){
+    canvas.width=canvas.offsetWidth||166;
+    canvas.height=canvas.offsetHeight||100;
+    startNowPlayingStatic(canvas);
+  }
+}
+
+function initNowPlayingCard(){
+  ensureNowPlayingCardHost();
+  renderNowPlayingCard();
+  if(!window.__shufflrNowPlayingInterval){
+    window.__shufflrNowPlayingInterval=setInterval(renderNowPlayingCard,5000);
+  }
+}
+
+function installNowPlayingCardListener(){
+  window.addEventListener('message',(event)=>{
+    if(event.source!==window)return;
+    if(event.data?.source!=='shufflr-extension')return;
+    if(event.data?.type!=='SHUFFLR_NOW_PLAYING')return;
+    nowPlayingShow=event.data.payload?.showName||null;
+    nowPlayingLastSeen=event.data.payload?.timestamp||Date.now();
+    renderNowPlayingCard();
+  });
+}
+
+installNowPlayingCardListener();
+initNowPlayingCard();
+
 function getShowPosterPathFromShow(show){
   return show?.poster_path||show?.posterPath||show?.showPoster||show?.poster||show?.image||'';
 }
