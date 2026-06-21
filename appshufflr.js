@@ -708,6 +708,55 @@ function startNowPlayingStatic(canvas){
   draw();
 }
 
+function startNowPlayingPosterVcrOverlay(canvas){
+  stopNowPlayingStatic();
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return;
+  const w=canvas.width;
+  const h=canvas.height;
+  const staticAlpha=30;
+  const bandHeight=12;
+  const sweepMs=5000;
+  const sweepStart=performance.now();
+  function draw(now){
+    const elapsed=(now-sweepStart)%sweepMs;
+    const trackCenter=(elapsed/sweepMs)*h;
+    const bandTop=trackCenter-(bandHeight/2);
+
+    ctx.clearRect(0,0,w,h);
+
+    const imageData=ctx.createImageData(w,h);
+    const data=imageData.data;
+    for(let i=0;i<data.length;i+=4){
+      const v=(Math.random()*255)|0;
+      data[i]=v;
+      data[i+1]=v;
+      data[i+2]=v;
+      data[i+3]=staticAlpha;
+    }
+    ctx.putImageData(imageData,0,0);
+
+    ctx.fillStyle='rgba(255,255,255,0.22)';
+    ctx.fillRect(0,bandTop,w,bandHeight);
+    ctx.fillStyle='rgba(255,0,60,0.14)';
+    ctx.fillRect(2,bandTop,w,bandHeight);
+    ctx.fillStyle='rgba(0,80,255,0.14)';
+    ctx.fillRect(-2,bandTop,w,bandHeight);
+
+    nowPlayingStaticAnimId=requestAnimationFrame(draw);
+  }
+  nowPlayingStaticAnimId=requestAnimationFrame(draw);
+}
+
+function initNowPlayingPosterOverlay(){
+  const canvas=document.querySelector('#now-playing-card-slot .now-playing-poster-overlay-canvas');
+  if(!canvas)return;
+  canvas.width=canvas.offsetWidth||166;
+  canvas.height=canvas.offsetHeight||100;
+  startNowPlayingPosterVcrOverlay(canvas);
+}
+
 async function resolveNowPlayingPoster(showName,showKey='now-playing:live'){
   const query=stripServiceSuffixFromShowName(showName);
   if(!query)return;
@@ -741,10 +790,12 @@ function renderNowPlayingCard(){
         <img class="now-playing-poster" data-show-key="now-playing:live" src="" alt="" />
         <div class="now-playing-vcr-scanlines" aria-hidden="true"></div>
         <div class="now-playing-vcr-chroma" aria-hidden="true"></div>
+        <canvas class="now-playing-poster-overlay-canvas" aria-hidden="true"></canvas>
         <span class="now-playing-live-dot" aria-hidden="true"></span>
       </div>
       <div class="now-playing-title">${showName}</div>
     </div>`);
+    initNowPlayingPosterOverlay();
     void resolveNowPlayingPoster(nowPlayingShow);
     return;
   }
@@ -756,9 +807,11 @@ function renderNowPlayingCard(){
         <img class="now-playing-poster" data-show-key="now-playing:shuffle" src="" alt="" />
         <div class="now-playing-vcr-scanlines" aria-hidden="true"></div>
         <div class="now-playing-vcr-chroma" aria-hidden="true"></div>
+        <canvas class="now-playing-poster-overlay-canvas" aria-hidden="true"></canvas>
       </div>
       <div class="now-playing-title">${showName}</div>
     </div>`);
+    initNowPlayingPosterOverlay();
     void resolveNowPlayingPoster(nowPlayingShuffleShow,'now-playing:shuffle');
     return;
   }
