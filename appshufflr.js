@@ -670,6 +670,7 @@ function installNowPlayingCardListener(){
     if(event.source!==window)return;
     if(event.data?.source!=='shufflr-extension')return;
     if(event.data?.type!=='SHUFFLR_NOW_PLAYING')return;
+    console.log('[Shufflr] Received now-playing:', event.data.payload);
     nowPlayingShow=event.data.payload?.showName||null;
     nowPlayingLastSeen=event.data.payload?.timestamp||Date.now();
     renderNowPlayingCard();

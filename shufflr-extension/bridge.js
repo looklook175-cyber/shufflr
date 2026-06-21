@@ -147,6 +147,7 @@
     }
 
     if (message?.type === 'SHUFFLR_NOW_PLAYING') {
+      console.log('[Shufflr] Forwarding now-playing to page:', message.payload);
       window.postMessage({
         type: 'SHUFFLR_NOW_PLAYING',
         source: 'shufflr-extension',

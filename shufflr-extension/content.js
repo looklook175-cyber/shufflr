@@ -461,6 +461,7 @@ function tickNowPlayingHeartbeat() {
   }
   const showName = getMaxPlayerShowName();
   if (!showName || !String(showName).trim()) return;
+  console.log('[Shufflr] Sending now-playing heartbeat:', showName);
   void syncNowPlayingToWebApp(showName);
 }
 
