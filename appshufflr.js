@@ -610,13 +610,16 @@ function ensureNowPlayingShuffleControls(host){
 }
 
 function ensureNowPlayingCardHost(){
+  const connectWrap=document.querySelector('.connect-wrap');
+  if(!connectWrap)return;
+  const sidebarBottom=connectWrap.closest('.sidebar-bottom')||connectWrap.parentNode;
   let host=document.getElementById('now-playing-card-host');
   if(!host){
-    const connectWrap=document.querySelector('.connect-wrap');
-    if(!connectWrap)return;
     host=document.createElement('div');
     host.id='now-playing-card-host';
-    connectWrap.parentNode.insertBefore(host,connectWrap);
+    sidebarBottom.insertBefore(host,connectWrap);
+  }else if(host.parentNode!==sidebarBottom){
+    sidebarBottom.insertBefore(host,connectWrap);
   }
   if(!document.getElementById('now-playing-card-slot')){
     const slot=document.createElement('div');
