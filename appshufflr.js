@@ -1456,7 +1456,7 @@ function updateConnectBtnLabel(){
   const btn=document.getElementById('service-connect-btn');
   if(!btn) return;
   if(saved&&names[saved]){
-    btn.innerHTML=`<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e;margin-right:7px;vertical-align:middle;flex-shrink:0;"></span>${names[saved]} ${t('connect.connected')}`;
+    btn.innerHTML=`<span class="shufflr-status-dot" aria-hidden="true"></span>${names[saved]} ${t('connect.connected')}`;
   } else {
     btn.innerHTML=t('connect.connectYourService');
   }
