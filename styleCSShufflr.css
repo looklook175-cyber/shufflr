@@ -827,6 +827,11 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   box-sizing: border-box;
   flex-shrink: 0;
 }
+.your-show-popup-season-row:hover {
+  background: rgba(35, 168, 224, 0.08);
+  box-shadow: inset 0 0 8px rgba(35, 168, 224, 0.15);
+  cursor: pointer;
+}
 .your-show-popup-season-header {
   cursor: pointer;
   user-select: none;
@@ -846,7 +851,7 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   transform: rotate(0deg);
 }
 .your-show-popup-season-block--expanded .your-show-popup-season-chevron {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 .your-show-popup-season-body {
   padding: 4px 0 8px;

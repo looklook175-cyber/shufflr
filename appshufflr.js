@@ -3031,7 +3031,7 @@ function buildYourShowPopupSeasonAccordionHtml(){
     return`<div class="your-show-popup-season-block${isExpanded?' your-show-popup-season-block--expanded':''}">
       <div class="your-show-popup-season-row your-show-popup-season-header" data-season="${num}" role="button" tabindex="0">
         <span class="your-show-popup-season-label">Season ${num}</span>
-        <span class="your-show-popup-season-chevron" aria-hidden="true">▶</span>
+        <span class="your-show-popup-season-chevron" aria-hidden="true">▼</span>
       </div>
       ${isExpanded?`<div class="your-show-popup-season-body">${bodyHtml}</div>`:''}
     </div>`;
@@ -3045,6 +3045,7 @@ function refreshYourShowPopupSeasonList(){
 }
 
 async function toggleYourShowPopupSeason(seasonNum){
+  console.log('[Shufflr] toggleYourShowPopupSeason called', seasonNum, yourShowPopupContext);
   const ctx=yourShowPopupContext;
   if(!ctx||!ctx.tmdbId)return;
   if(ctx.expandedSeason===seasonNum){
@@ -3180,6 +3181,7 @@ async function openYourShowPopup(pi,si){
     expandedSeason:null,
     loadingSeason:null,
   };
+  console.log('[Shufflr] yourShowPopupContext set', yourShowPopupContext);
   openYourShowPopupKey=yourShowPopupKey(pi,si);
   renderYourShowPopup(showName,seasons,posterPath,overview);
   positionYourShowPopup(pi,si);
