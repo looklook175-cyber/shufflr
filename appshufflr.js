@@ -603,12 +603,10 @@ function ensureNowPlayingShuffleControls(host){
     btn.type='button';
     btn.id='now-playing-shuffle-btn';
     btn.className='now-playing-shuffle-btn';
-    btn.innerHTML=`<svg viewBox="0 0 24 24" width="14" height="14" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" style="margin-right:8px;vertical-align:middle">
-  <polyline points="16 3 21 3 21 8"></polyline>
-  <line x1="4" y1="20" x2="21" y2="3"></line>
-  <polyline points="21 16 21 21 16 21"></polyline>
-  <line x1="15" y1="15" x2="21" y2="21"></line>
-</svg>SHUFFLE`;
+    btn.innerHTML=`<svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#23A8E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2v6"/>
+  <path d="M6.8 4.8a9 9 0 1 0 10.4 0"/>
+</svg>`;
     btn.addEventListener('click',onNowPlayingShuffleClick);
     container.appendChild(btn);
   }

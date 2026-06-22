@@ -1712,27 +1712,33 @@ body.light-mode .main::-webkit-scrollbar-corner {
   89% { transform: translateX(0); }
 }
 .now-playing-shuffle-btn {
-  width: 100%;
-  margin-top: 8px;
-  padding: 14px 22px;
-  background: #0d0d0d;
-  border: 1px solid #23A8E0;
-  border-radius: 10px;
-  color: #fff;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.52rem;
+  width: 64px;
+  height: 64px;
+  margin: 8px auto 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
-  line-height: 1.8;
-  letter-spacing: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.3s ease;
 }
-.now-playing-shuffle-btn:hover {
-  background: #1a1a1a;
-  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
+.now-playing-shuffle-btn svg {
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+.now-playing-shuffle-btn:hover svg {
+  opacity: 0.75;
+}
+#now-playing-card-host:has(#now-playing-card[data-state="shuffle"]) .now-playing-shuffle-btn svg {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px #23A8E0) drop-shadow(0 0 20px rgba(35, 168, 224, 0.6));
+}
+#now-playing-card-host:has(#now-playing-card[data-state="shuffle"]) .now-playing-shuffle-btn svg path:nth-child(2) {
+  fill: rgba(35, 168, 224, 0.15);
 }
 .now-playing-shuffle-hint {
   margin-top: 6px;
