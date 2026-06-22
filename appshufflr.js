@@ -3119,8 +3119,10 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
     <div class="pl-drawer-actions">
       <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="event.stopPropagation(); launchYourShowPopupShuffle()">▶ Play</button>
     </div>
-    <div class="your-show-popup-seasons-label">SEASONS</div>
-    <div class="your-show-popup-season-list">${buildYourShowPopupSeasonAccordionHtml()}</div>`;
+    <div class="ysp-seasons-scroll">
+      <div class="your-show-popup-seasons-label">SEASONS</div>
+      <div class="your-show-popup-season-list">${buildYourShowPopupSeasonAccordionHtml()}</div>
+    </div>`;
   bindYourShowPopupAccordion(popup);
   popup.hidden=false;
 }
