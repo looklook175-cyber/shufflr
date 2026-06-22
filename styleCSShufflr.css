@@ -659,7 +659,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .shufflr-welcome-banner-title {
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.48rem;
+  font-size: 0.5rem;
   color: #23A8E0;
   line-height: 1.9;
   margin: 0 0 6px;
