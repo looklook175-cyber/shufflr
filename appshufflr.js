@@ -3084,6 +3084,7 @@ function bindYourShowPopupAccordion(popup){
   popup.addEventListener('click',e=>{
     const header=e.target.closest('.your-show-popup-season-header');
     if(!header||!popup.contains(header))return;
+    e.stopPropagation();
     const season=parseInt(header.dataset.season,10);
     if(Number.isFinite(season))void toggleYourShowPopupSeason(season);
   });
@@ -3112,11 +3113,11 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
   if(!popup)return;
   const displayName=stripServiceSuffixFromShowName(showName);
   popup.innerHTML=`
-    <button type="button" class="pl-drawer-close" onclick="closeYourShowPopup()" aria-label="Close">✕</button>
+    <button type="button" class="pl-drawer-close" onclick="event.stopPropagation(); closeYourShowPopup()" aria-label="Close">✕</button>
     ${buildYourShowPopupTitleHtml(displayName,posterPath)}
     ${buildYourShowPopupDescriptionHtml(overview)}
     <div class="pl-drawer-actions">
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="launchYourShowPopupShuffle()">▶ Play</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="event.stopPropagation(); launchYourShowPopupShuffle()">▶ Play</button>
     </div>
     <div class="your-show-popup-seasons-label">SEASONS</div>
     <div class="your-show-popup-season-list">${buildYourShowPopupSeasonAccordionHtml()}</div>`;
@@ -4198,6 +4199,7 @@ document.addEventListener('click',e=>{
     triggerSidebarAuth('signup');
     return;
   }
+  if(e.target.closest('#your-show-popup'))return;
   const yourShowCard=e.target.closest('.your-show-card');
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
