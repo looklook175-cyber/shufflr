@@ -1822,7 +1822,6 @@ function triggerShuffle(){
 
 // SHOW HERO HTML
 function getHeroHTML(show,type){
-  const isAdded=playlists.some(p=>p.shows.some(s=>s.id===show.id));
   const poster=show.poster_path?IMG+'w185'+show.poster_path:'';
   const title=show.name||show.title||'';
   const year=((show.first_air_date||show.release_date)||'').slice(0,4);
@@ -1830,12 +1829,6 @@ function getHeroHTML(show,type){
   const overview=show.overview||'';
   const oid='ov-'+show.id;
   return `<div class="show-hero">
-    <button class="add-playlist-btn ${isAdded?'added':''}" onclick="openPlaylistModal()" title="${isAdded?'Added to playlist':'Add to playlist'}">
-      ${isAdded
-        ?`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 11 15 16 9"></polyline></svg>`
-        :`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>`
-      }
-    </button>
     <img class="show-hero-poster" src="${poster}" onerror="this.style.background='#1a1a1a'" />
     <div class="show-hero-info">
       <div class="show-hero-title">${title}</div>
@@ -1935,18 +1928,6 @@ async function renderMain(doShuffle=false){
     ${t('btn.back')}
   </button>`;
   html+=getHeroHTML(currentShow,'tv');
-  html+=getRatingHTML();
-  html+=`<div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;">
-    <button class="shuffle-btn" onclick="triggerShuffle()" title="Shuffle episodes (Space)">
-      <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line>
-        <polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line>
-      </svg>${t('btn.shuffle').toUpperCase()}
-    </button>
-    <button class="shuffle-btn" id="play-btn" onclick="pressAndPlay()" style="background:var(--blue);color:#000;border-color:var(--blue);flex-shrink:0;flex:0 0 auto;padding:13px 18px;" title="Open your connected streaming service">
-      ▶ ${t('btn.play').toUpperCase()}
-    </button>
-  </div>`;
 
   if(highlightedEps.length){
     html+=`<div class="queue-wrap" id="queue-wrap">
@@ -3571,7 +3552,7 @@ async function fetchProviders(id, type='tv', showName=''){
 }
 
 function buildFallbackProviders(showName){
-  return `<div class="wtw-section-label">Find this title on</div><div class="providers-wrap"><a class="provider-badge provider-sub" href="https://play.max.com" target="_blank">Max</a><a class="provider-badge provider-sub" href="https://www.netflix.com" target="_blank">Netflix</a><a class="provider-badge provider-sub" href="https://www.hulu.com" target="_blank">Hulu</a><a class="provider-badge provider-free" href="https://tubitv.com" target="_blank">Tubi <span class="free-tag">FREE</span></a></div>`;
+  return `<div class="wtw-section-label">Find this title on</div><div class="providers-wrap"><span class="provider-badge provider-sub">Max</span><span class="provider-badge provider-sub">Netflix</span><span class="provider-badge provider-sub">Hulu</span><span class="provider-badge provider-free">Tubi <span class="free-tag">FREE</span></span></div>`;
 }
 
 function buildProviderHTML(pd, showName){
@@ -3583,17 +3564,15 @@ function buildProviderHTML(pd, showName){
   if(!allFree.length&&!allSub.length&&!allRent.length) return '';
 
   // All providers in one row under one label
-  // Use homepage if no direct ID match, never use Google
-  const getProviderUrl = (p) => PROVIDER_HOME[p.provider_id] || getEpLink();
   let html=`<div class="wtw-section-label">Find this title on</div><div class="providers-wrap">`;
   allFree.forEach(p=>{
-    html+=`<a class="provider-badge provider-free" href="${getProviderUrl(p)}" target="_blank"><img src="https://image.tmdb.org/t/p/original${p.logo_path}" onerror="this.style.display='none'" />${p.provider_name} <span class="free-tag">FREE</span></a>`;
+    html+=`<span class="provider-badge provider-free"><img src="https://image.tmdb.org/t/p/original${p.logo_path}" onerror="this.style.display='none'" />${p.provider_name} <span class="free-tag">FREE</span></span>`;
   });
   allSub.forEach(p=>{
-    html+=`<a class="provider-badge provider-sub" href="${getProviderUrl(p)}" target="_blank"><img src="https://image.tmdb.org/t/p/original${p.logo_path}" onerror="this.style.display='none'" />${p.provider_name}</a>`;
+    html+=`<span class="provider-badge provider-sub"><img src="https://image.tmdb.org/t/p/original${p.logo_path}" onerror="this.style.display='none'" />${p.provider_name}</span>`;
   });
   allRent.forEach(p=>{
-    html+=`<a class="provider-badge provider-rent" href="${getProviderUrl(p)}" target="_blank"><img src="https://image.tmdb.org/t/p/original${p.logo_path}" onerror="this.style.display='none'" />${p.provider_name}</a>`;
+    html+=`<span class="provider-badge provider-rent"><img src="https://image.tmdb.org/t/p/original${p.logo_path}" onerror="this.style.display='none'" />${p.provider_name}</span>`;
   });
   html+=`</div>`;
   return html;
