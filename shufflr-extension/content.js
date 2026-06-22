@@ -5257,7 +5257,8 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
   if (isAdPlaying()) return;
   const showHint = getCurrentMaxShowUuid();
   const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl, showHint);
-  const pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
+  let pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
+  pool = await filterEpisodesByBlockedSeasons(pool, showHint);
 
   if (!pool.length) {
     showToast('No other episodes to shuffle to.');
@@ -5275,6 +5276,52 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
   const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
   beginShufflrNavigation(episodeId);
   location.href = pick;
+}
+
+function readBlockedSeasonsFromLocalStorage(maxId) {
+  if (!maxId) return [];
+  try {
+    const raw = localStorage.getItem(`shufflr_blocked_seasons_${maxId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.map(Number).filter(n => Number.isFinite(n) && n > 0))];
+  } catch {
+    return [];
+  }
+}
+
+async function filterEpisodesByBlockedSeasons(episodes, showMaxId) {
+  const maxId = showMaxId || getCurrentMaxShowUuid();
+  if (!maxId || !episodes?.length) return episodes;
+
+  const blockedSeasons = readBlockedSeasonsFromLocalStorage(maxId);
+  if (!blockedSeasons.length) return episodes;
+
+  const blockedSet = new Set(blockedSeasons);
+  const entry = await getCachedEpisodeEntry(maxId);
+  const details = entry?.episodeDetails || [];
+  if (!details.length) return episodes;
+
+  const blockedUrls = new Set();
+  details.forEach(ep => {
+    if (ep.seasonNum == null || !blockedSet.has(Number(ep.seasonNum))) return;
+    if (ep.watchUrl) blockedUrls.add(normalizeEpisodeUrl(ep.watchUrl).toLowerCase());
+    if (ep.alternateId) {
+      blockedUrls.add(normalizeEpisodeUrl(buildMaxEpisodeWatchUrl(ep.alternateId, maxId)).toLowerCase());
+    }
+  });
+
+  return episodes.filter(url => {
+    const normalized = normalizeEpisodeUrl(url).toLowerCase();
+    if (blockedUrls.has(normalized)) return false;
+    const episodeId = getMaxEpisodeIdFromUrl(url, maxId);
+    if (!episodeId) return true;
+    const normEpId = normalizeMaxId(episodeId);
+    const detail = details.find(d => d.alternateId && normalizeMaxId(d.alternateId) === normEpId);
+    if (!detail || detail.seasonNum == null) return true;
+    return !blockedSet.has(Number(detail.seasonNum));
+  });
 }
 
 function normalizeEpisodeUrl(url) {
@@ -5894,6 +5941,19 @@ async function checkForLaunchStandaloneShow() {
     return;
   }
   if (!launchPath || !currentUrl.includes(launchPath)) return;
+
+  const launchMaxId = extractMaxShowUuidFromUrl(launchUrl);
+  if (launchMaxId) {
+    const blockedKey = `shufflr_blocked_seasons_${launchMaxId}`;
+    const blockedResult = await chrome.storage.local.get(blockedKey);
+    const blockedSeasons = blockedResult[blockedKey];
+    if (Array.isArray(blockedSeasons)) {
+      try {
+        localStorage.setItem(blockedKey, JSON.stringify(blockedSeasons));
+      } catch { /* ignore */ }
+    }
+    await chromeStorageLocalRemove(blockedKey);
+  }
 
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);

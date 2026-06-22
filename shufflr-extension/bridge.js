@@ -121,10 +121,15 @@
       return;
     }
     if (event.data?.type === 'SHUFFLR_LAUNCH_STANDALONE_SHOW') {
-      chrome.storage.local.set({
+      const payload = {
         shufflr_launch_show_url: event.data.launchUrl,
         shufflr_launch_standalone: true,
-      });
+      };
+      const maxId = event.data.maxId;
+      if (maxId && Array.isArray(event.data.blockedSeasons)) {
+        payload[`shufflr_blocked_seasons_${maxId}`] = event.data.blockedSeasons;
+      }
+      chrome.storage.local.set(payload);
       return;
     }
     if (event.data?.type === 'SHUFFLR_SAVE_PLAYLISTS') {
