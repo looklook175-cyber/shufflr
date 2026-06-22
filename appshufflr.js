@@ -38,6 +38,7 @@ en:{
 'empty.noYourShowsTitle':'Nothing tuned in yet',
 'empty.noYourShowsHint':'Shows you add to playlists will appear here',
 'empty.noPlaylistsPlaylistTab':'No playlists yet.<br>Create one above, then add shows from Max using the + button in the Shufflr dropdown.',
+'empty.noRecentlyWatchedTitle':'Nothing watched yet',
 'empty.noRecentlyWatched':'Episodes you watch will appear here.',
 'empty.noEpisodes':'No episodes found. Try a lower rating.','empty.nothingAdded':'Nothing added yet.',
 'empty.loading':'LOADING...',
@@ -83,7 +84,8 @@ es:{
 'empty.noPlaylistsHint':'En Max, pulsa el botón Shufflr y usa el menú de listas para crear una. Aparecerá aquí automáticamente.',
 'empty.noYourShows':'Las series que añadas a listas aparecerán aquí.',
 'empty.noPlaylistsPlaylistTab':'Aún no hay listas.<br>Crea una arriba y añade series desde Max con el botón + del menú Shufflr.',
-'empty.noRecentlyWatched':'Los episodios que veas en Max aparecerán aquí.',
+'empty.noRecentlyWatchedTitle':'Nada visto aún',
+'empty.noRecentlyWatched':'Los episodios que veas aparecerán aquí.',
 'empty.noEpisodes':'No se encontraron episodios. Prueba con una calificación más baja.','empty.nothingAdded':'Nada añadido aún.',
 'empty.loading':'CARGANDO...',
 'auth.email':'Correo','auth.password':'Contraseña',
@@ -128,7 +130,8 @@ fr:{
 'empty.noPlaylistsHint':'Sur Max, appuyez sur Shufflr et utilisez le menu playlist pour en créer une. Elle apparaîtra ici automatiquement.',
 'empty.noYourShows':'Les séries que vous ajoutez aux playlists apparaîtront ici.',
 'empty.noPlaylistsPlaylistTab':'Pas encore de playlists.<br>Créez-en une ci-dessus, puis ajoutez des séries depuis Max avec le bouton + du menu Shufflr.',
-'empty.noRecentlyWatched':'Les épisodes regardés sur Max apparaîtront ici.',
+'empty.noRecentlyWatchedTitle':'Rien regardé pour l\'instant',
+'empty.noRecentlyWatched':'Les épisodes regardés apparaîtront ici.',
 'empty.noEpisodes':'Aucun épisode trouvé. Essayez une note plus basse.','empty.nothingAdded':'Rien ajouté pour l\'instant.',
 'empty.loading':'CHARGEMENT...',
 'auth.email':'E-mail','auth.password':'Mot de passe',
@@ -173,7 +176,8 @@ pt:{
 'empty.noPlaylistsHint':'No Max, toque no botão Shufflr e use o menu de playlists para criar uma. Ela aparecerá aqui automaticamente.',
 'empty.noYourShows':'As séries que você adicionar às playlists aparecerão aqui.',
 'empty.noPlaylistsPlaylistTab':'Nenhuma playlist ainda.<br>Crie uma acima e adicione séries do Max com o botão + do menu Shufflr.',
-'empty.noRecentlyWatched':'Episódios assistidos no Max aparecerão aqui.',
+'empty.noRecentlyWatchedTitle':'Nada assistido ainda',
+'empty.noRecentlyWatched':'Episódios assistidos aparecerão aqui.',
 'empty.noEpisodes':'Nenhum episódio encontrado. Tente uma nota mais baixa.','empty.nothingAdded':'Nada adicionado ainda.',
 'empty.loading':'CARREGANDO...',
 'auth.email':'E-mail','auth.password':'Senha',
@@ -218,7 +222,8 @@ ja:{
 'empty.noPlaylistsHint':'MaxでShufflrボタンを押し、プレイリストメニューから作成してください。ここに自動的に表示されます。',
 'empty.noYourShows':'プレイリストに追加した番組がここに表示されます。',
 'empty.noPlaylistsPlaylistTab':'プレイリストはまだありません。<br>上で作成し、MaxのShufflrメニューの+ボタンから番組を追加してください。',
-'empty.noRecentlyWatched':'Maxで視聴したエピソードがここに表示されます。',
+'empty.noRecentlyWatchedTitle':'まだ視聴履歴がありません',
+'empty.noRecentlyWatched':'視聴したエピソードがここに表示されます。',
 'empty.noEpisodes':'エピソードが見つかりません。評価を下げてみてください。','empty.nothingAdded':'まだ何も追加されていません。',
 'empty.loading':'読み込み中...',
 'auth.email':'メール','auth.password':'パスワード',
@@ -1374,6 +1379,15 @@ function buildHomeEmptyTvIconHtml(){
 </svg></div>`;
 }
 
+function buildHomeEmptyClockIconHtml(){
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="84" height="84" fill="none" stroke="#23A8E0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="50" cy="50" r="32"/>
+  <line x1="50" y1="18" x2="50" y2="26"/>
+  <line x1="50" y1="50" x2="38" y2="43"/>
+  <line x1="50" y1="50" x2="66" y2="41"/>
+</svg></div>`;
+}
+
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
 async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
@@ -1426,7 +1440,7 @@ async function buildYourPlaylistsHtml() {
 async function buildRecentlyWatchedOnMaxHtml(entries){
   let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.recentlyWatched')}</div>`;
   if(!entries?.length){
-    html+=`<div class="pl-empty-state"><p>${t('empty.noRecentlyWatched')}</p></div></div>`;
+    html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClockIconHtml()}<p class="home-empty-title">${t('empty.noRecentlyWatchedTitle')}</p><p class="home-empty-desc">${t('empty.noRecentlyWatched')}</p></div></div>`;
     return html;
   }
   html+=`<div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div></div>`;
