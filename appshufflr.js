@@ -1956,19 +1956,9 @@ async function renderMain(doShuffle=false){
   const seasonGroups={};
   flatEps.forEach(e=>{if(!seasonGroups[e.seasonNum])seasonGroups[e.seasonNum]=[];seasonGroups[e.seasonNum].push(e);});
   Object.keys(seasonGroups).map(Number).sort((a,b)=>a-b).forEach(sNum=>{
-    const seasonEps=seasonGroups[sNum];
-    const watchedCount=seasonEps.filter(e=>{
-      const key=`${currentShow.id}-s${e.seasonNum}e${e.episode_number}`;
-      return watchHistory.some(h=>h.key===key);
-    }).length;
-    const pct=seasonEps.length>0?Math.round((watchedCount/seasonEps.length)*100):0;
     html+=`<div class="ep-season-block">
       <div class="ep-season-header">
         <div class="section-header" style="margin-bottom:6px;">SEASON ${String(sNum).padStart(2,'0')}</div>
-        <div class="season-progress-wrap" style="margin-bottom:0;">
-          <div class="season-progress-bar"><div class="season-progress-fill" style="width:${pct}%"></div></div>
-          <div class="season-progress-label">${watchedCount} / ${seasonEps.length} watched</div>
-        </div>
       </div>
       <div class="ep-season-list">`;
     seasonGroups[sNum].forEach(e=>{html+=renderEpRow(e);});
