@@ -661,7 +661,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   font-family: 'Press Start 2P', monospace;
   font-size: 0.48rem;
   color: #23A8E0;
-  line-height: 1.6;
+  line-height: 1.9;
   margin: 0 0 6px;
   text-shadow: 0 0 8px var(--blue-glow);
 }
