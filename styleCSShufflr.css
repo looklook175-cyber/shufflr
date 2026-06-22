@@ -748,6 +748,83 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   box-sizing: border-box;
   overflow: hidden;
 }
+.your-show-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 9999;
+}
+.your-show-popup-drawer {
+  position: fixed;
+  width: 260px;
+  max-height: 380px;
+  z-index: 10000;
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+}
+.your-show-popup-seasons-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #23A8E0;
+  letter-spacing: 0.15em;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.your-show-popup-season-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.your-show-popup-season-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.your-show-popup-toggle {
+  min-width: 72px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 7px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: rgba(35, 168, 224, 0.12);
+  color: #23A8E0;
+  flex-shrink: 0;
+}
+.your-show-popup-toggle--blocked {
+  background: rgba(255, 68, 68, 0.12);
+  color: #ff4444;
+}
+.your-show-popup-reset {
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  align-self: flex-start;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.your-show-popup-reset:hover {
+  border-color: #23A8E0;
+  color: #23A8E0;
+}
 .pl-home-drawer[hidden] {
   display: none !important;
 }

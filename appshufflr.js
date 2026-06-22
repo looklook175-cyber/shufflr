@@ -2996,11 +2996,38 @@ function buildYourShowPopupSeasonRowsHtml(seasons,blocked){
   return seasons.map(s=>{
     const num=s.season_number;
     const isBlocked=blockedSet.has(num);
-    return`<div class="your-show-popup-season-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #333;">
-      <span style="color:#fff;font-size:0.85rem;">Season ${num}</span>
-      <button type="button" class="your-show-popup-toggle" data-season="${num}" style="min-width:72px;padding:6px 10px;border:none;border-radius:3px;font-size:0.7rem;font-weight:700;cursor:pointer;${isBlocked?'background:#3a2020;color:#ff4444;':'background:#1a2a33;color:#23A8E0;'}">${isBlocked?'BLOCKED':'ON'}</button>
+    return`<div class="your-show-popup-season-row">
+      <span class="your-show-popup-season-label">Season ${num}</span>
+      <button type="button" class="your-show-popup-toggle${isBlocked?' your-show-popup-toggle--blocked':''}" data-season="${num}">${isBlocked?'BLOCKED':'ON'}</button>
     </div>`;
   }).join('');
+}
+
+function positionYourShowPopup(pi,si){
+  const drawer=document.querySelector('.your-show-popup-drawer');
+  const card=document.querySelector(`.your-show-card[data-show-playlist-index="${pi}"][data-show-index="${si}"]`);
+  if(!drawer)return;
+  const drawerWidth=260;
+  const drawerMaxHeight=380;
+  if(!card){
+    drawer.style.top='50%';
+    drawer.style.left='50%';
+    drawer.style.transform='translate(-50%, -50%)';
+    return;
+  }
+  const cardRect=card.getBoundingClientRect();
+  let left=cardRect.right+8;
+  let top=cardRect.top;
+  if(left+drawerWidth>window.innerWidth-16){
+    left=cardRect.left-drawerWidth-8;
+  }
+  if(left<16)left=16;
+  if(top+drawerMaxHeight>window.innerHeight-16){
+    top=Math.max(16,window.innerHeight-drawerMaxHeight-16);
+  }
+  drawer.style.top=`${Math.round(top)}px`;
+  drawer.style.left=`${Math.round(left)}px`;
+  drawer.style.transform='none';
 }
 
 function bindYourShowPopupSeasonToggles(overlay){
@@ -3018,8 +3045,7 @@ function bindYourShowPopupSeasonToggles(overlay){
       writeYourShowBlockedSeasons(yourShowPopupContext.maxId,yourShowPopupContext.showName,blocked);
       const isBlocked=blocked.includes(season);
       btn.textContent=isBlocked?'BLOCKED':'ON';
-      btn.style.background=isBlocked?'#3a2020':'#1a2a33';
-      btn.style.color=isBlocked?'#ff4444':'#23A8E0';
+      btn.classList.toggle('your-show-popup-toggle--blocked',isBlocked);
     });
   });
 }
@@ -3027,22 +3053,25 @@ function bindYourShowPopupSeasonToggles(overlay){
 function renderYourShowPopup(showName,seasons,blockedSeasonsArray,maxId){
   closeYourShowPopup();
   const blocked=[...blockedSeasonsArray];
+  const displayName=stripServiceSuffixFromShowName(showName);
   const overlay=document.createElement('div');
   overlay.id='your-show-popup-overlay';
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.className='your-show-popup-overlay';
   overlay.innerHTML=`
-    <div class="your-show-popup-card" style="position:relative;background:#1a1a1a;border:1px solid #23A8E0;border-radius:4px;max-width:420px;width:100%;padding:24px;box-sizing:border-box;">
-      <button type="button" class="your-show-popup-close" aria-label="Close" style="position:absolute;top:12px;right:12px;background:none;border:none;color:#fff;font-size:1.1rem;cursor:pointer;line-height:1;">✕</button>
-      <div style="font-family:'Press Start 2P',monospace;font-weight:700;color:#fff;font-size:0.75rem;line-height:1.6;margin:0 28px 16px 0;word-break:break-word;">${escapeHtml(showName)}</div>
-      <div style="color:#23A8E0;font-size:0.65rem;letter-spacing:0.15em;margin-bottom:12px;">SEASONS</div>
-      <div class="your-show-popup-season-list">${seasons.length?buildYourShowPopupSeasonRowsHtml(seasons,blocked):'<p style="color:#888;font-size:0.8rem;margin:0;">No seasons found.</p>'}</div>
-      <button type="button" class="your-show-popup-reset" style="margin-top:16px;background:transparent;border:1px solid #666;color:#fff;padding:6px 14px;font-size:0.7rem;cursor:pointer;border-radius:3px;">RESET</button>
-      <button type="button" class="your-show-popup-shuffle" style="margin-top:16px;width:100%;background:#23A8E0;border:none;color:#0d0d0d;font-weight:700;padding:12px;font-size:0.8rem;cursor:pointer;border-radius:3px;">SHUFFLE</button>
+    <div class="pl-home-drawer your-show-popup-drawer">
+      <button type="button" class="pl-drawer-close your-show-popup-close" aria-label="Close">✕</button>
+      <div class="pl-drawer-title">${escapeHtml(displayName)}</div>
+      <div class="pl-drawer-actions">
+        <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle">▶ Shuffle</button>
+      </div>
+      <div class="your-show-popup-seasons-label">SEASONS</div>
+      <div class="your-show-popup-season-list pl-drawer-shows">${seasons.length?buildYourShowPopupSeasonRowsHtml(seasons,blocked):'<div class="pl-drawer-empty">No seasons found.</div>'}</div>
+      <button type="button" class="your-show-popup-reset">RESET</button>
     </div>`;
   overlay.addEventListener('click',e=>{
     if(e.target===overlay)closeYourShowPopup();
   });
-  overlay.querySelector('.your-show-popup-card')?.addEventListener('click',e=>e.stopPropagation());
+  overlay.querySelector('.your-show-popup-drawer')?.addEventListener('click',e=>e.stopPropagation());
   overlay.querySelector('.your-show-popup-close')?.addEventListener('click',closeYourShowPopup);
   overlay.querySelector('.your-show-popup-reset')?.addEventListener('click',()=>{
     if(!yourShowPopupContext)return;
@@ -3058,6 +3087,8 @@ function renderYourShowPopup(showName,seasons,blockedSeasonsArray,maxId){
   overlay.querySelector('.your-show-popup-shuffle')?.addEventListener('click',launchYourShowPopupShuffle);
   bindYourShowPopupSeasonToggles(overlay);
   document.body.appendChild(overlay);
+  const{pi,si}=yourShowPopupContext||{};
+  if(Number.isFinite(pi)&&Number.isFinite(si))positionYourShowPopup(pi,si);
 }
 
 async function openYourShowPopup(pi,si){
