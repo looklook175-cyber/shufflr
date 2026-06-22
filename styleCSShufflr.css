@@ -765,6 +765,22 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   box-sizing: border-box;
   overflow-y: auto;
 }
+#your-show-popup::-webkit-scrollbar {
+  width: 4px;
+}
+#your-show-popup::-webkit-scrollbar-track {
+  background: transparent;
+}
+#your-show-popup::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+#your-show-popup .pl-drawer-title {
+  font-family: 'Press Start 2P', monospace;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.6;
+}
 .your-show-popup[hidden] {
   display: none !important;
 }
