@@ -3070,7 +3070,7 @@ function renderYourShowPopup(showName,seasons,blockedSeasonsArray,posterPath){
     <button type="button" class="pl-drawer-close" onclick="closeYourShowPopup()" aria-label="Close">✕</button>
     ${buildYourShowPopupTitleHtml(displayName,posterPath)}
     <div class="pl-drawer-actions">
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="launchYourShowPopupShuffle()">▶ Shuffle</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="launchYourShowPopupShuffle()">▶ Play</button>
     </div>
     <div class="your-show-popup-seasons-label">SEASONS</div>
     <div class="your-show-popup-season-list pl-drawer-shows">${seasons.length?buildYourShowPopupSeasonRowsHtml(seasons,blocked):'<div class="pl-drawer-empty">No seasons found.</div>'}</div>

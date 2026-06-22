@@ -821,9 +821,9 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   padding: 3px 10px;
   border: 1px solid #23A8E0;
   border-radius: 999px;
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  font-weight: 700;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  font-weight: 400;
   cursor: pointer;
   background: transparent;
   color: #23A8E0;
@@ -843,9 +843,9 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   color: var(--text);
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.68rem;
-  font-weight: 600;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  font-weight: 400;
   padding: 10px 14px 6px;
   border-radius: 7px;
   cursor: pointer;
@@ -872,7 +872,8 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 1rem;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
   cursor: pointer;
   line-height: 1;
   padding: 4px;
@@ -914,16 +915,17 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   flex-shrink: 0;
 }
 .pl-drawer-btn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 7px 8px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  font-weight: 400;
+  padding: 8px 6px;
   border-radius: 7px;
   cursor: pointer;
   transition: all 0.2s;
   text-align: center;
   flex: 1;
   min-width: 0;
+  line-height: 1.4;
 }
 .pl-drawer-btn-primary {
   background: #23A8E0;
