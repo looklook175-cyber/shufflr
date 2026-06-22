@@ -928,14 +928,14 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   line-height: 1.4;
 }
 .pl-drawer-btn-primary {
-  background: #0d0d0d;
-  border: 1px solid #23A8E0;
-  color: #fff;
-  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
+  background: #23A8E0;
+  border: none;
+  color: #000000;
+  box-shadow: none;
 }
 .pl-drawer-btn-primary:hover {
-  background: #1a1a1a;
-  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
+  background: #2eb8f0;
+  box-shadow: none;
 }
 .pl-drawer-btn-outline {
   background: transparent;
