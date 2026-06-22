@@ -1380,27 +1380,23 @@ function buildHomeEmptyTvIconHtml(){
 }
 
 function buildHomeEmptyVhsIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 80" width="70" height="90" fill="none" stroke="#23A8E0" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter">
-  <!-- Outer film strip body -->
-  <rect x="8" y="2" width="44" height="76"/>
-  <!-- Top frame window -->
-  <rect x="16" y="10" width="28" height="24"/>
-  <!-- Bottom frame window -->
-  <rect x="16" y="46" width="28" height="24"/>
-  <!-- Left sprocket holes top to bottom -->
-  <rect x="10" y="6" width="4" height="5"/>
-  <rect x="10" y="18" width="4" height="5"/>
-  <rect x="10" y="30" width="4" height="5"/>
-  <rect x="10" y="42" width="4" height="5"/>
-  <rect x="10" y="54" width="4" height="5"/>
-  <rect x="10" y="66" width="4" height="5"/>
-  <!-- Right sprocket holes top to bottom -->
-  <rect x="46" y="6" width="4" height="5"/>
-  <rect x="46" y="18" width="4" height="5"/>
-  <rect x="46" y="30" width="4" height="5"/>
-  <rect x="46" y="42" width="4" height="5"/>
-  <rect x="46" y="54" width="4" height="5"/>
-  <rect x="46" y="66" width="4" height="5"/>
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" width="90" height="75" fill="none" stroke="#23A8E0" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter">
+  <!-- Main board body -->
+  <rect x="5" y="28" width="90" height="47"/>
+  <!-- Top clapper strip -->
+  <rect x="5" y="14" width="90" height="16"/>
+  <!-- Clapper diagonal stripes (alternating filled) -->
+  <line x1="20" y1="14" x2="14" y2="30"/>
+  <line x1="34" y1="14" x2="28" y2="30"/>
+  <line x1="48" y1="14" x2="42" y2="30"/>
+  <line x1="62" y1="14" x2="56" y2="30"/>
+  <line x1="76" y1="14" x2="70" y2="30"/>
+  <line x1="90" y1="14" x2="84" y2="30"/>
+  <!-- Hinge line on left -->
+  <line x1="5" y1="14" x2="18" y2="5"/>
+  <line x1="22" y1="14" x2="35" y2="5"/>
+  <!-- Top clapper arm (angled open) -->
+  <polygon points="5,14 95,14 95,5 5,5" stroke="#23A8E0"/>
 </svg></div>`;
 }
 
