@@ -1368,9 +1368,9 @@ function buildHomeEmptyTvIconHtml(){
   <!-- Mouth - flat horizontal line -->
   <line x1="33" y1="48" x2="67" y2="48"/>
   <!-- Stand left foot nub -->
-  <rect x="22" y="70" width="14" height="8" fill="#23A8E0" stroke="none"/>
+  <rect x="16" y="70" width="20" height="4" fill="#23A8E0" stroke="none"/>
   <!-- Stand right foot nub -->
-  <rect x="64" y="70" width="14" height="8" fill="#23A8E0" stroke="none"/>
+  <rect x="64" y="70" width="20" height="4" fill="#23A8E0" stroke="none"/>
 </svg></div>`;
 }
 
