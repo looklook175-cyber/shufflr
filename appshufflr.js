@@ -1358,7 +1358,7 @@ function buildHomeEmptyStaticHtml(){
 }
 
 function buildHomeEmptyTvIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg width="48" height="58" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="16" y1="0" x2="16" y2="5" stroke="#23A8E0" stroke-width="0.8" stroke-linecap="round"/><rect x="4.5" y="6.5" width="23" height="21" stroke="#23A8E0" stroke-width="0.8" fill="none"/><rect x="8.5" y="10.5" width="15" height="13" stroke="#23A8E0" stroke-width="0.75" fill="none"/><rect x="10" y="13" width="3" height="1.5" fill="#23A8E0"/><rect x="19" y="13" width="3" height="1.5" fill="#23A8E0"/><line x1="16" y1="28" x2="16" y2="30" stroke="#23A8E0" stroke-width="0.8" stroke-linecap="round"/><line x1="9" y1="31" x2="23" y2="31" stroke="#23A8E0" stroke-width="0.8" stroke-linecap="round"/></svg></div>`;
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg width="40" height="48" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="15" y="0" width="2" height="5" fill="#3a5a6a"/><rect x="4" y="6" width="24" height="22" fill="#3a5a6a"/><rect x="8" y="10" width="16" height="14" fill="#000"/><rect x="10" y="13" width="3" height="2" fill="#3a5a6a"/><rect x="19" y="13" width="3" height="2" fill="#3a5a6a"/><rect x="11" y="19" width="10" height="2" fill="#3a5a6a"/><rect x="14" y="28" width="4" height="2" fill="#3a5a6a"/><rect x="9" y="30" width="14" height="2" fill="#3a5a6a"/></svg></div>`;
 }
 
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
