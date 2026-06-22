@@ -1499,7 +1499,13 @@ body.light-mode .main::-webkit-scrollbar-corner {
 
 /* NOW PLAYING SIDEBAR CARD */
 #now-playing-card-host {
-  padding: 20px 12px 8px;
+  padding: 20px 12px 4px;
+}
+#now-playing-card-slot {
+  line-height: 0;
+}
+#now-playing-card-slot #now-playing-card {
+  line-height: normal;
 }
 #now-playing-card {
   background: var(--surface2);
