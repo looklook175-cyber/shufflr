@@ -1303,7 +1303,7 @@ async function syncWelcomeBanner(show){
   banner.className='shufflr-welcome-banner';
   banner.id='shufflr-welcome-banner';
   banner.innerHTML=`
-      <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your shows.</p>
+      <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your&nbsp;shows.</p>
       <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</p>
       <div class="shufflr-welcome-banner-actions">
         <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>

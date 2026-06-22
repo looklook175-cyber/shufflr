@@ -646,8 +646,8 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   position: fixed;
   top: 60px;
   right: 24px;
-  width: min(400px, calc(100vw - 48px));
-  max-width: 400px;
+  width: min(420px, calc(100vw - 48px));
+  max-width: 420px;
   z-index: 8500;
   margin: 0;
   padding: 8px 12px 8px;
@@ -659,11 +659,12 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .shufflr-welcome-banner-title {
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.5rem;
+  font-size: 0.56rem;
   color: #23A8E0;
   line-height: 1.9;
   margin: 0 0 6px;
   text-shadow: 0 0 8px var(--blue-glow);
+  text-wrap: balance;
 }
 .shufflr-welcome-banner-desc {
   font-family: var(--font-system);
