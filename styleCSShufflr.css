@@ -862,6 +862,12 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   color: #888;
   padding: 4px 0 6px;
 }
+.ysp-ep-row { padding: 6px 8px 8px; border-bottom: 1px solid #1a1a1a; }
+.ysp-ep-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.ysp-ep-num { color: #23A8E0; font-family: 'Press Start 2P', monospace; font-size: 8px; flex-shrink: 0; }
+.ysp-ep-title { color: #fff; font-size: 11px; }
+.ysp-ep-meta { color: #888; font-size: 10px; margin-bottom: 3px; }
+.ysp-ep-overview { color: #aaa; font-size: 10px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .your-show-popup-ep-row {
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.03);

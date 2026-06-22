@@ -2993,22 +2993,23 @@ function buildYourShowPopupDescriptionHtml(overview){
   return`<div class="your-show-popup-overview">${escapeHtml(text)}</div>`;
 }
 
+function buildYourShowPopupEpRowHtml(ep){
+  const meta=[];
+  if(ep.vote_average>0) meta.push(ep.vote_average.toFixed(1)+'/10');
+  if(ep.runtime) meta.push(ep.runtime+' min');
+  if(ep.air_date) meta.push(ep.air_date.slice(0,4));
+  return `<div class="ysp-ep-row">
+    <div class="ysp-ep-header">
+      <span class="ysp-ep-num">E${String(ep.episode_number).padStart(2,'0')}</span>
+      <span class="ysp-ep-title">${escapeHtml(ep.name||'Episode '+ep.episode_number)}</span>
+    </div>
+    ${meta.length?`<div class="ysp-ep-meta">${meta.join(' · ')}</div>`:''}
+    ${ep.overview?`<div class="ysp-ep-overview">${escapeHtml(ep.overview)}</div>`:''}
+  </div>`;
+}
+
 function buildYourShowPopupEpisodeListHtml(episodes){
-  return(episodes||[]).map(ep=>{
-    const epNum=ep.episode_number;
-    const meta=[];
-    if(ep.vote_average>0)meta.push(`${ep.vote_average.toFixed(1)}/10`);
-    if(ep.runtime)meta.push(`${ep.runtime} min`);
-    const overview=String(ep.overview||'').trim();
-    return`<div class="your-show-popup-ep-row">
-      <div class="your-show-popup-ep-head">
-        <span class="your-show-popup-ep-num">E${String(epNum).padStart(2,'0')}</span>
-        <span class="your-show-popup-ep-name">${escapeHtml(ep.name||`Episode ${epNum}`)}</span>
-      </div>
-      ${meta.length?`<div class="your-show-popup-ep-meta">${escapeHtml(meta.join(' · '))}</div>`:''}
-      ${overview?`<div class="your-show-popup-ep-overview">${escapeHtml(overview)}</div>`:''}
-    </div>`;
-  }).join('');
+  return`<div class="your-show-popup-season-episodes">${(episodes||[]).map(ep=>buildYourShowPopupEpRowHtml(ep)).join('')}</div>`;
 }
 
 function buildYourShowPopupSeasonAccordionHtml(){
@@ -3024,7 +3025,7 @@ function buildYourShowPopupSeasonAccordionHtml(){
     if(isExpanded){
       if(loading===num){
         bodyHtml='<div class="your-show-popup-season-loading">Loading...</div>';
-      }else if(cache[num]){
+      }else if(num in cache){
         bodyHtml=buildYourShowPopupEpisodeListHtml(cache[num]);
       }
     }
