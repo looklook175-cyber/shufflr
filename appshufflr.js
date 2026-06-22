@@ -1362,9 +1362,9 @@ function buildHomeEmptyTvIconHtml(){
   <!-- Screen/body outer rectangle -->
   <rect x="18" y="22" width="64" height="48" rx="4"/>
   <!-- Left eye -->
-  <rect x="30" y="34" width="10" height="10" fill="#23A8E0"/>
+  <rect x="31" y="35" width="8" height="8" fill="#23A8E0"/>
   <!-- Right eye -->
-  <rect x="60" y="34" width="10" height="10" fill="#23A8E0"/>
+  <rect x="61" y="35" width="8" height="8" fill="#23A8E0"/>
   <!-- Mouth/neutral bar -->
   <line x1="35" y1="54" x2="65" y2="54"/>
   <!-- Stand neck -->
