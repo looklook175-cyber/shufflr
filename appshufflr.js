@@ -1358,7 +1358,7 @@ function buildHomeEmptyStaticHtml(){
 }
 
 function buildHomeEmptyTvIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64" fill="none" stroke="#23A8E0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="84" height="84" fill="none" stroke="#23A8E0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
   <!-- Screen/body outer rectangle -->
   <rect x="18" y="22" width="64" height="48" rx="4"/>
   <!-- Left eye -->
