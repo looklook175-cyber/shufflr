@@ -865,25 +865,23 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   color: #888;
   padding: 4px 0 6px;
 }
-.ysp-ep-row { padding: 6px 8px 8px; border-bottom: 1px solid #1a1a1a; }
+.ysp-ep-row {
+  border-bottom: 1px solid #1e1e1e;
+  padding: 8px 8px 10px;
+}
 .ysp-ep-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
 .ysp-ep-num { color: #23A8E0; font-family: 'Press Start 2P', monospace; font-size: 8px; flex-shrink: 0; }
 .ysp-ep-title { color: #fff; font-size: 12px; }
 .ysp-ep-meta { color: #b0b8c1; font-size: 11px; margin-bottom: 3px; }
 .ysp-ep-overview {
-  color: #b0b8c1;
-  font-size: 11px;
-  line-height: 1.4;
-  display: none;
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.2s ease;
-}
-.ysp-ep-row:hover .ysp-ep-overview {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  max-height: 100px;
+  overflow: hidden;
+  color: #b0b8c1;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 3px;
 }
 .your-show-popup-ep-row {
   padding: 6px 8px;
