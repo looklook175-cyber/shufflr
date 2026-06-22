@@ -2317,7 +2317,7 @@ function renderDrawerShowList(playlistIndex, playlist) {
     ? shows.map((show, si) => (
       `<button type="button" class="pl-drawer-show-row" style="display:flex;align-items:center;" onclick="launchShowFromDrawer(${playlistIndex}, ${si})">
         ${buildDrawerShowThumbnailHtml(show)}
-        <span class="pl-drawer-add-show-name">${escapeHtml(getPlaylistShowLabel(show))}</span>
+        <span class="pl-drawer-add-show-name">${escapeHtml(stripServiceSuffixFromShowName(getPlaylistShowLabel(show)))}</span>
       </button>`
     )).join('')
     : '<div class="pl-drawer-empty">No shows in this playlist.</div>';
@@ -3053,14 +3053,22 @@ function resetYourShowPopupBlocked(){
   }
 }
 
-function renderYourShowPopup(showName,seasons,blockedSeasonsArray){
+function buildYourShowPopupTitleHtml(displayName,posterPath){
+  const posterUrl=buildPosterUrl(posterPath,'w92');
+  const posterHtml=posterUrl
+    ?`<img class="your-show-popup-poster" src="${escapeHtml(posterUrl)}" alt="" onerror="this.remove()" />`
+    :'';
+  return`<div class="your-show-popup-title-row pl-drawer-title">${posterHtml}<span class="your-show-popup-title-text">${escapeHtml(displayName)}</span></div>`;
+}
+
+function renderYourShowPopup(showName,seasons,blockedSeasonsArray,posterPath){
   const popup=document.getElementById('your-show-popup');
   if(!popup)return;
   const blocked=[...blockedSeasonsArray];
   const displayName=stripServiceSuffixFromShowName(showName);
   popup.innerHTML=`
     <button type="button" class="pl-drawer-close" onclick="closeYourShowPopup()" aria-label="Close">✕</button>
-    <div class="pl-drawer-title">${escapeHtml(displayName)}</div>
+    ${buildYourShowPopupTitleHtml(displayName,posterPath)}
     <div class="pl-drawer-actions">
       <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="launchYourShowPopupShuffle()">▶ Shuffle</button>
     </div>
@@ -3086,6 +3094,7 @@ async function openYourShowPopup(pi,si){
   const showName=getShowLabel(show)||show.name||show.title||'';
   const maxId=getShowMaxId(show);
   let tmdbId=show?.id!=null&&/^\d+$/.test(String(show.id))?String(show.id):null;
+  let posterPath=show.poster_path||null;
   if(!tmdbId){
     const query=stripServiceSuffixFromShowName(showName);
     if(!query){
@@ -3102,6 +3111,7 @@ async function openYourShowPopup(pi,si){
         return;
       }
       tmdbId=String(match.id);
+      if(match.poster_path)posterPath=match.poster_path;
     }catch(e){
       console.error(e);
       showToast('SEARCH FAILED');
@@ -3113,6 +3123,7 @@ async function openYourShowPopup(pi,si){
     const r=await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${KEY}`);
     const d=await r.json();
     seasons=(d.seasons||[]).filter(s=>s.season_number>0&&s.episode_count>0);
+    if(d.poster_path)posterPath=d.poster_path;
   }catch(e){
     console.error(e);
     showToast('FAILED TO LOAD SEASONS');
@@ -3120,7 +3131,7 @@ async function openYourShowPopup(pi,si){
   const blockedSeasonsArray=readYourShowBlockedSeasons(maxId,showName);
   yourShowPopupContext={pi,si,show,showName,seasons,maxId,blocked:blockedSeasonsArray};
   openYourShowPopupKey=yourShowPopupKey(pi,si);
-  renderYourShowPopup(showName,seasons,blockedSeasonsArray);
+  renderYourShowPopup(showName,seasons,blockedSeasonsArray,posterPath);
   positionYourShowPopup(pi,si);
 }
 
