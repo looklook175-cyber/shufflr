@@ -662,7 +662,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   font-size: 0.56rem;
   color: #23A8E0;
   line-height: 1.9;
-  margin: 0 0 6px;
+  margin: 0 0 2px;
   text-shadow: 0 0 8px var(--blue-glow);
   text-wrap: balance;
 }
