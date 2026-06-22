@@ -1373,9 +1373,9 @@ function buildHomeEmptyTvIconHtml(){
   <!-- Mouth -->
   <line x1="35" y1="54" x2="65" y2="54"/>
   <!-- Stand neck -->
-  <line x1="50" y1="70" x2="50" y2="80"/>
+  <line x1="50" y1="70" x2="50" y2="75"/>
   <!-- Stand base -->
-  <line x1="36" y1="80" x2="64" y2="80"/>
+  <line x1="36" y1="75" x2="64" y2="75"/>
 </svg></div>`;
 }
 
