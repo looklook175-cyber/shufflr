@@ -1358,19 +1358,19 @@ function buildHomeEmptyStaticHtml(){
 }
 
 function buildHomeEmptyTvIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 90" width="80" height="80" fill="none" stroke="#23A8E0" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter">
-  <!-- Outer TV body - sharp rectangle -->
-  <rect x="10" y="10" width="80" height="60" rx="0"/>
-  <!-- Left eye - solid filled square -->
-  <rect x="30" y="28" width="10" height="10" fill="#23A8E0" stroke="none"/>
-  <!-- Right eye - solid filled square -->
-  <rect x="60" y="28" width="10" height="10" fill="#23A8E0" stroke="none"/>
-  <!-- Mouth - flat horizontal line -->
-  <line x1="33" y1="48" x2="67" y2="48"/>
-  <!-- Stand left foot nub -->
-  <rect x="16" y="70" width="20" height="4" fill="#23A8E0" stroke="none"/>
-  <!-- Stand right foot nub -->
-  <rect x="64" y="70" width="20" height="4" fill="#23A8E0" stroke="none"/>
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="84" height="84" fill="none" stroke="#23A8E0" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter">
+  <!-- Screen/body outer rectangle -->
+  <rect x="18" y="22" width="64" height="48" rx="0"/>
+  <!-- Left eye -->
+  <rect x="31" y="35" width="8" height="8" fill="#23A8E0" stroke="none"/>
+  <!-- Right eye -->
+  <rect x="61" y="35" width="8" height="8" fill="#23A8E0" stroke="none"/>
+  <!-- Mouth -->
+  <line x1="35" y1="54" x2="65" y2="54"/>
+  <!-- Stand neck -->
+  <line x1="50" y1="70" x2="50" y2="80"/>
+  <!-- Stand base -->
+  <line x1="36" y1="80" x2="64" y2="80"/>
 </svg></div>`;
 }
 
