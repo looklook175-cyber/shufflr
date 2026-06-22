@@ -1380,7 +1380,7 @@ function buildHomeEmptyTvIconHtml(){
 }
 
 function buildHomeEmptyVhsIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" width="90" height="75" fill="none" stroke="#23A8E0" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter">
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" width="70" height="56" fill="none" stroke="#23A8E0" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter">
   <!-- Main board body -->
   <rect x="5" y="28" width="90" height="47"/>
   <!-- Top clapper strip -->
