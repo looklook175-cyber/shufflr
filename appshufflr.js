@@ -1380,21 +1380,27 @@ function buildHomeEmptyTvIconHtml(){
 }
 
 function buildHomeEmptyVhsIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 70" width="100" height="60" fill="none" stroke="#23A8E0" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter">
-  <!-- Outer tape body -->
-  <rect x="5" y="10" width="110" height="50" rx="0"/>
-  <!-- Left reel circle -->
-  <circle cx="38" cy="38" r="12" stroke="#23A8E0"/>
-  <!-- Left reel hub -->
-  <circle cx="38" cy="38" r="4" fill="#23A8E0" stroke="none"/>
-  <!-- Right reel circle -->
-  <circle cx="82" cy="38" r="12" stroke="#23A8E0"/>
-  <!-- Right reel hub -->
-  <circle cx="82" cy="38" r="4" fill="#23A8E0" stroke="none"/>
-  <!-- Tape window cutout (flat bottom arc area) -->
-  <path d="M26 50 Q60 36 94 50" stroke="#23A8E0" fill="none"/>
-  <!-- Left label edge line -->
-  <line x1="5" y1="22" x2="115" y2="22"/>
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 80" width="70" height="90" fill="none" stroke="#23A8E0" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter">
+  <!-- Outer film strip body -->
+  <rect x="8" y="2" width="44" height="76"/>
+  <!-- Top frame window -->
+  <rect x="16" y="10" width="28" height="24"/>
+  <!-- Bottom frame window -->
+  <rect x="16" y="46" width="28" height="24"/>
+  <!-- Left sprocket holes top to bottom -->
+  <rect x="10" y="6" width="4" height="5"/>
+  <rect x="10" y="18" width="4" height="5"/>
+  <rect x="10" y="30" width="4" height="5"/>
+  <rect x="10" y="42" width="4" height="5"/>
+  <rect x="10" y="54" width="4" height="5"/>
+  <rect x="10" y="66" width="4" height="5"/>
+  <!-- Right sprocket holes top to bottom -->
+  <rect x="46" y="6" width="4" height="5"/>
+  <rect x="46" y="18" width="4" height="5"/>
+  <rect x="46" y="30" width="4" height="5"/>
+  <rect x="46" y="42" width="4" height="5"/>
+  <rect x="46" y="54" width="4" height="5"/>
+  <rect x="46" y="66" width="4" height="5"/>
 </svg></div>`;
 }
 
