@@ -640,7 +640,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .home-empty-tv-icon {
   display: flex;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .shufflr-welcome-banner {
   position: fixed;
