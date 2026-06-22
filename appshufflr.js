@@ -1358,7 +1358,22 @@ function buildHomeEmptyStaticHtml(){
 }
 
 function buildHomeEmptyTvIconHtml(){
-  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg width="40" height="48" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="15" y="0" width="2" height="5" fill="#23A8E0"/><rect x="4" y="6" width="24" height="22" fill="#23A8E0"/><rect x="8" y="10" width="16" height="14" fill="#000"/><rect x="10" y="13" width="3" height="2" fill="#23A8E0"/><rect x="19" y="13" width="3" height="2" fill="#23A8E0"/><rect x="11" y="19" width="10" height="2" fill="#23A8E0"/><rect x="14" y="28" width="4" height="2" fill="#23A8E0"/><rect x="9" y="30" width="14" height="2" fill="#23A8E0"/></svg></div>`;
+  return `<div class="home-empty-tv-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64" fill="none" stroke="#23A8E0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Antenna -->
+  <line x1="50" y1="8" x2="50" y2="22"/>
+  <!-- Screen/body outer rectangle -->
+  <rect x="18" y="22" width="64" height="48" rx="4"/>
+  <!-- Left eye -->
+  <rect x="30" y="34" width="10" height="10"/>
+  <!-- Right eye -->
+  <rect x="60" y="34" width="10" height="10"/>
+  <!-- Mouth/neutral bar -->
+  <line x1="35" y1="54" x2="65" y2="54"/>
+  <!-- Stand neck -->
+  <line x1="50" y1="70" x2="50" y2="80"/>
+  <!-- Stand base -->
+  <line x1="36" y1="80" x2="64" y2="80"/>
+</svg></div>`;
 }
 
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
