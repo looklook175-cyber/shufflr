@@ -4142,6 +4142,12 @@ document.addEventListener('click',e=>{
     if(Number.isFinite(pi)&&Number.isFinite(si))toggleYourShowPopup(pi,si);
     return;
   }
+  if(!e.target.closest('#your-show-popup')){
+    closeYourShowPopup();
+  }
+  if(!e.target.closest('#pl-home-drawer')&&!e.target.closest('.pl-home-card')){
+    closePlaylistDrawer();
+  }
   const rwCard=e.target.closest('.recently-watched-card');
   if(rwCard){
     let url=rwCard.dataset.recentlyWatchedMaxUrl||'';

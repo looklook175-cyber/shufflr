@@ -742,7 +742,7 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   top: 0;
   width: 260px;
   max-height: 380px;
-  background: var(--surface);
+  background: rgba(0, 0, 0, 0.85);
   border: 1px solid #23A8E0;
   border-radius: 10px;
   padding: 14px 12px 12px;
@@ -756,7 +756,7 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   top: 0;
   width: 260px;
   max-height: 380px;
-  background: var(--surface);
+  background: rgba(0, 0, 0, 0.85);
   border: 1px solid #23A8E0;
   border-radius: 10px;
   padding: 14px 12px 12px;
@@ -856,7 +856,7 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   padding: 4px;
 }
 .pl-drawer-close:hover {
-  color: #23A8E0;
+  color: #ff4444;
 }
 .pl-drawer-title {
   font-family: 'Press Start 2P', monospace;
