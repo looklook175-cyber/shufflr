@@ -232,6 +232,11 @@ body.light-mode .ep-card-h{background:#ffffff;border-color:#ddd;}
 .ep-compact-title{flex:1;font-size:0.85rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .ep-compact.watched .ep-compact-title{color:var(--body-text);}
 .ep-compact-check{font-size:0.65rem;color:#22c55e;flex-shrink:0;padding:0 4px;}
+.ep-compact-wrap{border-bottom:1px solid var(--border);}
+.ep-compact-wrap:last-child{border-bottom:none;}
+.ep-compact-wrap .ep-compact{border-bottom:none;}
+.ep-accordion-detail{padding:0 4px 12px 48px;}
+.ep-accordion-detail[hidden]{display:none;}
 .ep-season-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden;}
 .ep-season-header{padding:12px 14px 8px;border-bottom:1px solid var(--border);}
 .ep-season-list{padding:0 10px;}
@@ -1158,11 +1163,10 @@ body.light-mode .playlist-card .close-modal-btn:hover{color:#111111;border-color
 #shufflr-playlist-dropdown,#shufflr-btn,#shufflr-playlist-toggle,
 .shufflr-pl-row,.shufflr-pl-add-btn,.shufflr-pl-create-btn,.shufflr-pl-create-confirm,
 .shufflr-pl-toggle-row,.shufflr-pl-create-input{pointer-events:auto;}
-#loading-screen,#onboarding,#connect-modal,#playlist-modal,#ep-sheet-overlay{pointer-events:none;}
-.loading-logo-wrap,.onboard-card,.connect-card,.playlist-card,#ep-sheet,.timer-cancel,
-.onboard-btn,.service-connect-btn,.close-modal-btn,.create-playlist-btn,.playlist-modal-row,
-.ep-sheet-add,.ep-sheet-watch{pointer-events:auto;}
-#onboarding.open,#connect-modal.open,#playlist-modal.open,#ep-sheet-overlay.open{pointer-events:auto;}
+#loading-screen,#onboarding,#connect-modal,#playlist-modal{pointer-events:none;}
+.loading-logo-wrap,.onboard-card,.connect-card,.playlist-card,.timer-cancel,
+.onboard-btn,.service-connect-btn,.close-modal-btn,.create-playlist-btn,.playlist-modal-row{pointer-events:auto;}
+#onboarding.open,#connect-modal.open,#playlist-modal.open{pointer-events:auto;}
 /* Safe area for notched phones */
 @supports(padding:max(0px)){
   .topbar{padding-top:max(12px,env(safe-area-inset-top));}

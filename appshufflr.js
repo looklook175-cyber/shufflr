@@ -2014,54 +2014,69 @@ function getEpLink(){
 
 let _currentSheetEp=null;
 let _pendingEp=null; // episode being added to playlist (null = adding show)
+let _openAccordionKey=null;
+
+function buildEpAccordionDetail(e){
+  const meta=[];
+  if(e.vote_average>0) meta.push(e.vote_average.toFixed(1)+'/10');
+  if(e.runtime) meta.push(e.runtime+' min');
+  if(e.air_date) meta.push(e.air_date.slice(0,4));
+  const accordionId=`ep-accordion-${e.seasonNum}-${e.episode_number}`;
+  return `<div class="ep-accordion-detail" id="${accordionId}" hidden>
+    <div class="ep-sheet-meta">${meta.join('  \u00b7  ')}</div>
+    <div class="ep-sheet-overview">${escapeHtml(e.overview||'No description available.')}</div>
+  </div>`;
+}
 
 function renderEpRow(e){
   const key=`${currentShow.id}-s${e.seasonNum}e${e.episode_number}`;
   const watched=watchHistory.some(h=>h.key===key);
   const isHL=highlightedEps.some(h=>h.id===e.id);
-  return `<div class="ep-compact${isHL?' highlighted':''}${watched?' watched':''}"
-    data-rating="${e.vote_average||0}" data-votes="${e.vote_count||0}" data-key="${key}"
-    onclick="openEpSheet(${e.episode_number},${e.seasonNum})">
-    <div class="ep-compact-num">E${String(e.episode_number).padStart(2,'0')}</div>
-    <div class="ep-compact-title">${e.name||'Episode '+e.episode_number}</div>
-    ${watched?'<div class="ep-compact-check">\u2713</div>':''}
+  return `<div class="ep-compact-wrap">
+    <div class="ep-compact${isHL?' highlighted':''}${watched?' watched':''}"
+      data-rating="${e.vote_average||0}" data-votes="${e.vote_count||0}" data-key="${key}"
+      onclick="toggleEpAccordion(${e.episode_number},${e.seasonNum})">
+      <div class="ep-compact-num">E${String(e.episode_number).padStart(2,'0')}</div>
+      <div class="ep-compact-title">${e.name||'Episode '+e.episode_number}</div>
+      ${watched?'<div class="ep-compact-check">\u2713</div>':''}
+    </div>
+    ${buildEpAccordionDetail(e)}
   </div>`;
 }
 
-function openEpSheet(epNum, seasonNum){
+function collapseAllEpAccordions(){
+  document.querySelectorAll('.ep-accordion-detail').forEach(el=>{el.hidden=true;});
+  _openAccordionKey=null;
+}
+
+function openEpSheet(epNum,seasonNum){
+  const accordionId=`ep-accordion-${seasonNum}-${epNum}`;
+  const panel=document.getElementById(accordionId);
   const eps=allEpisodes[seasonNum]||[];
   const e=eps.find(ep=>ep.episode_number===epNum);
-  if(!e)return;
+  if(!e||!panel)return;
+  collapseAllEpAccordions();
+  panel.hidden=false;
+  _openAccordionKey=`${seasonNum}-${epNum}`;
   _currentSheetEp=e;
-  const key=`${currentShow.id}-s${seasonNum}e${epNum}`;
-  markWatched(key,currentShow.name||currentShow.title||'',e.name||'',seasonNum,epNum,currentShow.poster_path||'');
-  document.getElementById('ep-sheet-code').textContent=`S${String(seasonNum).padStart(2,'0')}  E${String(epNum).padStart(2,'0')}`;
-  document.getElementById('ep-sheet-title').textContent=e.name||'Episode '+epNum;
-  const meta=[];
-  if(e.vote_average>0) meta.push(e.vote_average.toFixed(1)+'/10');
-  if(e.runtime) meta.push(e.runtime+' min');
-  if(e.air_date) meta.push(e.air_date.slice(0,4));
-  document.getElementById('ep-sheet-meta').textContent=meta.join('  \u00b7  ');
-  document.getElementById('ep-sheet-overview').textContent=e.overview||'No description available.';
-  document.getElementById('ep-sheet').classList.add('open');
-  document.getElementById('ep-sheet-overlay').classList.add('open');
+  const watchKey=`${currentShow.id}-s${seasonNum}e${epNum}`;
+  markWatched(watchKey,currentShow.name||currentShow.title||'',e.name||'',seasonNum,epNum,currentShow.poster_path||'');
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function toggleEpAccordion(epNum,seasonNum){
+  const key=`${seasonNum}-${epNum}`;
+  if(_openAccordionKey===key){
+    collapseAllEpAccordions();
+    _currentSheetEp=null;
+    return;
+  }
+  openEpSheet(epNum,seasonNum);
 }
 
 function closeEpSheet(){
-  document.getElementById('ep-sheet').classList.remove('open');
-  document.getElementById('ep-sheet-overlay').classList.remove('open');
+  collapseAllEpAccordions();
   _currentSheetEp=null;
-}
-
-function epSheetWatch(){
-  window.open(getEpLink(),'_blank');
-}
-
-function epSheetAddToPlaylist(){
-  // Pass the current episode so playlist knows to add episode, not show
-  const ep=_currentSheetEp;
-  closeEpSheet();
-  openPlaylistModal(ep);
 }
 
 
