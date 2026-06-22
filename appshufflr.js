@@ -1092,7 +1092,7 @@ async function resolvePlaylistRowPosters(sourcePlaylists){
 
 function buildYourShowsSectionHtml(section){
   const items=section.items||[];
-  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div>`;
+  let html=`<div class="genre-section your-shows-section" style="margin-top:16px;"><div class="genre-title">${t('section.yourShows')}</div>`;
   if(!items.length){
     html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyTvIconHtml()}<p class="home-empty-title">${t('empty.noYourShowsTitle')}</p><p class="home-empty-desc">${t('empty.noYourShowsHint')}</p></div></div>`;
     return html;
@@ -1107,7 +1107,7 @@ function buildYourShowsSectionHtml(section){
       </div>
     </div>`;
   });
-  html+=`</div></div>`;
+  html+=`</div><div id="your-show-popup" class="your-show-popup" hidden></div></div>`;
   return html;
 }
 
@@ -2967,6 +2967,11 @@ async function shufflePlaylist(pi){
 }
 
 let yourShowPopupContext=null;
+let openYourShowPopupKey=null;
+
+function yourShowPopupKey(pi,si){
+  return`${pi}:${si}`;
+}
 
 function yourShowBlockedSeasonsKey(maxId,showName){
   return`shufflr_blocked_seasons_${maxId||showName}`;
@@ -2987,8 +2992,10 @@ function writeYourShowBlockedSeasons(maxId,showName,blocked){
 }
 
 function closeYourShowPopup(){
-  document.getElementById('your-show-popup-overlay')?.remove();
+  openYourShowPopupKey=null;
   yourShowPopupContext=null;
+  const popup=document.getElementById('your-show-popup');
+  if(popup)popup.hidden=true;
 }
 
 function buildYourShowPopupSeasonRowsHtml(seasons,blocked){
@@ -3004,34 +3011,17 @@ function buildYourShowPopupSeasonRowsHtml(seasons,blocked){
 }
 
 function positionYourShowPopup(pi,si){
-  const drawer=document.querySelector('.your-show-popup-drawer');
+  const popup=document.getElementById('your-show-popup');
   const card=document.querySelector(`.your-show-card[data-show-playlist-index="${pi}"][data-show-index="${si}"]`);
-  if(!drawer)return;
-  const drawerWidth=260;
-  const drawerMaxHeight=380;
-  if(!card){
-    drawer.style.top='50%';
-    drawer.style.left='50%';
-    drawer.style.transform='translate(-50%, -50%)';
-    return;
-  }
+  const section=popup?.closest('.your-shows-section');
+  if(!popup||!card||!section)return;
   const cardRect=card.getBoundingClientRect();
-  let left=cardRect.right+8;
-  let top=cardRect.top;
-  if(left+drawerWidth>window.innerWidth-16){
-    left=cardRect.left-drawerWidth-8;
-  }
-  if(left<16)left=16;
-  if(top+drawerMaxHeight>window.innerHeight-16){
-    top=Math.max(16,window.innerHeight-drawerMaxHeight-16);
-  }
-  drawer.style.top=`${Math.round(top)}px`;
-  drawer.style.left=`${Math.round(left)}px`;
-  drawer.style.transform='none';
+  const sectionRect=section.getBoundingClientRect();
+  popup.style.left=`${Math.round(cardRect.right-sectionRect.left+8)}px`;
 }
 
-function bindYourShowPopupSeasonToggles(overlay){
-  overlay.querySelectorAll('.your-show-popup-toggle').forEach(btn=>{
+function bindYourShowPopupSeasonToggles(popup){
+  popup.querySelectorAll('.your-show-popup-toggle').forEach(btn=>{
     btn.addEventListener('click',()=>{
       if(!yourShowPopupContext)return;
       const season=parseInt(btn.dataset.season,10);
@@ -3050,45 +3040,44 @@ function bindYourShowPopupSeasonToggles(overlay){
   });
 }
 
-function renderYourShowPopup(showName,seasons,blockedSeasonsArray,maxId){
-  closeYourShowPopup();
+function resetYourShowPopupBlocked(){
+  if(!yourShowPopupContext)return;
+  const popup=document.getElementById('your-show-popup');
+  const{maxId:ctxMaxId,showName:ctxName,seasons:ctxSeasons}=yourShowPopupContext;
+  writeYourShowBlockedSeasons(ctxMaxId,ctxName,[]);
+  yourShowPopupContext.blocked=[];
+  const list=popup?.querySelector('.your-show-popup-season-list');
+  if(list&&ctxSeasons?.length){
+    list.innerHTML=buildYourShowPopupSeasonRowsHtml(ctxSeasons,[]);
+    bindYourShowPopupSeasonToggles(popup);
+  }
+}
+
+function renderYourShowPopup(showName,seasons,blockedSeasonsArray){
+  const popup=document.getElementById('your-show-popup');
+  if(!popup)return;
   const blocked=[...blockedSeasonsArray];
   const displayName=stripServiceSuffixFromShowName(showName);
-  const overlay=document.createElement('div');
-  overlay.id='your-show-popup-overlay';
-  overlay.className='your-show-popup-overlay';
-  overlay.innerHTML=`
-    <div class="pl-home-drawer your-show-popup-drawer">
-      <button type="button" class="pl-drawer-close your-show-popup-close" aria-label="Close">✕</button>
-      <div class="pl-drawer-title">${escapeHtml(displayName)}</div>
-      <div class="pl-drawer-actions">
-        <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle">▶ Shuffle</button>
-      </div>
-      <div class="your-show-popup-seasons-label">SEASONS</div>
-      <div class="your-show-popup-season-list pl-drawer-shows">${seasons.length?buildYourShowPopupSeasonRowsHtml(seasons,blocked):'<div class="pl-drawer-empty">No seasons found.</div>'}</div>
-      <button type="button" class="your-show-popup-reset">RESET</button>
-    </div>`;
-  overlay.addEventListener('click',e=>{
-    if(e.target===overlay)closeYourShowPopup();
-  });
-  overlay.querySelector('.your-show-popup-drawer')?.addEventListener('click',e=>e.stopPropagation());
-  overlay.querySelector('.your-show-popup-close')?.addEventListener('click',closeYourShowPopup);
-  overlay.querySelector('.your-show-popup-reset')?.addEventListener('click',()=>{
-    if(!yourShowPopupContext)return;
-    const{maxId:ctxMaxId,showName:ctxName,seasons:ctxSeasons}=yourShowPopupContext;
-    writeYourShowBlockedSeasons(ctxMaxId,ctxName,[]);
-    yourShowPopupContext.blocked=[];
-    const list=overlay.querySelector('.your-show-popup-season-list');
-    if(list&&ctxSeasons?.length){
-      list.innerHTML=buildYourShowPopupSeasonRowsHtml(ctxSeasons,[]);
-      bindYourShowPopupSeasonToggles(overlay);
-    }
-  });
-  overlay.querySelector('.your-show-popup-shuffle')?.addEventListener('click',launchYourShowPopupShuffle);
-  bindYourShowPopupSeasonToggles(overlay);
-  document.body.appendChild(overlay);
-  const{pi,si}=yourShowPopupContext||{};
-  if(Number.isFinite(pi)&&Number.isFinite(si))positionYourShowPopup(pi,si);
+  popup.innerHTML=`
+    <button type="button" class="pl-drawer-close" onclick="closeYourShowPopup()" aria-label="Close">✕</button>
+    <div class="pl-drawer-title">${escapeHtml(displayName)}</div>
+    <div class="pl-drawer-actions">
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="launchYourShowPopupShuffle()">▶ Shuffle</button>
+    </div>
+    <div class="your-show-popup-seasons-label">SEASONS</div>
+    <div class="your-show-popup-season-list pl-drawer-shows">${seasons.length?buildYourShowPopupSeasonRowsHtml(seasons,blocked):'<div class="pl-drawer-empty">No seasons found.</div>'}</div>
+    <button type="button" class="your-show-popup-reset" onclick="resetYourShowPopupBlocked()">RESET</button>`;
+  bindYourShowPopupSeasonToggles(popup);
+  popup.hidden=false;
+}
+
+async function toggleYourShowPopup(pi,si){
+  const key=yourShowPopupKey(pi,si);
+  if(openYourShowPopupKey===key){
+    closeYourShowPopup();
+    return;
+  }
+  await openYourShowPopup(pi,si);
 }
 
 async function openYourShowPopup(pi,si){
@@ -3130,7 +3119,9 @@ async function openYourShowPopup(pi,si){
   }
   const blockedSeasonsArray=readYourShowBlockedSeasons(maxId,showName);
   yourShowPopupContext={pi,si,show,showName,seasons,maxId,blocked:blockedSeasonsArray};
-  renderYourShowPopup(showName,seasons,blockedSeasonsArray,maxId);
+  openYourShowPopupKey=yourShowPopupKey(pi,si);
+  renderYourShowPopup(showName,seasons,blockedSeasonsArray);
+  positionYourShowPopup(pi,si);
 }
 
 function launchYourShowPopupShuffle(){
@@ -4148,7 +4139,7 @@ document.addEventListener('click',e=>{
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
     const si=parseInt(yourShowCard.dataset.showIndex,10);
-    if(Number.isFinite(pi)&&Number.isFinite(si))openYourShowPopup(pi,si);
+    if(Number.isFinite(pi)&&Number.isFinite(si))toggleYourShowPopup(pi,si);
     return;
   }
   const rwCard=e.target.closest('.recently-watched-card');
