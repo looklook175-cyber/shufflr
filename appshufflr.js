@@ -2350,6 +2350,7 @@ function togglePlaylistDrawer(index) {
     closePlaylistDrawer();
     return;
   }
+  closeYourShowPopup();
   openDrawerPlaylistIndex = index;
   const drawer = document.getElementById('pl-home-drawer');
   const playlist = homePlaylistsCache[index];
@@ -2976,41 +2977,114 @@ function yourShowPopupKey(pi,si){
   return`${pi}:${si}`;
 }
 
-function yourShowBlockedSeasonsKey(maxId,showName){
-  return`shufflr_blocked_seasons_${maxId||showName}`;
-}
-
-function readYourShowBlockedSeasons(maxId,showName){
-  try{
-    const raw=localStorage.getItem(yourShowBlockedSeasonsKey(maxId,showName));
-    const parsed=raw?JSON.parse(raw):[];
-    return Array.isArray(parsed)?[...new Set(parsed.map(Number).filter(n=>Number.isFinite(n)&&n>0))]:[];
-  }catch{
-    return[];
-  }
-}
-
-function writeYourShowBlockedSeasons(maxId,showName,blocked){
-  localStorage.setItem(yourShowBlockedSeasonsKey(maxId,showName),JSON.stringify(blocked));
-}
-
 function closeYourShowPopup(){
   openYourShowPopupKey=null;
   yourShowPopupContext=null;
   const popup=document.getElementById('your-show-popup');
-  if(popup)popup.hidden=true;
+  if(popup){
+    popup.hidden=true;
+    delete popup.dataset.accordionBound;
+  }
 }
 
-function buildYourShowPopupSeasonRowsHtml(seasons,blocked){
-  const blockedSet=new Set(blocked);
-  return seasons.map(s=>{
-    const num=s.season_number;
-    const isBlocked=blockedSet.has(num);
-    return`<div class="your-show-popup-season-row">
-      <span class="your-show-popup-season-label">Season ${num}</span>
-      <button type="button" class="your-show-popup-toggle${isBlocked?' your-show-popup-toggle--blocked':''}" data-season="${num}">${isBlocked?'BLOCKED':'ON'}</button>
+function buildYourShowPopupDescriptionHtml(overview){
+  const text=String(overview||'').trim();
+  if(!text)return'';
+  return`<div class="your-show-popup-overview">${escapeHtml(text)}</div>`;
+}
+
+function buildYourShowPopupEpisodeListHtml(episodes){
+  return(episodes||[]).map(ep=>{
+    const epNum=ep.episode_number;
+    const meta=[];
+    if(ep.vote_average>0)meta.push(`${ep.vote_average.toFixed(1)}/10`);
+    if(ep.runtime)meta.push(`${ep.runtime} min`);
+    const overview=String(ep.overview||'').trim();
+    return`<div class="your-show-popup-ep-row">
+      <div class="your-show-popup-ep-head">
+        <span class="your-show-popup-ep-num">E${String(epNum).padStart(2,'0')}</span>
+        <span class="your-show-popup-ep-name">${escapeHtml(ep.name||`Episode ${epNum}`)}</span>
+      </div>
+      ${meta.length?`<div class="your-show-popup-ep-meta">${escapeHtml(meta.join(' · '))}</div>`:''}
+      ${overview?`<div class="your-show-popup-ep-overview">${escapeHtml(overview)}</div>`:''}
     </div>`;
   }).join('');
+}
+
+function buildYourShowPopupSeasonAccordionHtml(){
+  const ctx=yourShowPopupContext;
+  if(!ctx?.seasons?.length)return'<div class="pl-drawer-empty">No seasons found.</div>';
+  const expanded=ctx.expandedSeason;
+  const loading=ctx.loadingSeason;
+  const cache=ctx.episodeCache||{};
+  return ctx.seasons.map(s=>{
+    const num=s.season_number;
+    const isExpanded=expanded===num;
+    let bodyHtml='';
+    if(isExpanded){
+      if(loading===num){
+        bodyHtml='<div class="your-show-popup-season-loading">Loading...</div>';
+      }else if(cache[num]){
+        bodyHtml=buildYourShowPopupEpisodeListHtml(cache[num]);
+      }
+    }
+    return`<div class="your-show-popup-season-block${isExpanded?' your-show-popup-season-block--expanded':''}">
+      <div class="your-show-popup-season-row your-show-popup-season-header" data-season="${num}" role="button" tabindex="0">
+        <span class="your-show-popup-season-label">Season ${num}</span>
+        <span class="your-show-popup-season-chevron" aria-hidden="true">▶</span>
+      </div>
+      ${isExpanded?`<div class="your-show-popup-season-body">${bodyHtml}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function refreshYourShowPopupSeasonList(){
+  const list=document.querySelector('#your-show-popup .your-show-popup-season-list');
+  if(!list||!yourShowPopupContext)return;
+  list.innerHTML=buildYourShowPopupSeasonAccordionHtml();
+}
+
+async function toggleYourShowPopupSeason(seasonNum){
+  const ctx=yourShowPopupContext;
+  if(!ctx||!ctx.tmdbId)return;
+  if(ctx.expandedSeason===seasonNum){
+    ctx.expandedSeason=null;
+    ctx.loadingSeason=null;
+    refreshYourShowPopupSeasonList();
+    return;
+  }
+  ctx.expandedSeason=seasonNum;
+  if(ctx.episodeCache[seasonNum]){
+    ctx.loadingSeason=null;
+    refreshYourShowPopupSeasonList();
+    return;
+  }
+  ctx.loadingSeason=seasonNum;
+  refreshYourShowPopupSeasonList();
+  try{
+    const r=await fetch(`https://api.themoviedb.org/3/tv/${ctx.tmdbId}/season/${seasonNum}?api_key=${KEY}`);
+    const d=await r.json();
+    if(yourShowPopupContext!==ctx)return;
+    ctx.episodeCache[seasonNum]=d.episodes||[];
+  }catch(e){
+    console.error(e);
+    if(yourShowPopupContext!==ctx)return;
+    ctx.episodeCache[seasonNum]=[];
+  }
+  if(yourShowPopupContext!==ctx)return;
+  ctx.loadingSeason=null;
+  refreshYourShowPopupSeasonList();
+}
+
+function bindYourShowPopupAccordion(popup){
+  if(popup.dataset.accordionBound)return;
+  popup.dataset.accordionBound='true';
+  popup.addEventListener('click',e=>{
+    const header=e.target.closest('.your-show-popup-season-header');
+    if(!header||!popup.contains(header))return;
+    const season=parseInt(header.dataset.season,10);
+    if(Number.isFinite(season))void toggleYourShowPopupSeason(season);
+  });
 }
 
 function positionYourShowPopup(pi,si){
@@ -3023,39 +3097,6 @@ function positionYourShowPopup(pi,si){
   popup.style.left=`${Math.round(cardRect.right-sectionRect.left+8)}px`;
 }
 
-function bindYourShowPopupSeasonToggles(popup){
-  popup.querySelectorAll('.your-show-popup-toggle').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      if(!yourShowPopupContext)return;
-      const season=parseInt(btn.dataset.season,10);
-      if(!Number.isFinite(season))return;
-      let blocked=[...(yourShowPopupContext.blocked||[])];
-      const idx=blocked.indexOf(season);
-      if(idx>=0)blocked.splice(idx,1);
-      else blocked.push(season);
-      blocked.sort((a,b)=>a-b);
-      yourShowPopupContext.blocked=blocked;
-      writeYourShowBlockedSeasons(yourShowPopupContext.maxId,yourShowPopupContext.showName,blocked);
-      const isBlocked=blocked.includes(season);
-      btn.textContent=isBlocked?'BLOCKED':'ON';
-      btn.classList.toggle('your-show-popup-toggle--blocked',isBlocked);
-    });
-  });
-}
-
-function resetYourShowPopupBlocked(){
-  if(!yourShowPopupContext)return;
-  const popup=document.getElementById('your-show-popup');
-  const{maxId:ctxMaxId,showName:ctxName,seasons:ctxSeasons}=yourShowPopupContext;
-  writeYourShowBlockedSeasons(ctxMaxId,ctxName,[]);
-  yourShowPopupContext.blocked=[];
-  const list=popup?.querySelector('.your-show-popup-season-list');
-  if(list&&ctxSeasons?.length){
-    list.innerHTML=buildYourShowPopupSeasonRowsHtml(ctxSeasons,[]);
-    bindYourShowPopupSeasonToggles(popup);
-  }
-}
-
 function buildYourShowPopupTitleHtml(displayName,posterPath){
   const posterUrl=buildPosterUrl(posterPath,'w92');
   const posterHtml=posterUrl
@@ -3064,21 +3105,20 @@ function buildYourShowPopupTitleHtml(displayName,posterPath){
   return`<div class="your-show-popup-title-row pl-drawer-title">${posterHtml}<span class="your-show-popup-title-text">${escapeHtml(displayName)}</span></div>`;
 }
 
-function renderYourShowPopup(showName,seasons,blockedSeasonsArray,posterPath){
+function renderYourShowPopup(showName,seasons,posterPath,overview){
   const popup=document.getElementById('your-show-popup');
   if(!popup)return;
-  const blocked=[...blockedSeasonsArray];
   const displayName=stripServiceSuffixFromShowName(showName);
   popup.innerHTML=`
     <button type="button" class="pl-drawer-close" onclick="closeYourShowPopup()" aria-label="Close">✕</button>
     ${buildYourShowPopupTitleHtml(displayName,posterPath)}
+    ${buildYourShowPopupDescriptionHtml(overview)}
     <div class="pl-drawer-actions">
       <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="launchYourShowPopupShuffle()">▶ Play</button>
     </div>
     <div class="your-show-popup-seasons-label">SEASONS</div>
-    <div class="your-show-popup-season-list pl-drawer-shows">${seasons.length?buildYourShowPopupSeasonRowsHtml(seasons,blocked):'<div class="pl-drawer-empty">No seasons found.</div>'}</div>
-    <button type="button" class="your-show-popup-reset" onclick="resetYourShowPopupBlocked()">RESET</button>`;
-  bindYourShowPopupSeasonToggles(popup);
+    <div class="your-show-popup-season-list">${buildYourShowPopupSeasonAccordionHtml()}</div>`;
+  bindYourShowPopupAccordion(popup);
   popup.hidden=false;
 }
 
@@ -3094,10 +3134,12 @@ async function toggleYourShowPopup(pi,si){
 async function openYourShowPopup(pi,si){
   const show=playlists[pi]?.shows?.[si];
   if(!show)return;
+  closePlaylistDrawer();
   const showName=getShowLabel(show)||show.name||show.title||'';
   const maxId=getShowMaxId(show);
   let tmdbId=show?.id!=null&&/^\d+$/.test(String(show.id))?String(show.id):null;
   let posterPath=show.poster_path||null;
+  let overview='';
   if(!tmdbId){
     const query=stripServiceSuffixFromShowName(showName);
     if(!query){
@@ -3127,28 +3169,32 @@ async function openYourShowPopup(pi,si){
     const d=await r.json();
     seasons=(d.seasons||[]).filter(s=>s.season_number>0&&s.episode_count>0);
     if(d.poster_path)posterPath=d.poster_path;
+    overview=String(d.overview||'').trim();
   }catch(e){
     console.error(e);
     showToast('FAILED TO LOAD SEASONS');
   }
-  const blockedSeasonsArray=readYourShowBlockedSeasons(maxId,showName);
-  yourShowPopupContext={pi,si,show,showName,seasons,maxId,blocked:blockedSeasonsArray};
+  yourShowPopupContext={
+    pi,si,show,showName,seasons,maxId,tmdbId,overview,posterPath,
+    episodeCache:{},
+    expandedSeason:null,
+    loadingSeason:null,
+  };
   openYourShowPopupKey=yourShowPopupKey(pi,si);
-  renderYourShowPopup(showName,seasons,blockedSeasonsArray,posterPath);
+  renderYourShowPopup(showName,seasons,posterPath,overview);
   positionYourShowPopup(pi,si);
 }
 
 function launchYourShowPopupShuffle(){
   if(!yourShowPopupContext)return;
-  const{show,maxId,showName}=yourShowPopupContext;
-  const blocked=readYourShowBlockedSeasons(maxId,showName);
+  const{show,maxId}=yourShowPopupContext;
   const launchUrl=getShowMaxUrlFromPlaylistShow(show)||(maxId?`https://play.max.com/show/${String(maxId)}`:null);
   if(!launchUrl){
     showToast('NO MAX URL');
     return;
   }
   closeYourShowPopup();
-  setStandaloneLaunchViaBridge(launchUrl,maxId,blocked);
+  setStandaloneLaunchViaBridge(launchUrl,maxId,null);
   window.open(launchUrl,'_blank');
 }
 

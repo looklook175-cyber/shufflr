@@ -755,7 +755,7 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   position: absolute;
   top: 0;
   width: 260px;
-  max-height: 380px;
+  max-height: 420px;
   background: rgba(0, 0, 0, 0.85);
   border: 1px solid #23A8E0;
   border-radius: 10px;
@@ -799,63 +799,103 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   margin-bottom: 8px;
   flex-shrink: 0;
 }
+.your-show-popup-overview {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.4;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.your-show-popup-season-list {
+  flex-shrink: 0;
+}
+.your-show-popup-season-block {
+  flex-shrink: 0;
+}
 .your-show-popup-season-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid #222;
   box-sizing: border-box;
   flex-shrink: 0;
+}
+.your-show-popup-season-header {
+  cursor: pointer;
+  user-select: none;
 }
 .your-show-popup-season-label {
   font-family: 'DM Sans', sans-serif;
   font-size: 0.78rem;
   color: var(--text);
 }
-.your-show-popup-toggle {
-  min-width: 72px;
-  padding: 3px 10px;
-  border: 1px solid #23A8E0;
-  border-radius: 999px;
+.your-show-popup-season-chevron {
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
-  font-weight: 400;
-  cursor: pointer;
-  background: transparent;
+  color: #23A8E0;
+  flex-shrink: 0;
+  display: inline-block;
+  transition: transform 0.2s ease;
+  transform: rotate(0deg);
+}
+.your-show-popup-season-block--expanded .your-show-popup-season-chevron {
+  transform: rotate(90deg);
+}
+.your-show-popup-season-body {
+  padding: 4px 0 8px;
+}
+.your-show-popup-season-loading {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  color: #888;
+  padding: 4px 0 6px;
+}
+.your-show-popup-ep-row {
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 2px;
+  box-sizing: border-box;
+}
+.your-show-popup-ep-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.your-show-popup-ep-num {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
   color: #23A8E0;
   flex-shrink: 0;
 }
-.your-show-popup-toggle--blocked {
-  background: transparent;
-  border-color: #ff4444;
-  color: #ff4444;
+.your-show-popup-ep-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  color: #fff;
+  line-height: 1.3;
 }
-.your-show-popup-reset {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #333;
-  background: transparent;
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  font-weight: 400;
-  padding: 10px 14px 6px;
-  border-radius: 7px;
-  cursor: pointer;
-  align-self: flex-start;
-  flex-shrink: 0;
-  transition: all 0.2s;
+.your-show-popup-ep-meta {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  color: #888;
+  margin-top: 2px;
 }
-.your-show-popup-reset:hover {
-  border-color: #23A8E0;
-  color: #23A8E0;
+.your-show-popup-ep-overview {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  color: #aaa;
+  line-height: 1.35;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .pl-home-drawer[hidden] {
   display: none !important;
