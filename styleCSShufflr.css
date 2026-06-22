@@ -928,11 +928,13 @@ body.light-mode .shufflr-welcome-banner-btn--ghost {
   line-height: 1.4;
 }
 .pl-drawer-btn-primary {
-  background: #23A8E0;
+  background: #0d0d0d;
   border: 1px solid #23A8E0;
-  color: #000;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
 }
 .pl-drawer-btn-primary:hover {
+  background: #1a1a1a;
   box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
 }
 .pl-drawer-btn-outline {
@@ -1712,22 +1714,25 @@ body.light-mode .main::-webkit-scrollbar-corner {
 .now-playing-shuffle-btn {
   width: 100%;
   margin-top: 8px;
-  padding: 10px 8px;
-  background: transparent;
+  padding: 14px 22px;
+  background: #0d0d0d;
   border: 1px solid #23A8E0;
-  border-radius: 8px;
-  color: #23A8E0;
+  border-radius: 10px;
+  color: #fff;
   font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
+  font-size: 0.52rem;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 0 8px rgba(35, 168, 224, 0.15);
+  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
   line-height: 1.8;
   letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .now-playing-shuffle-btn:hover {
-  background: rgba(35, 168, 224, 0.1);
-  box-shadow: 0 0 12px rgba(35, 168, 224, 0.25);
+  background: #1a1a1a;
+  box-shadow: 0 0 12px rgba(35, 168, 224, 0.4);
 }
 .now-playing-shuffle-hint {
   margin-top: 6px;
