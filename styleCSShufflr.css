@@ -1718,8 +1718,8 @@ body.light-mode .main::-webkit-scrollbar-corner {
   89% { transform: translateX(0); }
 }
 .now-playing-shuffle-btn {
-  width: 70px;
-  height: 70px;
+  width: 48px;
+  height: 48px;
   margin: 8px auto 0;
   padding: 0;
   background: transparent;
@@ -1733,8 +1733,8 @@ body.light-mode .main::-webkit-scrollbar-corner {
   transition: all 0.3s ease;
 }
 .now-playing-shuffle-btn svg {
-  width: 70px;
-  height: 70px;
+  width: 48px;
+  height: 48px;
   opacity: 0.5;
   transition: all 0.3s ease;
 }

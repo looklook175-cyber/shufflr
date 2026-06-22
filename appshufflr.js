@@ -603,7 +603,7 @@ function ensureNowPlayingShuffleControls(host){
     btn.type='button';
     btn.id='now-playing-shuffle-btn';
     btn.className='now-playing-shuffle-btn';
-    btn.innerHTML=`<svg viewBox="0 0 24 24" width="70" height="70" fill="none" stroke="#23A8E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    btn.innerHTML=`<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#23A8E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
   <path d="M12 2v6"/>
   <path d="M6.8 4.8a9 9 0 1 0 10.4 0"/>
 </svg>`;
