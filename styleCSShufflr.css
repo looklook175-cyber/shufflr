@@ -1145,7 +1145,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .pl-drawer-cancel-add {
   background: none;
-  border: 1px solid #aaaaaa;
+  border: none;
   color: #aaaaaa;
   font-family: 'DM Sans', sans-serif;
   font-size: 0.68rem;
@@ -1242,9 +1242,9 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   align-self: flex-start;
   margin-top: 10px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid #aaaaaa;
   border-radius: 6px;
-  color: var(--muted);
+  color: #aaaaaa;
   font-family: 'DM Sans', sans-serif;
   font-size: 0.68rem;
   font-weight: 600;
