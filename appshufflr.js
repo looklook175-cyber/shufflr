@@ -359,31 +359,60 @@ function getEmailFromSession(){
 }
 
 function buildTopbarSigninCardHtml(){
-  return`<div id="topbar-signin-card" class="topbar-signin-card" hidden onclick="event.stopPropagation()">
+  return`<div id="topbar-signin-card" class="topbar-signin-card" hidden>
     <div class="topbar-signin-card-header">New here? Shufflr adds shuffle play to your shows.</div>
     <div class="topbar-signin-card-body">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</div>
     <div class="topbar-signin-divider"></div>
     <input id="topbar-email" class="topbar-signin-input" type="email" placeholder="email" autocomplete="email" />
     <input id="topbar-password" class="topbar-signin-input" type="password" placeholder="password" autocomplete="current-password" />
     <div class="topbar-signin-btn-row">
-      <button type="button" id="topbar-login-btn">LOG IN</button>
-      <button type="button" id="topbar-signup-btn" class="topbar-signin-btn-secondary">SIGN UP</button>
+      <button type="button" id="topbar-login-btn" onclick="event.stopPropagation(); triggerTopbarAuth('login');">LOG IN</button>
+      <button type="button" id="topbar-signup-btn" class="topbar-signin-btn-secondary" onclick="event.stopPropagation(); triggerTopbarAuth('signup');">SIGN UP</button>
     </div>
     <div class="topbar-signin-divider"></div>
     <div class="topbar-signin-btn-row">
-      <button type="button" id="topbar-setup-btn" class="topbar-signin-btn-secondary">See setup steps</button>
-      <button type="button" id="topbar-guest-btn" class="topbar-signin-btn-secondary">Continue as guest</button>
+      <button type="button" id="topbar-setup-btn" class="topbar-signin-btn-secondary" onclick="event.stopPropagation(); openSetupStepsFromTopbar();">See setup steps</button>
+      <button type="button" id="topbar-guest-btn" class="topbar-signin-btn-secondary" onclick="event.stopPropagation(); continueAsGuestFromTopbar();">Continue as guest</button>
     </div>
   </div>`;
 }
 
+function bindTopbarSigninCardListeners(card){
+  if(!card||card.dataset.listenersBound)return;
+  card.dataset.listenersBound='true';
+  card.querySelector('#topbar-login-btn')?.addEventListener('click',(e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    triggerTopbarAuth('login');
+  });
+  card.querySelector('#topbar-signup-btn')?.addEventListener('click',(e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    triggerTopbarAuth('signup');
+  });
+  card.querySelector('#topbar-setup-btn')?.addEventListener('click',(e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    openSetupStepsFromTopbar();
+  });
+  card.querySelector('#topbar-guest-btn')?.addEventListener('click',(e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    continueAsGuestFromTopbar();
+  });
+  card.addEventListener('click',(e)=>{ e.stopPropagation(); });
+}
+
 function ensureTopbarSigninCard(){
   let card=document.getElementById('topbar-signin-card');
-  if(card)return card;
-  const wrap=document.getElementById('topbar-auth-zone');
-  if(!wrap)return null;
-  wrap.insertAdjacentHTML('beforeend',buildTopbarSigninCardHtml());
-  return document.getElementById('topbar-signin-card');
+  if(!card){
+    const wrap=document.getElementById('topbar-auth-zone');
+    if(!wrap)return null;
+    wrap.insertAdjacentHTML('beforeend',buildTopbarSigninCardHtml());
+    card=document.getElementById('topbar-signin-card');
+  }
+  bindTopbarSigninCardListeners(card);
+  return card;
 }
 
 function triggerTopbarAuth(action){
