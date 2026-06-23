@@ -481,46 +481,48 @@ body.light-mode .queue-ep-title{color:#111;}
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:20px;
-  flex-wrap:wrap;
+  gap:16px;
+  flex-wrap:nowrap;
   width:100%;
-  margin-bottom:16px;
-  padding:22px 24px;
+  margin-bottom:12px;
+  padding:10px 14px;
   background:#0d0d0d;
   border:1px solid #23A8E0;
   border-radius:10px;
   box-shadow:0 0 12px rgba(35,168,224,0.18),0 0 28px rgba(35,168,224,0.08);
   box-sizing:border-box;
 }
-.shows-welcome-banner-body{
-  flex:1 1 220px;
+.shows-welcome-banner-copy{
+  flex:1 1 auto;
   min-width:0;
 }
 .shows-welcome-banner-title{
   font-family:'Press Start 2P',monospace;
-  font-size:11px;
-  line-height:1.7;
+  font-size:15px;
+  line-height:1.35;
   color:#ffffff;
-  margin:0 0 12px;
+  margin:0 0 4px;
+  letter-spacing:0.5px;
 }
 .shows-welcome-banner-sub{
   font-family:'Press Start 2P',monospace;
-  font-size:7px;
-  line-height:1.9;
-  color:#888888;
+  font-size:6px;
+  line-height:1.55;
+  color:#777777;
   margin:0;
 }
 .shows-welcome-banner-btn{
   font-family:'Press Start 2P',monospace;
-  font-size:8px;
-  line-height:1.6;
-  padding:14px 18px;
+  font-size:7px;
+  line-height:1.4;
+  padding:10px 12px;
   background:#0d0d0d;
   border:1px solid #555555;
   border-radius:8px;
   color:#666666;
   cursor:not-allowed;
   flex-shrink:0;
+  align-self:center;
 }
 .shows-welcome-banner-btn:disabled{
   opacity:1;

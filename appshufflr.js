@@ -1557,7 +1557,7 @@ function isShowsHomeEmptyState(allPlaylists, yourShowsSection) {
 
 function buildShowsWelcomeBannerHtml() {
   return `<div class="shows-welcome-banner" id="shows-welcome-banner">
-    <div class="shows-welcome-banner-body">
+    <div class="shows-welcome-banner-copy">
       <p class="shows-welcome-banner-title">SHUFFLE YOUR SHOWS</p>
       <p class="shows-welcome-banner-sub">Add the extension, open Max, and start shuffling.</p>
     </div>
