@@ -307,6 +307,43 @@ function triggerSidebarAuth(action){
 
 const TOPBAR_GUEST_DISMISS_KEY='shufflr_guest_signin_dismissed';
 let topbarSigninCardOpen=false;
+let topbarSigninAutoOpenScheduled=false;
+
+function setAuthPillHidden(hidden){
+  const pill=document.getElementById('auth-pill-btn');
+  if(!pill)return;
+  pill.classList.toggle('hidden',hidden);
+}
+
+function closeTopbarSigninCard(){
+  const card=document.getElementById('topbar-signin-card');
+  if(card)card.hidden=true;
+  topbarSigninCardOpen=false;
+  const indicator=document.getElementById('auth-signed-in-indicator');
+  if(indicator?.style.display!=='flex')setAuthPillHidden(false);
+}
+
+function openTopbarSigninCard(){
+  const card=ensureTopbarSigninCard();
+  if(!card||topbarSigninCardOpen)return;
+  card.hidden=false;
+  topbarSigninCardOpen=true;
+  setAuthPillHidden(true);
+}
+
+async function maybeAutoOpenTopbarSigninCard(){
+  if(topbarSigninAutoOpenScheduled)return;
+  topbarSigninAutoOpenScheduled=true;
+  if(sessionStorage.getItem(TOPBAR_GUEST_DISMISS_KEY))return;
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(loggedIn)return;
+  setTimeout(async()=>{
+    if(sessionStorage.getItem(TOPBAR_GUEST_DISMISS_KEY))return;
+    const stillLoggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+    if(stillLoggedIn||topbarSigninCardOpen)return;
+    openTopbarSigninCard();
+  },800);
+}
 
 function getEmailFromSession(){
   try{
@@ -347,12 +384,6 @@ function ensureTopbarSigninCard(){
   if(!wrap)return null;
   wrap.insertAdjacentHTML('beforeend',buildTopbarSigninCardHtml());
   return document.getElementById('topbar-signin-card');
-}
-
-function closeTopbarSigninCard(){
-  const card=document.getElementById('topbar-signin-card');
-  if(card)card.hidden=true;
-  topbarSigninCardOpen=false;
 }
 
 function triggerTopbarAuth(action){
@@ -408,13 +439,13 @@ async function updateTopbarAuthZone(){
   if(!pill||!indicator)return;
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(loggedIn){
-    pill.style.display='none';
+    setAuthPillHidden(true);
     indicator.style.display='flex';
     if(label)label.textContent=formatSignedInLabel(getEmailFromSession());
     closeTopbarSigninCard();
   }else{
-    pill.style.display='';
     indicator.style.display='none';
+    setAuthPillHidden(topbarSigninCardOpen);
   }
 }
 
@@ -427,8 +458,7 @@ async function toggleTopbarSigninCard(){
     closeTopbarSigninCard();
     return;
   }
-  card.hidden=false;
-  topbarSigninCardOpen=true;
+  openTopbarSigninCard();
 }
 
 function rerenderCurrentTab(){
@@ -500,6 +530,7 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
 
 window.addEventListener('shufflr-auth-changed',()=>{
   updateTopbarAuthZone();
+  maybeAutoOpenTopbarSigninCard();
   if(currentNav==='shows'&&!currentShow){
     renderHomeScreen('shows');
   }else if(currentNav==='options'){
@@ -1584,6 +1615,7 @@ window.addEventListener('load',()=>{
       applyStaticTranslations();
       updateConnectBtnLabel();
       updateTopbarAuthZone();
+      maybeAutoOpenTopbarSigninCard();
       renderHomeScreen('shows');
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
@@ -4602,6 +4634,7 @@ setTimeout(() => {
 
 document.addEventListener('DOMContentLoaded', function() {
   updateTopbarAuthZone();
+  maybeAutoOpenTopbarSigninCard();
   // ============================================================
   // SIDEBAR & TOPBAR STARS — remove: delete from here to END STARS JS
   // ============================================================
