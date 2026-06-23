@@ -988,12 +988,12 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   right: 8px;
   background: transparent;
   border: none;
-  color: var(--muted);
+  color: #aaaaaa;
   font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
+  font-size: 13px;
   cursor: pointer;
   line-height: 1;
-  padding: 4px;
+  padding: 5px;
 }
 .pl-drawer-close:hover {
   color: #ff4444;
@@ -1072,6 +1072,13 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   white-space: normal;
   max-width: 36px;
   line-height: 1.25;
+}
+.pl-drawer-btn-add-show .pl-drawer-btn-icon {
+  font-size: 13px;
+}
+.your-show-popup-shuffle {
+  font-size: 11px;
+  gap: 6px;
 }
 .pl-drawer-btn-primary {
   background: #23A8E0;
