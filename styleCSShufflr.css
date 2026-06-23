@@ -597,7 +597,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .new-pl-row{display:flex;gap:8px;margin-bottom:20px;}
 .new-pl-input{flex:1;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:0.82rem;outline:none;transition:border-color 0.2s;}
 .new-pl-input:focus{border-color:var(--blue);}
-.new-pl-input::placeholder{color:var(--muted);}
+.new-pl-input::placeholder{color:#9a9a9a;}
 .new-pl-btn{padding:10px 16px;background:var(--blue);border:none;border-radius:8px;color:#000;font-family:'DM Sans',sans-serif;font-size:0.8rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:all 0.2s;}
 .new-pl-btn:hover{box-shadow:0 0 12px var(--blue-glow);}
 .pl-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden;}
