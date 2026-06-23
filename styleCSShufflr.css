@@ -1661,14 +1661,14 @@ body.light-mode .main::-webkit-scrollbar-corner {
   transform: translateY(-50%);
 }
 .now-playing-help-btn {
-  width: 32px;
-  height: 32px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 1px solid #555555;
   background: transparent;
   color: #666666;
   font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
+  font-size: 7px;
   line-height: 1;
   padding: 0;
   display: flex;
@@ -1685,8 +1685,8 @@ body.light-mode .main::-webkit-scrollbar-corner {
 .now-playing-help-popup {
   position: fixed;
   width: max-content;
-  max-width: 168px;
-  padding: 10px 12px;
+  max-width: 300px;
+  padding: 18px 20px;
   background: #0d0d0d;
   border: 1px solid #23A8E0;
   border-radius: 10px;
@@ -1699,10 +1699,10 @@ body.light-mode .main::-webkit-scrollbar-corner {
 }
 .now-playing-help-popup p {
   font-family: 'Press Start 2P', monospace;
-  font-size: 6px;
-  line-height: 1.7;
+  font-size: 8px;
+  line-height: 1.8;
   color: #ffffff;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 .now-playing-help-popup p:last-child {
   margin-bottom: 0;
