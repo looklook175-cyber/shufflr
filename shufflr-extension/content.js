@@ -675,6 +675,7 @@ let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
 let armedUrlPollLastHref = location.href;
 let wasFullscreen = false;
+let shufflrFullscreenActive = false;
 let fullscreenRestorePromptActive = false;
 let fullscreenRestoreSpaceHandler = null;
 let fullscreenRestoreDismissHandler = null;
@@ -917,6 +918,36 @@ function installFullscreenListener() {
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
+}
+
+function installAutoFullscreenRestore() {
+  if (window.__shufflrAutoFullscreenRestore) return;
+  window.__shufflrAutoFullscreenRestore = true;
+
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) {
+      shufflrFullscreenActive = true;
+    } else {
+      if (shufflrFullscreenActive) {
+        setTimeout(() => {
+          if (!document.fullscreenElement && shufflrFullscreenActive) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        }, 3000);
+      }
+      setTimeout(() => {
+        if (!document.fullscreenElement) {
+          shufflrFullscreenActive = false;
+        }
+      }, 8000);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.fullscreenElement === null) {
+      shufflrFullscreenActive = false;
+    }
+  });
 }
 
 // shufflr_navigating flag: set true before any Shufflr-initiated navigation so shuffle cop
@@ -3646,6 +3677,7 @@ function injectShufflrButton(video) {
   }
 
   installFullscreenListener();
+  installAutoFullscreenRestore();
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
@@ -6025,6 +6057,7 @@ setTimeout(() => {
   void updatePlaylistShowUrl();
   tryInjectButton();
   installFullscreenListener();
+  installAutoFullscreenRestore();
   startShuffleWatchdog();
   installTimeupdateWatcher();
   installArmedUrlGuard();
