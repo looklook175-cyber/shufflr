@@ -445,10 +445,8 @@ function triggerSidebarLogout(){
 }
 
 function ensureTopbarAuthZonePosition(){
-  const zone=document.getElementById('topbar-auth-zone');
-  if(zone&&getComputedStyle(zone).position!=='absolute'){
-    zone.style.position='absolute';
-  }
+  const authZone=document.getElementById('topbar-auth-zone');
+  if(authZone)authZone.style.position='absolute';
 }
 
 function openSetupStepsFromTopbar(){
@@ -1779,6 +1777,7 @@ function setNav(nav){
     lastShowNav={shows:null,movies:null};
     renderHomeScreen('shows');
   }
+  ensureTopbarAuthZonePosition();
 }
 
 function _restoreShow(show,type){

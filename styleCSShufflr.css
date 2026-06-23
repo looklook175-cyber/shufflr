@@ -49,9 +49,9 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
 .theme-btn{background:var(--chrome-elevated);border:1px solid var(--border);border-radius:8px;color:#9a9a9a;padding:8px 10px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .theme-btn:hover{border-color:var(--blue);color:var(--blue);}
 .topbar-auth-zone {
-  position: absolute;
+  position: absolute !important;
   top: 100%;
-  right: 16px;
+  right: 0;
   z-index: 200;
   display: flex;
   flex-direction: column;
