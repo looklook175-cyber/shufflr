@@ -1026,30 +1026,35 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-drawer-actions {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   margin-bottom: 10px;
   flex-shrink: 0;
 }
 .pl-drawer-btn {
   font-family: 'Press Start 2P', monospace;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 400;
-  padding: 8px 6px;
+  padding: 9px 4px;
   border-radius: 7px;
   cursor: pointer;
   transition: all 0.2s;
   text-align: center;
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
-  line-height: 1.4;
+  line-height: 1.2;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .pl-drawer-btn-icon {
   display: inline-block;
-  font-size: 14px;
+  font-size: 11px;
   line-height: 1;
   vertical-align: middle;
-  margin-right: 3px;
+  margin-right: 2px;
+  flex-shrink: 0;
 }
 .pl-drawer-btn-primary {
   background: #23A8E0;
