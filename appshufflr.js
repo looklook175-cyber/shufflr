@@ -362,7 +362,7 @@ function buildTopbarSigninCardHtml(){
   return`<div id="topbar-signin-card" class="topbar-signin-card" hidden>
     <div class="topbar-signin-card-hero">SHUFFLE YOUR SHOWS</div>
     <div class="topbar-signin-card-header">New here? Shufflr adds shuffle play to your shows.</div>
-    <div class="topbar-signin-card-body">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</div>
+    <div class="topbar-signin-card-body">Must download Shufflr to use the extension, connect your streaming service, open your selected service and start shuffling.</div>
     <div class="topbar-signin-divider"></div>
     <input id="topbar-email" class="topbar-signin-input" type="email" placeholder="email" autocomplete="email" />
     <input id="topbar-password" class="topbar-signin-input" type="password" placeholder="password" autocomplete="current-password" />
@@ -804,7 +804,7 @@ function ensureNowPlayingHelpControl(row){
     helpWrap=document.createElement('div');
     helpWrap.id='now-playing-help-wrap';
     helpWrap.className='now-playing-help-wrap';
-    helpWrap.innerHTML=`<button type="button" id="now-playing-help-btn" class="now-playing-help-btn" aria-label="Shuffle help">?</button><div id="now-playing-help-tooltip" class="now-playing-help-tooltip" role="tooltip"><p><span>SINGLE:</span> shuffles episodes of the current show only</p><p><span>ALL:</span> shuffles across all shows in Your Shows</p><p><span>Power:</span> starts the shuffle session on Max</p></div>`;
+    helpWrap.innerHTML=`<button type="button" id="now-playing-help-btn" class="now-playing-help-btn" aria-label="Shuffle help">?</button><div id="now-playing-help-tooltip" class="now-playing-help-tooltip" role="tooltip"><p><span>SINGLE:</span> shuffles episodes of the current show selected</p><p><span>ALL:</span> shuffles across all shows in Your Shows</p><p><span>Power:</span> shuffles a show to start with</p></div>`;
     row.insertBefore(helpWrap,row.firstChild);
   }else if(helpWrap.parentNode!==row){
     row.insertBefore(helpWrap,row.firstChild);

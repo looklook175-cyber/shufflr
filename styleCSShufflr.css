@@ -218,7 +218,7 @@ body.light-mode .logo-box{color:#111111;}
 .season-item.blocked .block-btn{color:#ff4455;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .block-btn:hover{color:#ff4455!important;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .connect-wrap{padding:8px 12px 12px;}
-.sidebar-bottom{margin-top:10px;flex-shrink:0;padding-bottom:20px;}
+.sidebar-bottom{margin-top:4px;flex-shrink:0;padding-bottom:20px;}
 .sidebar-section::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
 .sidebar-now-playing-divider{display:none;}
 .auth-section{margin-bottom:12px;}
@@ -1616,12 +1616,12 @@ body.light-mode .main::-webkit-scrollbar-corner {
 
 /* NOW PLAYING SIDEBAR CARD */
 #now-playing-card-host {
-  padding: 10px 12px 4px;
+  padding: 4px 12px 4px;
 }
 .now-playing-mode-toggle {
   display: flex;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .now-playing-mode-btn {
   flex: 1;
@@ -1634,22 +1634,31 @@ body.light-mode .main::-webkit-scrollbar-corner {
   border-radius: 6px;
   color: #666666;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.now-playing-mode-btn:hover {
+  box-shadow: 0 0 10px rgba(35, 168, 224, 0.5), 0 0 20px rgba(35, 168, 224, 0.2);
 }
 .now-playing-mode-btn.is-active {
   border-color: #23A8E0;
   color: #23A8E0;
 }
 .now-playing-actions-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
   margin-top: 8px;
+  margin-left: -12px;
+  margin-right: -12px;
+  width: calc(100% + 24px);
+  min-height: 48px;
 }
 .now-playing-help-wrap {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 .now-playing-help-btn {
   width: 32px;
@@ -1666,6 +1675,12 @@ body.light-mode .main::-webkit-scrollbar-corner {
   align-items: center;
   justify-content: center;
   cursor: default;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.now-playing-help-btn:hover {
+  border-color: #23A8E0;
+  color: #23A8E0;
+  box-shadow: 0 0 10px rgba(35, 168, 224, 0.5), 0 0 20px rgba(35, 168, 224, 0.2);
 }
 .now-playing-help-tooltip {
   position: absolute;
