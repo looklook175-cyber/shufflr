@@ -2037,7 +2037,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
   filter: drop-shadow(0 0 8px #23A8E0) drop-shadow(0 0 20px rgba(35, 168, 224, 0.6));
 }
 #now-playing-card-host:has(#now-playing-card[data-state="shuffle"]) .now-playing-shuffle-btn svg path:nth-child(2) {
-  fill: rgba(35, 168, 224, 0.15);
+  fill: none;
 }
 .now-playing-shuffle-hint {
   margin-top: 6px;
