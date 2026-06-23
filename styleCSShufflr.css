@@ -50,8 +50,7 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
 .theme-btn:hover{border-color:var(--blue);color:var(--blue);}
 .topbar-auth-zone {
   position: fixed;
-  top: auto;
-  bottom: 24px;
+  top: 57px;
   right: 16px;
   z-index: 150;
   display: flex;
@@ -104,9 +103,9 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
   50% { opacity: 0.45; }
 }
 .topbar-signin-card {
-  position: absolute;
-  right: 0;
-  top: 100%;
+  position: fixed;
+  top: 57px;
+  right: 16px;
   z-index: 200;
   background: rgba(0, 0, 0, 0.85);
   border: 1px solid #23A8E0;
