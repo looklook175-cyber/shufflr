@@ -362,7 +362,7 @@ function buildTopbarSigninCardHtml(){
   return`<div id="topbar-signin-card" class="topbar-signin-card" hidden>
     <div class="topbar-signin-card-hero">SHUFFLE YOUR SHOWS</div>
     <div class="topbar-signin-card-header">New here? Shufflr adds shuffle play to your shows.</div>
-    <div class="topbar-signin-card-body">Must download Shufflr to use the extension, connect your streaming service, open your selected service and start shuffling.</div>
+    <div class="topbar-signin-card-body">Must download the Shufflr extension. Connect your streaming service and start shuffling.</div>
     <div class="topbar-signin-divider"></div>
     <input id="topbar-email" class="topbar-signin-input" type="email" placeholder="email" autocomplete="email" />
     <input id="topbar-password" class="topbar-signin-input" type="password" placeholder="password" autocomplete="current-password" />
