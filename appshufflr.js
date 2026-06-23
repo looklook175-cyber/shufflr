@@ -1548,6 +1548,23 @@ function buildHomeEmptyVhsIconHtml(){
 </svg></div>`;
 }
 
+function isShowsHomeEmptyState(allPlaylists, yourShowsSection) {
+  const playlistsList = Array.isArray(allPlaylists) ? allPlaylists : [];
+  const hasPlaylists = playlistsList.length > 0;
+  const hasShows = (yourShowsSection?.items || []).length > 0;
+  return !hasPlaylists && !hasShows;
+}
+
+function buildShowsWelcomeBannerHtml() {
+  return `<div class="shows-welcome-banner" id="shows-welcome-banner">
+    <div class="shows-welcome-banner-body">
+      <p class="shows-welcome-banner-title">SHUFFLE YOUR SHOWS</p>
+      <p class="shows-welcome-banner-sub">Add the extension, open Max, and start shuffling.</p>
+    </div>
+    <button type="button" class="shows-welcome-banner-btn" disabled>GET EXTENSION</button>
+  </div>`;
+}
+
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
 async function buildYourPlaylistsHtml() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
@@ -3985,6 +4002,10 @@ async function renderHomeScreen(navType){
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
+
+  if (isShowsHomeEmptyState(allPlaylists, yourShowsSection)) {
+    html += buildShowsWelcomeBannerHtml();
+  }
 
   html += await buildYourPlaylistsHtml();
 
