@@ -2627,9 +2627,9 @@ function updatePlaylistDrawerContent(playlist, playlistIndex) {
     <button type="button" class="pl-drawer-close" onclick="closePlaylistDrawer()" aria-label="${t('drawer.close')}">✕</button>
     <div class="pl-drawer-title">${escapeHtml(playlist.name || 'Untitled')}</div>
     <div class="pl-drawer-actions">
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="playRandomShowFromDrawer(${playlistIndex})"><span class="pl-drawer-btn-icon">▶</span> ${t('btn.play')}</button>
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})"><span class="pl-drawer-btn-icon">✎</span> ${t('btn.edit')}</button>
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="openDrawerAddShowMode(${playlistIndex})"><span class="pl-drawer-btn-icon">＋</span> ${t('btn.addShow')}</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary" onclick="playRandomShowFromDrawer(${playlistIndex})"><span class="pl-drawer-btn-icon">▶</span><span class="pl-drawer-btn-label">${t('btn.play')}</span></button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline" onclick="editPlaylistFromDrawer(${playlistIndex})"><span class="pl-drawer-btn-icon">✎</span><span class="pl-drawer-btn-label">${t('btn.edit')}</span></button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-outline pl-drawer-btn-add-show" onclick="openDrawerAddShowMode(${playlistIndex})"><span class="pl-drawer-btn-icon">＋</span><span class="pl-drawer-btn-label">${t('btn.addShow')}</span></button>
     </div>
     <div class="pl-drawer-shows" id="pl-drawer-body"></div>`;
   renderDrawerShowList(playlistIndex, playlist);
