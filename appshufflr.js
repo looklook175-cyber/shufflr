@@ -787,12 +787,7 @@ function ensureNowPlayingModeToggle(host){
     toggle.querySelectorAll('.now-playing-mode-btn').forEach(btn=>{
       btn.addEventListener('click',()=>setNowPlayingShuffleMode(btn.dataset.mode));
     });
-    const slot=document.getElementById('now-playing-card-slot');
-    if(slot){
-      container.insertBefore(toggle,slot);
-    }else{
-      container.insertBefore(toggle,container.firstChild);
-    }
+    container.appendChild(toggle);
   }
   syncNowPlayingModeToggleUi();
 }
@@ -888,11 +883,11 @@ function ensureNowPlayingHelpControl(row){
 
 function reorderNowPlayingHostChildren(host){
   if(!host)return;
-  const toggle=document.getElementById('now-playing-mode-toggle');
   const slot=document.getElementById('now-playing-card-slot');
   const row=document.getElementById('now-playing-actions-row');
+  const toggle=document.getElementById('now-playing-mode-toggle');
   const hint=document.getElementById('now-playing-shuffle-hint');
-  [toggle,slot,row,hint].filter(Boolean).forEach(el=>host.appendChild(el));
+  [slot,row,toggle,hint].filter(Boolean).forEach(el=>host.appendChild(el));
 }
 
 function ensureNowPlayingShuffleControls(host){
@@ -973,6 +968,7 @@ function ensureNowPlayingCardHost(){
   }
   ensureNowPlayingModeToggle(host);
   ensureNowPlayingShuffleControls(host);
+  reorderNowPlayingHostChildren(host);
 }
 
 function setNowPlayingCardSlotHtml(html){
