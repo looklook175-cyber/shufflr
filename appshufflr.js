@@ -4636,12 +4636,12 @@ function renderOptionsPage(){
               <div class="options-account-username-wrap">
                 <div class="options-account-username" id="auth-user-username">No username set</div>
                 <input type="text" class="options-account-username-input" id="auth-username-input" maxlength="32" style="display:none;" onkeydown="handleOptionsUsernameKeydown(event)" />
-                <button type="button" class="pl-rename-btn options-account-rename-btn" id="auth-username-edit-btn" onclick="startOptionsUsernameEdit()" aria-label="Edit username" title="Edit username">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                </button>
               </div>
             </div>
-            <button type="button" class="options-btn options-logout-btn auth-btn" id="auth-logout-btn" data-i18n="btn.logOut">${t('btn.logOut').toUpperCase()}</button>
+            <div class="options-account-actions-row">
+              <button type="button" class="options-btn options-logout-btn auth-btn" id="auth-logout-btn" data-i18n="btn.logOut">${t('btn.logOut').toUpperCase()}</button>
+              <button type="button" class="options-btn options-logout-btn options-account-rename-btn auth-btn" id="auth-username-edit-btn" onclick="startOptionsUsernameEdit()" aria-label="Set username" title="Set username">SET USERNAME</button>
+            </div>
           </div>
           <div id="auth-message" class="auth-message" style="display:none;"></div>
         </div>
