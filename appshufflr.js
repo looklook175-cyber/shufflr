@@ -471,6 +471,18 @@ function formatSignedInLabel(email){
   return part||'Signed in';
 }
 
+async function getSignedInIndicatorLabel(){
+  try{
+    const supabase=await getOptionsSupabaseClient();
+    const {data:{session}}=await supabase.auth.getSession();
+    const user=session?.user;
+    const username=typeof user?.user_metadata?.username==='string'?user.user_metadata.username.trim():'';
+    if(username)return username;
+    if(user?.email)return formatSignedInLabel(user.email);
+  }catch{}
+  return formatSignedInLabel(getEmailFromSession());
+}
+
 async function updateTopbarAuthZone(){
   const pill=document.getElementById('auth-pill-btn');
   const indicator=document.getElementById('auth-signed-in-indicator');
@@ -480,7 +492,7 @@ async function updateTopbarAuthZone(){
   if(loggedIn){
     setAuthPillHidden(true);
     indicator.style.display='flex';
-    if(label)label.textContent=formatSignedInLabel(getEmailFromSession());
+    if(label)label.textContent=await getSignedInIndicatorLabel();
     closeTopbarSigninCard();
   }else{
     indicator.style.display='none';
