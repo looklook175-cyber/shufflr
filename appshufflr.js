@@ -4463,6 +4463,144 @@ function goOptionsCarouselIntroNext(){
   goOptionsCarousel(1);
 }
 
+let optionsAccountUsernameEditing=false;
+let optionsAccountUsernameOriginalValue='';
+
+function getOptionsSupabaseClient(){
+  if(!window.__shufflrOptionsSupabasePromise){
+    window.__shufflrOptionsSupabasePromise=import('./src/supabase.js').then(module=>module.supabase);
+  }
+  return window.__shufflrOptionsSupabasePromise;
+}
+
+function setOptionsAccountMessage(message,type='error'){
+  const el=document.getElementById('auth-message');
+  if(!el)return;
+  el.textContent=message||'';
+  el.className='auth-message';
+  if(message&&type==='success')el.classList.add('auth-success');
+  if(message&&type==='error')el.classList.add('auth-error');
+  el.style.display=message?'block':'none';
+}
+
+function getOptionsUsernameValue(user){
+  const username=user?.user_metadata?.username;
+  return typeof username==='string'?username.trim():'';
+}
+
+function renderOptionsUsernameDisplay(value){
+  const label=document.getElementById('auth-user-username');
+  if(!label)return;
+  const username=(value||'').trim();
+  if(username){
+    label.textContent=username;
+    label.classList.remove('is-placeholder');
+  }else{
+    label.textContent='No username set';
+    label.classList.add('is-placeholder');
+  }
+}
+
+function stopOptionsUsernameEdit(){
+  optionsAccountUsernameEditing=false;
+  const text=document.getElementById('auth-user-username');
+  const input=document.getElementById('auth-username-input');
+  const btn=document.getElementById('auth-username-edit-btn');
+  if(text)text.style.display='';
+  if(input){
+    input.style.display='none';
+    input.disabled=false;
+  }
+  if(btn){
+    btn.style.display='';
+    btn.disabled=false;
+  }
+}
+
+function startOptionsUsernameEdit(){
+  const input=document.getElementById('auth-username-input');
+  const text=document.getElementById('auth-user-username');
+  const btn=document.getElementById('auth-username-edit-btn');
+  if(!input||!text||!btn||optionsAccountUsernameEditing)return;
+  optionsAccountUsernameEditing=true;
+  optionsAccountUsernameOriginalValue=input.value.trim();
+  text.style.display='none';
+  btn.style.display='none';
+  input.style.display='block';
+  input.disabled=false;
+  input.value=optionsAccountUsernameOriginalValue;
+  input.placeholder='';
+  requestAnimationFrame(()=>{
+    input.focus();
+    input.select();
+  });
+}
+
+function cancelOptionsUsernameEdit(){
+  const input=document.getElementById('auth-username-input');
+  if(input)input.value=optionsAccountUsernameOriginalValue;
+  renderOptionsUsernameDisplay(optionsAccountUsernameOriginalValue);
+  setOptionsAccountMessage('');
+  stopOptionsUsernameEdit();
+}
+
+async function saveOptionsUsername(){
+  const input=document.getElementById('auth-username-input');
+  const btn=document.getElementById('auth-username-edit-btn');
+  if(!input||input.disabled)return;
+  const value=input.value.trim();
+  input.disabled=true;
+  if(btn)btn.disabled=true;
+  try{
+    const supabase=await getOptionsSupabaseClient();
+    const {data,error}=await supabase.auth.updateUser({data:{username:value||null}});
+    if(error)throw error;
+    optionsAccountUsernameOriginalValue=value;
+    renderOptionsUsernameDisplay(value);
+    stopOptionsUsernameEdit();
+    setOptionsAccountMessage('');
+    const emailEl=document.getElementById('auth-user-email');
+    if(emailEl&&data?.user?.email)emailEl.textContent=data.user.email;
+  }catch(error){
+    console.error('[Shufflr] Failed to update username:',error);
+    setOptionsAccountMessage(error?.message||'Failed to update username.');
+    input.disabled=false;
+    if(btn)btn.disabled=false;
+    input.focus();
+  }
+}
+
+function handleOptionsUsernameKeydown(event){
+  if(event.key==='Enter'){
+    event.preventDefault();
+    saveOptionsUsername();
+  }else if(event.key==='Escape'){
+    event.preventDefault();
+    cancelOptionsUsernameEdit();
+  }
+}
+
+async function refreshOptionsAccountSection(){
+  const loggedIn=document.getElementById('auth-logged-in');
+  const emailEl=document.getElementById('auth-user-email');
+  const input=document.getElementById('auth-username-input');
+  if(!loggedIn||!emailEl||!input)return;
+  try{
+    const supabase=await getOptionsSupabaseClient();
+    const {data:{session}}=await supabase.auth.getSession();
+    const user=session?.user;
+    if(!user)return;
+    const username=getOptionsUsernameValue(user);
+    emailEl.textContent=user.email||'Logged in';
+    input.value=username;
+    optionsAccountUsernameOriginalValue=username;
+    renderOptionsUsernameDisplay(username);
+    if(!optionsAccountUsernameEditing)stopOptionsUsernameEdit();
+  }catch(error){
+    console.error('[Shufflr] Failed to refresh account section:',error);
+  }
+}
+
 function renderOptionsPage(){
   const lang=getSavedLanguage();
   const langButtons=SHUFFLR_LANGUAGES.map(l=>(
@@ -4493,7 +4631,16 @@ function renderOptionsPage(){
             </div>
           </div>
           <div id="auth-logged-in" class="options-account-logged-in" style="display:none;">
-            <div class="auth-user-email options-account-email" id="auth-user-email"></div>
+            <div class="options-account-identity-row">
+              <div class="auth-user-email options-account-email" id="auth-user-email"></div>
+              <div class="options-account-username-wrap">
+                <div class="options-account-username" id="auth-user-username">No username set</div>
+                <input type="text" class="options-account-username-input" id="auth-username-input" maxlength="32" style="display:none;" onkeydown="handleOptionsUsernameKeydown(event)" />
+                <button type="button" class="pl-rename-btn options-account-rename-btn" id="auth-username-edit-btn" onclick="startOptionsUsernameEdit()" aria-label="Edit username" title="Edit username">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+              </div>
+            </div>
             <button type="button" class="options-btn options-logout-btn auth-btn" id="auth-logout-btn" data-i18n="btn.logOut">${t('btn.logOut').toUpperCase()}</button>
           </div>
           <div id="auth-message" class="auth-message" style="display:none;"></div>
@@ -4517,6 +4664,7 @@ function renderOptionsPage(){
   const s = document.querySelector('input[placeholder*="Search"]');
   if (s) { s.setAttribute('disabled', 'true'); setTimeout(() => s.removeAttribute('disabled'), 500); }
   if(typeof window.shufflrRefreshAuthUI==='function')window.shufflrRefreshAuthUI();
+  refreshOptionsAccountSection();
 }
 
 function submitOptionsFeedback(){
