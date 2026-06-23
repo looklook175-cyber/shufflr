@@ -612,9 +612,9 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-rename-btn:hover{color:#23A8E0;border-color:#23A8E0;box-shadow:0 0 8px rgba(35,168,224,0.22);}
 .pl-card-name-input{font-family:var(--font-system);font-size:15px;font-weight:600;color:#ffffff;background:transparent;border:none;border-bottom:1px solid #23A8E0;padding:0;margin:0;min-width:0;flex:1;outline:none;box-sizing:border-box;}
 .pl-card-count{font-family:var(--font-system);font-size:12px;color:#aaaaaa;}
-.pl-shuffle-btn{padding:12px 18px;background:transparent;border:1px solid var(--blue);border-radius:7px;color:var(--blue);font-family:'Press Start 2P',monospace;font-size:0.42rem;cursor:pointer;letter-spacing:1px;transition:all 0.2s;display:flex;align-items:center;gap:6px;}
+.pl-shuffle-btn{padding:12px 18px;background:transparent;border:1px solid var(--blue);border-radius:7px;color:var(--blue);font-family:'Press Start 2P',monospace;font-size:0.56rem;cursor:pointer;letter-spacing:1px;transition:all 0.2s;display:flex;align-items:center;gap:6px;}
 .pl-shuffle-btn:hover{background:var(--blue-dim);}
-.pl-shuffle-btn svg{width:1em;height:1em;stroke:var(--blue);fill:none;flex-shrink:0;}
+.pl-shuffle-btn svg{width:1.35em;height:1.35em;stroke:var(--blue);fill:none;flex-shrink:0;}
 .pl-show-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);}
 .pl-card-items .pl-show-row:last-child{border-bottom:none;}
 .pl-show-img{width:36px;height:52px;border-radius:5px;object-fit:cover;background:var(--surface2);flex-shrink:0;}
