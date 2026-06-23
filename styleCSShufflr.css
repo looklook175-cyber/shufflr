@@ -1670,7 +1670,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
   border-radius: 50%;
   border: 1px solid #555555;
   background: transparent;
-  color: #ffffff;
+  color: #888888;
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
   font-weight: 700;
