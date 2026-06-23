@@ -444,11 +444,19 @@ function triggerSidebarLogout(){
   btn.click();
 }
 
+function ensureTopbarAuthZonePosition(){
+  const zone=document.getElementById('topbar-auth-zone');
+  if(zone&&getComputedStyle(zone).position!=='absolute'){
+    zone.style.position='absolute';
+  }
+}
+
 function openSetupStepsFromTopbar(){
   closeTopbarSigninCard();
   optionsCarouselIndex=1;
-  setNav('options');
   setTimeout(()=>{
+    setNav('options');
+    ensureTopbarAuthZonePosition();
     document.getElementById('options-carousel')?.scrollIntoView({behavior:'smooth',block:'start'});
   },50);
 }
