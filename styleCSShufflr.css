@@ -211,7 +211,7 @@ body.light-mode .logo-box{color:#111111;}
 .season-item.blocked .block-btn{color:#ff4455;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .block-btn:hover{color:#ff4455!important;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .connect-wrap{padding:8px 12px 12px;}
-.sidebar-bottom{margin-top:auto;flex-shrink:0;padding-bottom:20px;}
+.sidebar-bottom{margin-top:10px;flex-shrink:0;padding-bottom:20px;}
 .sidebar-section::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
 .sidebar-now-playing-divider{display:none;}
 .auth-section{margin-bottom:12px;}
@@ -1609,7 +1609,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
 
 /* NOW PLAYING SIDEBAR CARD */
 #now-playing-card-host {
-  padding: 20px 12px 4px;
+  padding: 10px 12px 4px;
 }
 #now-playing-card-slot {
   line-height: 0;
