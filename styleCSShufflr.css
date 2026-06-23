@@ -999,12 +999,12 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   color: #ff4444;
 }
 .pl-drawer-title {
-  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-  font-size: 15px;
-  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  color: #ffffff;
   letter-spacing: 0;
   margin: 0 24px 12px 0;
-  line-height: 1.4;
+  line-height: 1.6;
   text-shadow: none;
   flex-shrink: 0;
 }
@@ -1033,7 +1033,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .pl-drawer-btn {
   font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 400;
   padding: 8px 6px;
   border-radius: 7px;
@@ -1043,6 +1043,13 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   flex: 1;
   min-width: 0;
   line-height: 1.4;
+}
+.pl-drawer-btn-icon {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: middle;
+  margin-right: 3px;
 }
 .pl-drawer-btn-primary {
   background: #23A8E0;
