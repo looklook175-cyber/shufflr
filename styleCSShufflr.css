@@ -118,9 +118,9 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
 .topbar-signin-card[hidden] { display: none !important; }
 .topbar-signin-card-header {
   font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
+  font-size: 10px;
   color: #23A8E0;
-  line-height: 1.6;
+  line-height: 1.8;
   margin-bottom: 10px;
 }
 .topbar-signin-card-body {
@@ -161,6 +161,7 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
   padding: 6px;
   cursor: pointer;
   border-radius: 3px;
+  transition: box-shadow 0.2s ease;
 }
 .topbar-signin-btn-row button.topbar-signin-btn-secondary {
   border-color: #555;
@@ -168,6 +169,7 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
 }
 .topbar-signin-btn-row button:hover {
   background: rgba(35, 168, 224, 0.1);
+  box-shadow: 0 0 10px rgba(35,168,224,0.5), 0 0 20px rgba(35,168,224,0.2);
 }
 .dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--surface2);border:1px solid #222233;border-radius:10px;z-index:1001;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,0.8);display:none;}
 .dropdown.open{display:block;}

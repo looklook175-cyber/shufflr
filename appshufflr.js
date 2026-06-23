@@ -305,7 +305,7 @@ function triggerSidebarAuth(action){
   btn.click();
 }
 
-const TOPBAR_GUEST_DISMISS_KEY='shufflr_guest_signin_dismissed';
+const TOPBAR_GUEST_DISMISS_KEY='shufflr_guest_dismissed';
 let topbarSigninCardOpen=false;
 let topbarSigninAutoOpenScheduled=false;
 
@@ -419,10 +419,13 @@ function openSetupStepsFromTopbar(){
   closeTopbarSigninCard();
   optionsCarouselIndex=1;
   setNav('options');
+  setTimeout(()=>{
+    document.getElementById('options-carousel')?.scrollIntoView({behavior:'smooth',block:'start'});
+  },50);
 }
 
 function continueAsGuestFromTopbar(){
-  sessionStorage.setItem(TOPBAR_GUEST_DISMISS_KEY,'1');
+  sessionStorage.setItem('shufflr_guest_dismissed','1');
   closeTopbarSigninCard();
 }
 
