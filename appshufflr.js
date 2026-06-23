@@ -319,8 +319,8 @@ function closeTopbarSigninCard(){
   const card=document.getElementById('topbar-signin-card');
   if(card)card.hidden=true;
   topbarSigninCardOpen=false;
-  const indicator=document.getElementById('auth-signed-in-indicator');
-  if(indicator?.style.display!=='flex')setAuthPillHidden(false);
+  const topbarUserLabel=document.getElementById('topbar-user-label');
+  if(topbarUserLabel?.style.display!=='block')setAuthPillHidden(false);
 }
 
 function openTopbarSigninCard(){
@@ -485,17 +485,16 @@ async function getSignedInIndicatorLabel(){
 
 async function updateTopbarAuthZone(){
   const pill=document.getElementById('auth-pill-btn');
-  const indicator=document.getElementById('auth-signed-in-indicator');
-  const label=document.getElementById('auth-signed-in-label');
-  if(!pill||!indicator)return;
+  const topbarUserLabel=document.getElementById('topbar-user-label');
+  if(!pill||!topbarUserLabel)return;
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(loggedIn){
     setAuthPillHidden(true);
-    indicator.style.display='flex';
-    if(label)label.textContent=await getSignedInIndicatorLabel();
+    topbarUserLabel.style.display='block';
+    topbarUserLabel.textContent=await getSignedInIndicatorLabel();
     closeTopbarSigninCard();
   }else{
-    indicator.style.display='none';
+    topbarUserLabel.style.display='none';
     setAuthPillHidden(topbarSigninCardOpen);
   }
 }
