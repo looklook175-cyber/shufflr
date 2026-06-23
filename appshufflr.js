@@ -2759,7 +2759,7 @@ function renderDrawerAddShowPicker(playlistIndex) {
     body.innerHTML = `
       <div class="pl-drawer-add-mode">
         <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ ${t('drawer.cancelAdd')}</button>
-        <div class="pl-drawer-empty">Add shows from Max using the Shufflr button</div>
+        <div class="pl-drawer-empty">No shows saved yet.</div>
         ${createBtn}
       </div>`;
     return;
