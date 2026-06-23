@@ -797,6 +797,76 @@ function ensureNowPlayingModeToggle(host){
   syncNowPlayingModeToggleUi();
 }
 
+function getNowPlayingHelpPopupHtml(){
+  return`<p><span>SINGLE:</span> shuffles episodes of the current show selected</p><p><span>ALL:</span> shuffles across all shows in Your Shows</p><p><span>Power:</span> shuffles a show to start with</p>`;
+}
+
+function closeNowPlayingHelpPopup(){
+  const popup=document.getElementById('now-playing-help-popup');
+  if(popup)popup.hidden=true;
+}
+
+function positionNowPlayingHelpPopup(){
+  const popup=document.getElementById('now-playing-help-popup');
+  const anchor=document.getElementById('now-playing-card-host');
+  const sidebar=document.getElementById('sidebar');
+  if(!popup||popup.hidden||!anchor)return;
+  const sidebarRect=sidebar?.getBoundingClientRect();
+  const anchorRect=anchor.getBoundingClientRect();
+  const left=(sidebarRect?sidebarRect.right:anchorRect.right)+8;
+  popup.style.left=`${Math.round(left)}px`;
+  popup.style.top=`${Math.round(anchorRect.top)}px`;
+}
+
+function onNowPlayingHelpDocumentClick(e){
+  const popup=document.getElementById('now-playing-help-popup');
+  if(!popup||popup.hidden)return;
+  if(e.target.closest('#now-playing-help-popup')||e.target.closest('#now-playing-help-btn'))return;
+  closeNowPlayingHelpPopup();
+}
+
+function installNowPlayingHelpPopupListeners(){
+  if(window.__shufflrHelpPopupListeners)return;
+  window.__shufflrHelpPopupListeners=true;
+  document.addEventListener('click',onNowPlayingHelpDocumentClick);
+  window.addEventListener('resize',positionNowPlayingHelpPopup);
+  window.addEventListener('scroll',positionNowPlayingHelpPopup,true);
+}
+
+function ensureNowPlayingHelpPopup(){
+  let popup=document.getElementById('now-playing-help-popup');
+  if(!popup){
+    popup=document.createElement('div');
+    popup.id='now-playing-help-popup';
+    popup.className='now-playing-help-popup';
+    popup.hidden=true;
+    popup.setAttribute('role','dialog');
+    popup.setAttribute('aria-label','Shuffle help');
+    popup.innerHTML=getNowPlayingHelpPopupHtml();
+    document.body.appendChild(popup);
+    installNowPlayingHelpPopupListeners();
+  }
+  return popup;
+}
+
+function toggleNowPlayingHelpPopup(e){
+  e.preventDefault();
+  e.stopPropagation();
+  const popup=ensureNowPlayingHelpPopup();
+  if(!popup.hidden){
+    closeNowPlayingHelpPopup();
+    return;
+  }
+  popup.hidden=false;
+  positionNowPlayingHelpPopup();
+}
+
+function bindNowPlayingHelpButton(btn){
+  if(!btn||btn.dataset.helpBound)return;
+  btn.dataset.helpBound='true';
+  btn.addEventListener('click',toggleNowPlayingHelpPopup);
+}
+
 function ensureNowPlayingHelpControl(row){
   if(!row)return;
   let helpWrap=document.getElementById('now-playing-help-wrap');
@@ -804,10 +874,15 @@ function ensureNowPlayingHelpControl(row){
     helpWrap=document.createElement('div');
     helpWrap.id='now-playing-help-wrap';
     helpWrap.className='now-playing-help-wrap';
-    helpWrap.innerHTML=`<button type="button" id="now-playing-help-btn" class="now-playing-help-btn" aria-label="Shuffle help">?</button><div id="now-playing-help-tooltip" class="now-playing-help-tooltip" role="tooltip"><p><span>SINGLE:</span> shuffles episodes of the current show selected</p><p><span>ALL:</span> shuffles across all shows in Your Shows</p><p><span>Power:</span> shuffles a show to start with</p></div>`;
+    helpWrap.innerHTML=`<button type="button" id="now-playing-help-btn" class="now-playing-help-btn" aria-label="Shuffle help">?</button>`;
     row.insertBefore(helpWrap,row.firstChild);
-  }else if(helpWrap.parentNode!==row){
-    row.insertBefore(helpWrap,row.firstChild);
+    bindNowPlayingHelpButton(helpWrap.querySelector('#now-playing-help-btn'));
+  }else{
+    if(helpWrap.parentNode!==row){
+      row.insertBefore(helpWrap,row.firstChild);
+    }
+    helpWrap.querySelector('.now-playing-help-tooltip')?.remove();
+    bindNowPlayingHelpButton(document.getElementById('now-playing-help-btn'));
   }
 }
 

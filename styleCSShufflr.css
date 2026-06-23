@@ -1674,7 +1674,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: default;
+  cursor: pointer;
   transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 .now-playing-help-btn:hover {
@@ -1682,10 +1682,8 @@ body.light-mode .main::-webkit-scrollbar-corner {
   color: #23A8E0;
   box-shadow: 0 0 10px rgba(35, 168, 224, 0.5), 0 0 20px rgba(35, 168, 224, 0.2);
 }
-.now-playing-help-tooltip {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 0;
+.now-playing-help-popup {
+  position: fixed;
   width: max-content;
   max-width: 168px;
   padding: 10px 12px;
@@ -1693,29 +1691,24 @@ body.light-mode .main::-webkit-scrollbar-corner {
   border: 1px solid #23A8E0;
   border-radius: 10px;
   box-shadow: 0 0 12px rgba(35, 168, 224, 0.15);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  z-index: 300;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 150;
+  box-sizing: border-box;
 }
-.now-playing-help-tooltip p {
+.now-playing-help-popup[hidden] {
+  display: none !important;
+}
+.now-playing-help-popup p {
   font-family: 'Press Start 2P', monospace;
   font-size: 6px;
   line-height: 1.7;
   color: #ffffff;
   margin: 0 0 8px;
 }
-.now-playing-help-tooltip p:last-child {
+.now-playing-help-popup p:last-child {
   margin-bottom: 0;
 }
-.now-playing-help-tooltip span {
+.now-playing-help-popup span {
   color: #23A8E0;
-}
-.now-playing-help-wrap:hover .now-playing-help-tooltip,
-.now-playing-help-wrap:focus-within .now-playing-help-tooltip {
-  opacity: 1;
-  visibility: visible;
 }
 #now-playing-card-slot {
   line-height: 0;
