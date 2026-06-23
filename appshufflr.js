@@ -4492,9 +4492,9 @@ function renderOptionsPage(){
               <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-login-btn" data-i18n="btn.logIn">${t('btn.logIn')}</button>
             </div>
           </div>
-          <div id="auth-logged-in" style="display:none;">
+          <div id="auth-logged-in" class="options-account-logged-in" style="display:none;">
             <div class="auth-user-email options-account-email" id="auth-user-email"></div>
-            <button type="button" class="options-btn options-btn-secondary auth-btn" id="auth-logout-btn" data-i18n="btn.logOut">${t('btn.logOut')}</button>
+            <button type="button" class="options-btn options-logout-btn auth-btn" id="auth-logout-btn" data-i18n="btn.logOut">${t('btn.logOut').toUpperCase()}</button>
           </div>
           <div id="auth-message" class="auth-message" style="display:none;"></div>
         </div>
