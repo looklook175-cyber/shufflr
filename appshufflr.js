@@ -305,17 +305,128 @@ function triggerSidebarAuth(action){
   btn.click();
 }
 
-async function renderSidebarAuth(){
-  document.querySelectorAll('#sidebar-auth').forEach(el=>el.remove());
+const TOPBAR_GUEST_DISMISS_KEY='shufflr_guest_signin_dismissed';
+let topbarSigninCardOpen=false;
+
+function getEmailFromSession(){
+  try{
+    const raw=localStorage.getItem(SHUFFLR_SUPABASE_SESSION_KEY);
+    const p=raw?JSON.parse(raw):null;
+    const token=p?.accessToken;
+    if(!token)return'';
+    const payload=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    return payload.email||'';
+  }catch{
+    return'';
+  }
+}
+
+function buildTopbarSigninCardHtml(){
+  return`<div id="topbar-signin-card" class="topbar-signin-card" hidden onclick="event.stopPropagation()">
+    <div class="topbar-signin-card-header">New here? Shufflr adds shuffle play to your shows.</div>
+    <div class="topbar-signin-card-body">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</div>
+    <div class="topbar-signin-divider"></div>
+    <input id="topbar-email" class="topbar-signin-input" type="email" placeholder="email" autocomplete="email" />
+    <input id="topbar-password" class="topbar-signin-input" type="password" placeholder="password" autocomplete="current-password" />
+    <div class="topbar-signin-btn-row">
+      <button type="button" id="topbar-login-btn">LOG IN</button>
+      <button type="button" id="topbar-signup-btn" class="topbar-signin-btn-secondary">SIGN UP</button>
+    </div>
+    <div class="topbar-signin-divider"></div>
+    <div class="topbar-signin-btn-row">
+      <button type="button" id="topbar-setup-btn" class="topbar-signin-btn-secondary">See setup steps</button>
+      <button type="button" id="topbar-guest-btn" class="topbar-signin-btn-secondary">Continue as guest</button>
+    </div>
+  </div>`;
+}
+
+function ensureTopbarSigninCard(){
+  let card=document.getElementById('topbar-signin-card');
+  if(card)return card;
+  const wrap=document.querySelector('.topbar-right');
+  if(!wrap)return null;
+  wrap.insertAdjacentHTML('beforeend',buildTopbarSigninCardHtml());
+  return document.getElementById('topbar-signin-card');
+}
+
+function closeTopbarSigninCard(){
+  const card=document.getElementById('topbar-signin-card');
+  if(card)card.hidden=true;
+  topbarSigninCardOpen=false;
+}
+
+function triggerTopbarAuth(action){
+  const email=document.getElementById('topbar-email')?.value?.trim()||'';
+  const password=document.getElementById('topbar-password')?.value||'';
+  ensureHiddenAuthField('auth-email','email').value=email;
+  ensureHiddenAuthField('auth-password','password').value=password;
+  const btnId=action==='signup'?'auth-signup-btn':'auth-login-btn';
+  let btn=document.getElementById(btnId);
+  if(!btn){
+    btn=document.createElement('button');
+    btn.id=btnId;
+    btn.type='button';
+    btn.style.display='none';
+    document.body.appendChild(btn);
+  }
+  btn.click();
+}
+
+function triggerSidebarLogout(){
+  let btn=document.getElementById('auth-logout-btn');
+  if(!btn){
+    btn=document.createElement('button');
+    btn.id='auth-logout-btn';
+    btn.type='button';
+    btn.style.display='none';
+    document.body.appendChild(btn);
+  }
+  btn.click();
+}
+
+function openSetupStepsFromTopbar(){
+  closeTopbarSigninCard();
+  optionsCarouselIndex=1;
+  setNav('options');
+}
+
+function continueAsGuestFromTopbar(){
+  sessionStorage.setItem(TOPBAR_GUEST_DISMISS_KEY,'1');
+  closeTopbarSigninCard();
+}
+
+async function updateTopbarSigninVisibility(){
+  const tab=document.getElementById('topbar-signin-tab');
+  if(!tab)return;
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  tab.classList.toggle('hidden',loggedIn);
+  if(loggedIn)closeTopbarSigninCard();
+}
+
+async function toggleTopbarSigninCard(){
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(loggedIn)return;
+  const card=ensureTopbarSigninCard();
+  if(!card)return;
+  if(topbarSigninCardOpen){
+    closeTopbarSigninCard();
+    return;
+  }
+  card.hidden=false;
+  topbarSigninCardOpen=true;
+}
+
+async function renderSidebarAuth(){
+  document.querySelectorAll('#sidebar-auth').forEach(el=>el.remove());
+  await updateTopbarSigninVisibility();
+  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
+  if(!loggedIn)return;
   const navOptions=document.getElementById('nav-options');
   if(!navOptions)return;
+  const email=getEmailFromSession()||'Logged in';
   navOptions.insertAdjacentHTML('afterend',`<div id="sidebar-auth" style="padding: 16px 12px; border-top: 1px solid #222; margin-top: 12px;">
-  <input id="sidebar-email" type="email" placeholder="email" style="width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 6px 8px; font-size: 9px; font-family: 'Press Start 2P', monospace; margin-bottom: 8px; border-radius: 3px;" />
-  <input id="sidebar-password" type="password" placeholder="password" style="width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 6px 8px; font-size: 9px; font-family: 'Press Start 2P', monospace; margin-bottom: 8px; border-radius: 3px;" />
-  <button id="sidebar-login-btn" style="width: 100%; background: transparent; border: 1px solid #23A8E0; color: #23A8E0; font-family: 'Press Start 2P', monospace; font-size: 8px; padding: 6px; cursor: pointer; margin-bottom: 6px; border-radius: 3px;">LOG IN</button>
-  <button id="sidebar-signup-btn" style="width: 100%; background: transparent; border: 1px solid #555; color: #aaa; font-family: 'Press Start 2P', monospace; font-size: 8px; padding: 6px; cursor: pointer; border-radius: 3px;">SIGN UP</button>
+  <div style="color: #aaa; font-size: 9px; font-family: 'Press Start 2P', monospace; margin-bottom: 8px; word-break: break-all;">${escapeHtml(email)}</div>
+  <button id="sidebar-logout-btn" style="width: 100%; background: transparent; border: 1px solid #555; color: #aaa; font-family: 'Press Start 2P', monospace; font-size: 8px; padding: 6px; cursor: pointer; border-radius: 3px;">SIGN OUT</button>
 </div>`);
 }
 
@@ -4191,16 +4302,37 @@ function closeSearch(){
 }
 // Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
-  if(e.target?.id==='sidebar-login-btn'){
+  if(e.target?.id==='sidebar-logout-btn'){
     e.preventDefault();
-    triggerSidebarAuth('login');
+    triggerSidebarLogout();
     return;
   }
-  if(e.target?.id==='sidebar-signup-btn'){
+  if(e.target?.id==='topbar-login-btn'){
     e.preventDefault();
-    triggerSidebarAuth('signup');
+    e.stopPropagation();
+    triggerTopbarAuth('login');
     return;
   }
+  if(e.target?.id==='topbar-signup-btn'){
+    e.preventDefault();
+    e.stopPropagation();
+    triggerTopbarAuth('signup');
+    return;
+  }
+  if(e.target?.id==='topbar-setup-btn'){
+    e.preventDefault();
+    e.stopPropagation();
+    openSetupStepsFromTopbar();
+    return;
+  }
+  if(e.target?.id==='topbar-guest-btn'){
+    e.preventDefault();
+    e.stopPropagation();
+    continueAsGuestFromTopbar();
+    return;
+  }
+  if(e.target.closest('.topbar-right'))return;
+  closeTopbarSigninCard();
   if(e.target.closest('#your-show-popup'))return;
   const yourShowCard=e.target.closest('.your-show-card');
   if(yourShowCard){

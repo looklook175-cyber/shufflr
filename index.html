@@ -127,7 +127,10 @@
     </button>
     <div class="dropdown" id="dropdown" style="z-index:101;"></div>
   </div>
-  <button class="theme-btn" onclick="toggleTheme()" id="theme-btn" data-i18n="theme.dark">Dark</button>
+  <div class="topbar-right">
+    <button class="theme-btn" onclick="toggleTheme()" id="theme-btn" data-i18n="theme.dark">Dark</button>
+    <button class="topbar-signin-tab" id="topbar-signin-tab" onclick="event.stopPropagation(); toggleTopbarSigninCard()">Sign In</button>
+  </div>
 </div>
 
 
