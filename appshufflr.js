@@ -360,6 +360,7 @@ function getEmailFromSession(){
 
 function buildTopbarSigninCardHtml(){
   return`<div id="topbar-signin-card" class="topbar-signin-card" hidden>
+    <div class="topbar-signin-card-hero">SHUFFLE YOUR SHOWS</div>
     <div class="topbar-signin-card-header">New here? Shufflr adds shuffle play to your shows.</div>
     <div class="topbar-signin-card-body">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</div>
     <div class="topbar-signin-divider"></div>
