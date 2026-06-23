@@ -48,31 +48,59 @@ body.light-mode .theme-btn{background:#ffffff;border-color:#23A8E0;color:#23A8E0
 .shuffle-search-btn:hover svg{filter:drop-shadow(0 0 6px var(--blue));}
 .theme-btn{background:var(--chrome-elevated);border:1px solid var(--border);border-radius:8px;color:#9a9a9a;padding:8px 10px;cursor:pointer;font-size:0.75rem;transition:all 0.2s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .theme-btn:hover{border-color:var(--blue);color:var(--blue);}
-.topbar-right {
+.topbar-auth-zone {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  z-index: 150;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
-  position: relative;
+  gap: 6px;
 }
-.topbar-signin-tab {
-  background: transparent;
+.auth-pill-btn {
+  background: #0a0a0a;
   border: 1px solid #23A8E0;
-  border-top: none;
-  border-radius: 0 0 8px 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(35,168,224,0.35), 0 0 20px rgba(35,168,224,0.15);
+  color: #ffffff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 7px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: box-shadow 0.2s;
+}
+.auth-pill-btn:hover {
+  box-shadow: 0 0 14px rgba(35,168,224,0.6), 0 0 28px rgba(35,168,224,0.25);
+}
+.auth-signed-in-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid #23A8E0;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.6);
+}
+.auth-signed-in-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #23A8E0;
+  box-shadow: 0 0 6px #23A8E0;
+  animation: pulse 2s infinite;
+}
+.auth-signed-in-label {
   color: #23A8E0;
   font-family: 'Press Start 2P', monospace;
   font-size: 7px;
-  padding: 5px 10px;
-  cursor: pointer;
   white-space: nowrap;
-  letter-spacing: 0.05em;
-  transition: background 0.2s, color 0.2s;
 }
-.topbar-signin-tab:hover {
-  background: rgba(35, 168, 224, 0.1);
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
-.topbar-signin-tab.hidden { display: none; }
 .topbar-signin-card {
   position: absolute;
   right: 0;
@@ -738,89 +766,6 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   display: flex;
   justify-content: center;
   margin-bottom: 0;
-}
-.shufflr-welcome-banner {
-  position: fixed;
-  top: 60px;
-  right: 24px;
-  width: min(420px, calc(100vw - 48px));
-  max-width: 420px;
-  z-index: 8500;
-  margin: 0;
-  padding: 8px 12px 8px;
-  background: #000;
-  border: 1px solid #23A8E0;
-  border-radius: 10px;
-  box-shadow: 0 0 16px rgba(35, 168, 224, 0.12);
-  box-sizing: border-box;
-}
-.shufflr-welcome-banner-title {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.56rem;
-  color: #23A8E0;
-  line-height: 1.9;
-  margin: 0 0 2px;
-  text-shadow: 0 0 8px var(--blue-glow);
-  text-wrap: balance;
-}
-.shufflr-welcome-banner-desc {
-  font-family: var(--font-system);
-  font-size: 14px;
-  color: #e8e8e8;
-  line-height: 1.55;
-  margin: 0 0 8px;
-}
-.shufflr-welcome-banner-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0;
-}
-.shufflr-welcome-banner-divider {
-  width: 1px;
-  align-self: stretch;
-  min-height: 28px;
-  background: #3a3a3a;
-  flex-shrink: 0;
-  margin: 0 4px;
-}
-.shufflr-welcome-banner-btn {
-  padding: 7px 10px;
-  border-radius: 8px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.38rem;
-  line-height: 1.5;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.shufflr-welcome-banner-btn--primary {
-  background: #23A8E0;
-  border: 1px solid #23A8E0;
-  color: #000;
-  box-shadow: 0 0 12px rgba(35, 168, 224, 0.25);
-}
-.shufflr-welcome-banner-btn--primary:hover {
-  background: #2eb8f0;
-  box-shadow: 0 0 16px rgba(35, 168, 224, 0.4);
-}
-.shufflr-welcome-banner-btn--ghost {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text);
-}
-.shufflr-welcome-banner-btn--ghost:hover {
-  border-color: #23A8E0;
-  color: #23A8E0;
-  background: rgba(35, 168, 224, 0.08);
-}
-body.light-mode .shufflr-welcome-banner {
-  background: #000;
-}
-body.light-mode .shufflr-welcome-banner-desc {
-  color: #333344;
-}
-body.light-mode .shufflr-welcome-banner-btn--ghost {
-  background: #fff;
 }
 
 .pl-home-section {

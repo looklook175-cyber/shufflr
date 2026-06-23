@@ -343,7 +343,7 @@ function buildTopbarSigninCardHtml(){
 function ensureTopbarSigninCard(){
   let card=document.getElementById('topbar-signin-card');
   if(card)return card;
-  const wrap=document.querySelector('.topbar-right');
+  const wrap=document.getElementById('topbar-auth-zone');
   if(!wrap)return null;
   wrap.insertAdjacentHTML('beforeend',buildTopbarSigninCardHtml());
   return document.getElementById('topbar-signin-card');
@@ -395,12 +395,27 @@ function continueAsGuestFromTopbar(){
   closeTopbarSigninCard();
 }
 
-async function updateTopbarSigninVisibility(){
-  const tab=document.getElementById('topbar-signin-tab');
-  if(!tab)return;
+function formatSignedInLabel(email){
+  if(!email)return'Signed in';
+  const part=String(email).split('@')[0]?.trim();
+  return part||'Signed in';
+}
+
+async function updateTopbarAuthZone(){
+  const pill=document.getElementById('auth-pill-btn');
+  const indicator=document.getElementById('auth-signed-in-indicator');
+  const label=document.getElementById('auth-signed-in-label');
+  if(!pill||!indicator)return;
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
-  tab.classList.toggle('hidden',loggedIn);
-  if(loggedIn)closeTopbarSigninCard();
+  if(loggedIn){
+    pill.style.display='none';
+    indicator.style.display='flex';
+    if(label)label.textContent=formatSignedInLabel(getEmailFromSession());
+    closeTopbarSigninCard();
+  }else{
+    pill.style.display='';
+    indicator.style.display='none';
+  }
 }
 
 async function toggleTopbarSigninCard(){
@@ -414,20 +429,6 @@ async function toggleTopbarSigninCard(){
   }
   card.hidden=false;
   topbarSigninCardOpen=true;
-}
-
-async function renderSidebarAuth(){
-  document.querySelectorAll('#sidebar-auth').forEach(el=>el.remove());
-  await updateTopbarSigninVisibility();
-  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
-  if(!loggedIn)return;
-  const navOptions=document.getElementById('nav-options');
-  if(!navOptions)return;
-  const email=getEmailFromSession()||'Logged in';
-  navOptions.insertAdjacentHTML('afterend',`<div id="sidebar-auth" style="padding: 16px 12px; border-top: 1px solid #222; margin-top: 12px;">
-  <div style="color: #aaa; font-size: 9px; font-family: 'Press Start 2P', monospace; margin-bottom: 8px; word-break: break-all;">${escapeHtml(email)}</div>
-  <button id="sidebar-logout-btn" style="width: 100%; background: transparent; border: 1px solid #555; color: #aaa; font-family: 'Press Start 2P', monospace; font-size: 8px; padding: 6px; cursor: pointer; border-radius: 3px;">SIGN OUT</button>
-</div>`);
 }
 
 function rerenderCurrentTab(){
@@ -498,7 +499,7 @@ window.addEventListener('shufflr-playlists-merged',(event)=>{
 });
 
 window.addEventListener('shufflr-auth-changed',()=>{
-  renderSidebarAuth();
+  updateTopbarAuthZone();
   if(currentNav==='shows'&&!currentShow){
     renderHomeScreen('shows');
   }else if(currentNav==='options'){
@@ -1396,42 +1397,6 @@ function getPlaylistsFromBridge() {
   });
 }
 
-const SHUFFLR_WELCOME_BANNER_DISMISSED_KEY='shufflr_welcome_banner_dismissed';
-
-function removeWelcomeBanner(){
-  document.getElementById('shufflr-welcome-banner')?.remove();
-}
-
-function shufflrWelcomeDismiss(){
-  sessionStorage.setItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY,'1');
-  removeWelcomeBanner();
-}
-
-function shufflrWelcomeGoToSetup(){
-  shufflrWelcomeDismiss();
-  setNav('options');
-}
-
-async function syncWelcomeBanner(show){
-  removeWelcomeBanner();
-  if(!show)return;
-  if(sessionStorage.getItem(SHUFFLR_WELCOME_BANNER_DISMISSED_KEY))return;
-  const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
-  if(loggedIn)return;
-  const banner=document.createElement('div');
-  banner.className='shufflr-welcome-banner';
-  banner.id='shufflr-welcome-banner';
-  banner.innerHTML=`
-      <p class="shufflr-welcome-banner-title">New here? Shufflr adds shuffle play to your&nbsp;shows.</p>
-      <p class="shufflr-welcome-banner-desc">Download Shufflr, connect your streaming service, open your selected service and start shuffling.</p>
-      <div class="shufflr-welcome-banner-actions">
-        <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeGoToSetup()">See setup steps</button>
-        <span class="shufflr-welcome-banner-divider" aria-hidden="true"></span>
-        <button type="button" class="shufflr-welcome-banner-btn shufflr-welcome-banner-btn--ghost" onclick="shufflrWelcomeDismiss()">Continue as guest</button>
-      </div>`;
-  document.body.appendChild(banner);
-}
-
 function stopHomeEmptyStatic(){
   if(homeEmptyStaticAnimId){
     cancelAnimationFrame(homeEmptyStaticAnimId);
@@ -1618,7 +1583,7 @@ window.addEventListener('load',()=>{
       if(!localStorage.getItem('shufflr_onboarded')) document.getElementById('onboarding').style.display='flex';
       applyStaticTranslations();
       updateConnectBtnLabel();
-      renderSidebarAuth();
+      updateTopbarAuthZone();
       renderHomeScreen('shows');
       // Ask for notification permission on load (like a normal app)
       askNotifPermissionOnLoad();
@@ -1728,12 +1693,10 @@ function setNav(nav){
   if(nav==='playlist'){
     allSeasons=[];
     clearSeasonsSidebar();
-    removeWelcomeBanner();
     renderPlaylistPage();
   }else if(nav==='options'){
     allSeasons=[];
     clearSeasonsSidebar();
-    removeWelcomeBanner();
     renderOptionsPage();
   }else if(nav==='shows'){
     currentType='tv';
@@ -3981,7 +3944,6 @@ async function renderHomeScreen(navType){
   html+=`</div>`;
   stopHomeEmptyStatic();
   showMain(html);
-  void syncWelcomeBanner(homeNavType==='shows');
   setTimeout(()=>{
     document.getElementById('main-content').scrollTop=homeScrollPos;
     initHomeEmptyStatic();
@@ -4302,11 +4264,6 @@ function closeSearch(){
 }
 // Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
-  if(e.target?.id==='sidebar-logout-btn'){
-    e.preventDefault();
-    triggerSidebarLogout();
-    return;
-  }
   if(e.target?.id==='topbar-login-btn'){
     e.preventDefault();
     e.stopPropagation();
@@ -4331,7 +4288,7 @@ document.addEventListener('click',e=>{
     continueAsGuestFromTopbar();
     return;
   }
-  if(e.target.closest('.topbar-right'))return;
+  if(e.target.closest('#topbar-auth-zone'))return;
   closeTopbarSigninCard();
   if(e.target.closest('#your-show-popup'))return;
   const yourShowCard=e.target.closest('.your-show-card');
@@ -4644,7 +4601,7 @@ setTimeout(() => {
 }, 45000);
 
 document.addEventListener('DOMContentLoaded', function() {
-  renderSidebarAuth();
+  updateTopbarAuthZone();
   // ============================================================
   // SIDEBAR & TOPBAR STARS — remove: delete from here to END STARS JS
   // ============================================================
