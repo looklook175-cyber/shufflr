@@ -2032,9 +2032,40 @@ body.light-mode .main::-webkit-scrollbar-corner {
 .now-playing-shuffle-btn:hover svg {
   opacity: 0.75;
 }
+@keyframes now-playing-power-breathe {
+  0%, 100% {
+    opacity: 0.78;
+    filter: drop-shadow(0 0 5px rgba(35, 168, 224, 0.55)) drop-shadow(0 0 12px rgba(35, 168, 224, 0.3));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px #23A8E0) drop-shadow(0 0 20px rgba(35, 168, 224, 0.6));
+  }
+}
+@keyframes now-playing-power-stutter {
+  0%, 14%, 16%, 47%, 49%, 71%, 73%, 100% {
+    opacity: 1;
+  }
+  15% {
+    opacity: 0.82;
+  }
+  48% {
+    opacity: 0.74;
+  }
+  48.8% {
+    opacity: 0.92;
+  }
+  49.6% {
+    opacity: 0.68;
+  }
+  72% {
+    opacity: 0.8;
+  }
+}
 #now-playing-card-host:has(#now-playing-card[data-state="shuffle"]) .now-playing-shuffle-btn svg {
   opacity: 1;
   filter: drop-shadow(0 0 8px #23A8E0) drop-shadow(0 0 20px rgba(35, 168, 224, 0.6));
+  animation: now-playing-power-breathe 2.6s ease-in-out infinite, now-playing-power-stutter 6.8s linear infinite;
 }
 #now-playing-card-host:has(#now-playing-card[data-state="shuffle"]) .now-playing-shuffle-btn svg path:nth-child(2) {
   fill: none;
