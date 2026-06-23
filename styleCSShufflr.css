@@ -1639,30 +1639,20 @@ body.light-mode .main::-webkit-scrollbar-corner {
   height: 100px;
   aspect-ratio: auto;
 }
-#now-playing-card-host:has(#now-playing-card[data-state="live"]),
-#now-playing-card-host:has(#now-playing-card[data-state="shuffle"]) {
-  padding-left: 0;
-  padding-right: 0;
-}
 #now-playing-card[data-state="live"],
 #now-playing-card[data-state="shuffle"] {
-  padding: 0 0 10px;
-  border-left: none;
-  border-right: none;
-  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
 }
 #now-playing-card[data-state="live"] .now-playing-poster-wrap,
 #now-playing-card[data-state="shuffle"] .now-playing-poster-wrap {
   width: 100%;
   height: auto;
   aspect-ratio: 2 / 3;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
 }
 #now-playing-card[data-state="live"] .now-playing-title,
 #now-playing-card[data-state="shuffle"] .now-playing-title {
-  padding: 0 10px;
+  padding: 0 10px 8px;
 }
 .now-playing-vcr-wrap {
   filter: contrast(1.1) brightness(1.06);
