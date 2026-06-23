@@ -4299,31 +4299,31 @@ function closeSearch(){
 }
 // Desktop: click outside closes dropdown; delegated card clicks
 document.addEventListener('click',e=>{
-  if(e.target?.id==='topbar-login-btn'){
+  if(e.target.closest('#topbar-login-btn')){
     e.preventDefault();
     e.stopPropagation();
     triggerTopbarAuth('login');
     return;
   }
-  if(e.target?.id==='topbar-signup-btn'){
+  if(e.target.closest('#topbar-signup-btn')){
     e.preventDefault();
     e.stopPropagation();
     triggerTopbarAuth('signup');
     return;
   }
-  if(e.target?.id==='topbar-setup-btn'){
+  if(e.target.closest('#topbar-setup-btn')){
     e.preventDefault();
     e.stopPropagation();
     openSetupStepsFromTopbar();
     return;
   }
-  if(e.target?.id==='topbar-guest-btn'){
+  if(e.target.closest('#topbar-guest-btn')){
     e.preventDefault();
     e.stopPropagation();
     continueAsGuestFromTopbar();
     return;
   }
-  if(e.target.closest('#topbar-auth-zone'))return;
+  if(e.target.closest('#topbar-auth-zone')||e.target.closest('#topbar-signin-card'))return;
   closeTopbarSigninCard();
   if(e.target.closest('#your-show-popup'))return;
   const yourShowCard=e.target.closest('.your-show-card');
