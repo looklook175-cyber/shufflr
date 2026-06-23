@@ -217,8 +217,8 @@ body.light-mode .logo-box{color:#111111;}
 .season-item:hover .block-btn{color:var(--muted);}
 .season-item.blocked .block-btn{color:#ff4455;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .block-btn:hover{color:#ff4455!important;text-shadow:0 0 8px rgba(255,68,85,0.6);}
-.connect-wrap{padding:8px 12px 12px;}
-.sidebar-bottom{margin-top:4px;flex-shrink:0;padding-bottom:20px;}
+.connect-wrap{padding:0 12px 12px;}
+.sidebar-bottom{margin-top:4px;flex-shrink:0;padding-bottom:20px;display:flex;flex-direction:column;gap:10px;}
 .sidebar-section::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
 .sidebar-now-playing-divider{display:none;}
 .auth-section{margin-bottom:12px;}
@@ -1616,12 +1616,15 @@ body.light-mode .main::-webkit-scrollbar-corner {
 
 /* NOW PLAYING SIDEBAR CARD */
 #now-playing-card-host {
-  padding: 4px 12px 4px;
+  padding: 4px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .now-playing-mode-toggle {
   display: flex;
   gap: 6px;
-  margin-bottom: 6px;
+  margin: 0;
 }
 .now-playing-mode-btn {
   flex: 1;
@@ -1648,7 +1651,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 8px;
+  margin: 0;
   margin-left: -12px;
   margin-right: -12px;
   width: calc(100% + 24px);
@@ -1657,19 +1660,19 @@ body.light-mode .main::-webkit-scrollbar-corner {
 .now-playing-help-wrap {
   position: absolute;
   left: 12px;
-  top: 50%;
+  top: 58%;
   transform: translateY(-50%);
 }
 .now-playing-help-btn {
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   border: 1px solid #555555;
   background: transparent;
   color: #666666;
   font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
-  line-height: 1;
+  font-size: 5px;
+  line-height: 0.9;
   padding: 0;
   display: flex;
   align-items: center;
