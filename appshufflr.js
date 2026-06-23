@@ -528,6 +528,7 @@ const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
 let expandedPlaylistIndex=null;
+let activePlaylistRenameIndex=null;
 
 function handleExtensionPlaylistSync(payload){
   playlists=Array.isArray(payload)?payload:[];
@@ -2416,7 +2417,7 @@ function buildPlCardItemsHtml(p, pi) {
 }
 
 function handlePlaylistHeaderClick(event, pi) {
-  if (event.target.closest('.pl-card-actions')) return;
+  if (event.target.closest('.pl-card-actions') || event.target.closest('.pl-rename-btn') || event.target.closest('.pl-card-name-input')) return;
   expandedPlaylistIndex = expandedPlaylistIndex === pi ? null : pi;
   document.querySelectorAll('.pl-card').forEach((card) => {
     const cardIndex = parseInt(card.dataset.plIndex, 10);
@@ -2435,7 +2436,101 @@ function showAddShowFromPlaylistToast(event) {
   showToast('Add shows from Max using the Shufflr button');
 }
 
+function teardownPlaylistRenameListener(){
+  document.removeEventListener('click',onPlaylistRenameDocumentClick,true);
+}
+
+function restorePlaylistNameElement(pi,name){
+  const card=document.querySelector(`.pl-card[data-pl-index="${pi}"]`);
+  const row=card?.querySelector('.pl-card-name-row');
+  const input=row?.querySelector('.pl-card-name-input');
+  if(!row)return;
+  row.classList.remove('is-renaming');
+  const nameEl=document.createElement('div');
+  nameEl.className='pl-card-name';
+  nameEl.textContent=name;
+  if(input){
+    input.replaceWith(nameEl);
+  }else{
+    const existing=row.querySelector('.pl-card-name');
+    if(existing)existing.replaceWith(nameEl);
+  }
+}
+
+function cancelPlaylistRename(pi){
+  const card=document.querySelector(`.pl-card[data-pl-index="${pi}"]`);
+  const input=card?.querySelector('.pl-card-name-input');
+  if(!input)return;
+  const original=input.dataset.originalName||playlists[pi]?.name||'';
+  activePlaylistRenameIndex=null;
+  teardownPlaylistRenameListener();
+  restorePlaylistNameElement(pi,original);
+}
+
+function commitPlaylistRename(pi){
+  const card=document.querySelector(`.pl-card[data-pl-index="${pi}"]`);
+  const input=card?.querySelector('.pl-card-name-input');
+  if(!input)return;
+  const newName=input.value.trim();
+  const original=input.dataset.originalName||playlists[pi]?.name||'';
+  activePlaylistRenameIndex=null;
+  teardownPlaylistRenameListener();
+  if(!newName||newName===original){
+    restorePlaylistNameElement(pi,original);
+    return;
+  }
+  if(!playlists[pi])return;
+  playlists[pi].name=newName;
+  savePlaylists();
+  if(homePlaylistsCache.length)homePlaylistsCache=playlists;
+  restorePlaylistNameElement(pi,newName);
+}
+
+function onPlaylistRenameDocumentClick(e){
+  if(activePlaylistRenameIndex===null)return;
+  if(e.target.closest('.pl-card-name-input'))return;
+  commitPlaylistRename(activePlaylistRenameIndex);
+}
+
+function startPlaylistRename(event,pi){
+  event.preventDefault();
+  event.stopPropagation();
+  if(activePlaylistRenameIndex!==null&&activePlaylistRenameIndex!==pi){
+    commitPlaylistRename(activePlaylistRenameIndex);
+  }
+  const card=document.querySelector(`.pl-card[data-pl-index="${pi}"]`);
+  const row=card?.querySelector('.pl-card-name-row');
+  const nameEl=row?.querySelector('.pl-card-name');
+  if(!row||!nameEl||nameEl.classList.contains('pl-card-name-input'))return;
+  const currentName=playlists[pi]?.name||'';
+  const input=document.createElement('input');
+  input.type='text';
+  input.className='pl-card-name-input';
+  input.value=currentName;
+  input.dataset.plIndex=String(pi);
+  input.dataset.originalName=currentName;
+  input.addEventListener('keydown',(e)=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){e.preventDefault();commitPlaylistRename(pi);}
+    if(e.key==='Escape'){e.preventDefault();cancelPlaylistRename(pi);}
+  });
+  input.addEventListener('click',(e)=>e.stopPropagation());
+  nameEl.replaceWith(input);
+  row.classList.add('is-renaming');
+  activePlaylistRenameIndex=pi;
+  teardownPlaylistRenameListener();
+  setTimeout(()=>{
+    document.addEventListener('click',onPlaylistRenameDocumentClick,true);
+  },0);
+  input.focus();
+  input.select();
+}
+
 function renderPlaylistPage(){
+  if(activePlaylistRenameIndex!==null){
+    teardownPlaylistRenameListener();
+    activePlaylistRenameIndex=null;
+  }
   let html=`<div class="playlist-page">
   <div class="playlist-page-header">
     <div class="playlist-page-title">${t('section.myPlaylists')}</div>
@@ -2454,7 +2549,12 @@ function renderPlaylistPage(){
       <div class="pl-card${expanded?' expanded':''}" data-pl-index="${pi}">
         <div class="pl-card-header" onclick="handlePlaylistHeaderClick(event, ${pi})">
           <div class="pl-card-header-info">
-            <div class="pl-card-name">${p.name}</div>
+            <div class="pl-card-name-row">
+              <div class="pl-card-name">${escapeHtml(p.name)}</div>
+              <button type="button" class="pl-rename-btn" onclick="startPlaylistRename(event, ${pi})" aria-label="Rename playlist" title="Rename playlist">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+            </div>
             <div class="pl-card-count">${itemCount} ${itemCount!==1?t('pl.items'):t('pl.item')}</div>
           </div>
           <div class="pl-card-actions" onclick="event.stopPropagation()">

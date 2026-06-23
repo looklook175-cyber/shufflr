@@ -601,6 +601,13 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 .pl-add-show-btn{display:block;background:none;border:none;color:#23A8E0;font-family:var(--font-system);font-size:13px;font-weight:600;padding:12px 16px 14px;cursor:pointer;text-align:left;transition:opacity 0.15s;}
 .pl-add-show-btn:hover{opacity:0.85;}
 .pl-card-name{font-family:var(--font-system);font-size:15px;font-weight:600;color:#ffffff;}
+.pl-card-name-row{display:flex;align-items:center;gap:6px;min-width:0;}
+.pl-card-name-row .pl-card-name{min-width:0;}
+.pl-card-name-row.is-renaming .pl-rename-btn{visibility:hidden;}
+.pl-rename-btn{flex-shrink:0;width:22px;height:22px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:#0d0d0d;border:1px solid #555555;border-radius:4px;color:#888888;cursor:pointer;}
+.pl-rename-btn svg{width:10px;height:10px;}
+.pl-rename-btn:hover{color:#aaaaaa;border-color:#666666;}
+.pl-card-name-input{font-family:var(--font-system);font-size:15px;font-weight:600;color:#ffffff;background:transparent;border:none;border-bottom:1px solid #23A8E0;padding:0;margin:0;min-width:0;flex:1;outline:none;box-sizing:border-box;}
 .pl-card-count{font-family:var(--font-system);font-size:12px;color:#aaaaaa;}
 .pl-shuffle-btn{padding:12px 18px;background:transparent;border:1px solid var(--blue);border-radius:7px;color:var(--blue);font-family:'Press Start 2P',monospace;font-size:0.38rem;cursor:pointer;letter-spacing:1px;transition:all 0.2s;display:flex;align-items:center;gap:6px;}
 .pl-shuffle-btn:hover{background:var(--blue-dim);}
