@@ -759,6 +759,103 @@ let nowPlayingStaticAnimId=null;
 let homeEmptyStaticAnimId=null;
 let nowPlayingPosterGlitchTimer=null;
 const NOW_PLAYING_SHUFFLE_TTL_MS=3600000;
+let currentShuffleMode='single';
+
+function syncNowPlayingModeToggleUi(){
+  const toggle=document.getElementById('now-playing-mode-toggle');
+  if(!toggle)return;
+  toggle.querySelectorAll('.now-playing-mode-btn').forEach(btn=>{
+    btn.classList.toggle('is-active',btn.dataset.mode===currentShuffleMode);
+  });
+}
+
+function setNowPlayingShuffleMode(mode){
+  if(mode!=='single'&&mode!=='all')return;
+  currentShuffleMode=mode;
+  syncNowPlayingModeToggleUi();
+}
+
+function ensureNowPlayingModeToggle(host){
+  const container=host||document.getElementById('now-playing-card-host');
+  if(!container)return;
+  let toggle=document.getElementById('now-playing-mode-toggle');
+  if(!toggle){
+    toggle=document.createElement('div');
+    toggle.id='now-playing-mode-toggle';
+    toggle.className='now-playing-mode-toggle';
+    toggle.innerHTML=`<button type="button" class="now-playing-mode-btn is-active" data-mode="single">SINGLE</button><button type="button" class="now-playing-mode-btn" data-mode="all">ALL</button>`;
+    toggle.querySelectorAll('.now-playing-mode-btn').forEach(btn=>{
+      btn.addEventListener('click',()=>setNowPlayingShuffleMode(btn.dataset.mode));
+    });
+    const slot=document.getElementById('now-playing-card-slot');
+    if(slot){
+      container.insertBefore(toggle,slot);
+    }else{
+      container.insertBefore(toggle,container.firstChild);
+    }
+  }
+  syncNowPlayingModeToggleUi();
+}
+
+function ensureNowPlayingHelpControl(row){
+  if(!row)return;
+  let helpWrap=document.getElementById('now-playing-help-wrap');
+  if(!helpWrap){
+    helpWrap=document.createElement('div');
+    helpWrap.id='now-playing-help-wrap';
+    helpWrap.className='now-playing-help-wrap';
+    helpWrap.innerHTML=`<button type="button" id="now-playing-help-btn" class="now-playing-help-btn" aria-label="Shuffle help">?</button><div id="now-playing-help-tooltip" class="now-playing-help-tooltip" role="tooltip"><p><span>SINGLE:</span> shuffles episodes of the current show only</p><p><span>ALL:</span> shuffles across all shows in Your Shows</p><p><span>Power:</span> starts the shuffle session on Max</p></div>`;
+    row.insertBefore(helpWrap,row.firstChild);
+  }else if(helpWrap.parentNode!==row){
+    row.insertBefore(helpWrap,row.firstChild);
+  }
+}
+
+function reorderNowPlayingHostChildren(host){
+  if(!host)return;
+  const toggle=document.getElementById('now-playing-mode-toggle');
+  const slot=document.getElementById('now-playing-card-slot');
+  const row=document.getElementById('now-playing-actions-row');
+  const hint=document.getElementById('now-playing-shuffle-hint');
+  [toggle,slot,row,hint].filter(Boolean).forEach(el=>host.appendChild(el));
+}
+
+function ensureNowPlayingShuffleControls(host){
+  const container=host||document.getElementById('now-playing-card-host');
+  if(!container)return;
+  let row=document.getElementById('now-playing-actions-row');
+  if(!row){
+    row=document.createElement('div');
+    row.id='now-playing-actions-row';
+    row.className='now-playing-actions-row';
+    container.appendChild(row);
+  }
+  ensureNowPlayingHelpControl(row);
+  if(!document.getElementById('now-playing-shuffle-btn')){
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.id='now-playing-shuffle-btn';
+    btn.className='now-playing-shuffle-btn';
+    btn.innerHTML=`<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#23A8E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2v6"/>
+  <path d="M6.8 4.8a9 9 0 1 0 10.4 0"/>
+</svg>`;
+    btn.addEventListener('click',onNowPlayingShuffleClick);
+    row.appendChild(btn);
+  }else{
+    const btn=document.getElementById('now-playing-shuffle-btn');
+    if(btn.parentNode!==row)row.appendChild(btn);
+  }
+  if(!document.getElementById('now-playing-shuffle-hint')){
+    const hint=document.createElement('div');
+    hint.id='now-playing-shuffle-hint';
+    hint.className='now-playing-shuffle-hint';
+    hint.hidden=true;
+    hint.textContent='Add shows to playlists to use shuffle.';
+    container.appendChild(hint);
+  }
+  reorderNowPlayingHostChildren(container);
+}
 
 function isNowPlayingLive(){
   return !!(nowPlayingShow&&Date.now()-nowPlayingLastSeen<45000);
@@ -774,31 +871,6 @@ function clearExpiredNowPlayingShuffle(){
     nowPlayingShufflePickedAt=0;
     nowPlayingShufflePlaylistIndex=null;
     nowPlayingShuffleShowIndex=null;
-  }
-}
-
-function ensureNowPlayingShuffleControls(host){
-  const container=host||document.getElementById('now-playing-card-host');
-  if(!container)return;
-  if(!document.getElementById('now-playing-shuffle-btn')){
-    const btn=document.createElement('button');
-    btn.type='button';
-    btn.id='now-playing-shuffle-btn';
-    btn.className='now-playing-shuffle-btn';
-    btn.innerHTML=`<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#23A8E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M12 2v6"/>
-  <path d="M6.8 4.8a9 9 0 1 0 10.4 0"/>
-</svg>`;
-    btn.addEventListener('click',onNowPlayingShuffleClick);
-    container.appendChild(btn);
-  }
-  if(!document.getElementById('now-playing-shuffle-hint')){
-    const hint=document.createElement('div');
-    hint.id='now-playing-shuffle-hint';
-    hint.className='now-playing-shuffle-hint';
-    hint.hidden=true;
-    hint.textContent='Add shows to playlists to use shuffle.';
-    container.appendChild(hint);
   }
 }
 
@@ -824,6 +896,7 @@ function ensureNowPlayingCardHost(){
     }
     host.insertBefore(slot,host.firstChild);
   }
+  ensureNowPlayingModeToggle(host);
   ensureNowPlayingShuffleControls(host);
 }
 

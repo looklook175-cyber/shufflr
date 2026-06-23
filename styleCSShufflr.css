@@ -1618,6 +1618,90 @@ body.light-mode .main::-webkit-scrollbar-corner {
 #now-playing-card-host {
   padding: 10px 12px 4px;
 }
+.now-playing-mode-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.now-playing-mode-btn {
+  flex: 1;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  line-height: 1.5;
+  padding: 8px 4px;
+  background: #0d0d0d;
+  border: 1px solid #555555;
+  border-radius: 6px;
+  color: #666666;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.now-playing-mode-btn.is-active {
+  border-color: #23A8E0;
+  color: #23A8E0;
+}
+.now-playing-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+.now-playing-help-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.now-playing-help-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #555555;
+  background: transparent;
+  color: #666666;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+.now-playing-help-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  width: max-content;
+  max-width: 168px;
+  padding: 10px 12px;
+  background: #0d0d0d;
+  border: 1px solid #23A8E0;
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(35, 168, 224, 0.15);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 300;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+.now-playing-help-tooltip p {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  line-height: 1.7;
+  color: #ffffff;
+  margin: 0 0 8px;
+}
+.now-playing-help-tooltip p:last-child {
+  margin-bottom: 0;
+}
+.now-playing-help-tooltip span {
+  color: #23A8E0;
+}
+.now-playing-help-wrap:hover .now-playing-help-tooltip,
+.now-playing-help-wrap:focus-within .now-playing-help-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
 #now-playing-card-slot {
   line-height: 0;
 }
@@ -1854,7 +1938,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
 .now-playing-shuffle-btn {
   width: 48px;
   height: 48px;
-  margin: 8px auto 0;
+  margin: 0;
   padding: 0;
   background: transparent;
   border: none;
