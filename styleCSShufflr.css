@@ -1660,8 +1660,9 @@ body.light-mode .main::-webkit-scrollbar-corner {
 .now-playing-help-wrap {
   position: absolute;
   left: 12px;
-  top: 58%;
-  transform: translateY(-50%);
+  bottom: 0;
+  top: auto;
+  transform: none;
 }
 .now-playing-help-btn {
   width: 16px;
@@ -1669,10 +1670,11 @@ body.light-mode .main::-webkit-scrollbar-corner {
   border-radius: 50%;
   border: 1px solid #555555;
   background: transparent;
-  color: #666666;
+  color: #ffffff;
   font-family: 'Press Start 2P', monospace;
-  font-size: 5px;
-  line-height: 0.9;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
   padding: 0;
   display: flex;
   align-items: center;
