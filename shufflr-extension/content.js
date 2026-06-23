@@ -786,18 +786,7 @@ function teardownFullscreenRestoreListeners() {
 }
 
 function dismissFullscreenRestorePrompt() {
-  if (!fullscreenRestorePromptActive) return;
-
-  fullscreenRestorePromptActive = false;
-  clearTimeout(window._shufflrFullscreenRestoreTimer);
-  window._shufflrFullscreenRestoreTimer = null;
-  teardownFullscreenRestoreListeners();
-
-  const toast = document.getElementById('shufflr-toast');
-  if (toast) {
-    toast.classList.remove('show', 'shufflr-toast-interactive');
-    toast.textContent = '';
-  }
+  // no-op: spacebar prompt replaced by automatic restore in onVideoPlaying
 }
 
 function tryRestoreFullscreenSync(source) {
@@ -816,59 +805,11 @@ function onFullscreenRestoreDismissClick(event) {
 }
 
 function onFullscreenRestoreSpace(event) {
-  if (event.key !== ' ' && event.code !== 'Space') return;
-  if (event.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  tryRestoreFullscreenSync('space');
-
-  const video = document.querySelector('video');
-  if (video) {
-    video.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-  }
-
-  dismissFullscreenRestorePrompt();
+  // no-op: spacebar prompt replaced by automatic restore in onVideoPlaying
 }
 
 function showFullscreenRestorePrompt() {
-  if (!shouldShowFullscreenRestorePrompt()) return;
-  if (fullscreenRestorePromptActive) return;
-
-  try {
-    sessionStorage.removeItem(SHUFFLR_WAS_FULLSCREEN_KEY);
-  } catch {}
-  wasFullscreen = false;
-  fullscreenRestorePromptActive = true;
-
-  const toast = document.getElementById('shufflr-toast');
-  if (!toast) {
-    fullscreenRestorePromptActive = false;
-    return;
-  }
-
-  toast.innerHTML = `
-    <span class="shufflr-toast-message">Press Space to restore fullscreen</span>
-    <button type="button" id="shufflr-toast-dismiss" class="shufflr-toast-dismiss" aria-label="Dismiss fullscreen restore prompt">✕</button>
-  `;
-  toast.classList.add('show', 'shufflr-toast-interactive');
-  clearTimeout(window._shufflrToastTimer);
-
-  teardownFullscreenRestoreListeners();
-  fullscreenRestoreSpaceHandler = onFullscreenRestoreSpace;
-  document.addEventListener('keydown', fullscreenRestoreSpaceHandler, true);
-
-  const dismissBtn = document.getElementById('shufflr-toast-dismiss');
-  if (dismissBtn) {
-    fullscreenRestoreDismissHandler = onFullscreenRestoreDismissClick;
-    dismissBtn.addEventListener('click', fullscreenRestoreDismissHandler, true);
-  }
-
-  clearTimeout(window._shufflrFullscreenRestoreTimer);
-  window._shufflrFullscreenRestoreTimer = setTimeout(() => {
-    dismissFullscreenRestorePrompt();
-  }, FULLSCREEN_RESTORE_TOAST_MS);
+  // no-op: spacebar prompt replaced by automatic restore in onVideoPlaying
 }
 
 function restoreShufflrUIFromFullscreenContainer() {
@@ -946,6 +887,22 @@ function installAutoFullscreenRestore() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && document.fullscreenElement === null) {
       shufflrFullscreenActive = false;
+    }
+  });
+}
+
+function installFullscreenWasFlagTracker() {
+  if (window.__shufflrFullscreenWasFlagTracker) return;
+  window.__shufflrFullscreenWasFlagTracker = true;
+
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) {
+      // If fullscreen lost and no Shufflr navigation pending, user exited manually — clear flag
+      setTimeout(() => {
+        if (!document.fullscreenElement && !sessionStorage.getItem('shufflr_was_fullscreen')) {
+          // already cleared, nothing to do
+        }
+      }, 2000);
     }
   });
 }
@@ -3678,6 +3635,7 @@ function injectShufflrButton(video) {
 
   installFullscreenListener();
   installAutoFullscreenRestore();
+  installFullscreenWasFlagTracker();
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
@@ -3971,6 +3929,19 @@ function onVideoPlaying() {
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
+
+  // Auto-restore fullscreen after episode switch
+  try {
+    const wasFull = sessionStorage.getItem('shufflr_was_fullscreen') === 'true';
+    if (wasFull && !document.fullscreenElement) {
+      sessionStorage.removeItem('shufflr_was_fullscreen');
+      setTimeout(() => {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      }, 1200);
+    }
+  } catch (e) {}
 }
 
 // Logs the current Max show to Supabase watch_history when the user is signed in.
@@ -6058,6 +6029,7 @@ setTimeout(() => {
   tryInjectButton();
   installFullscreenListener();
   installAutoFullscreenRestore();
+  installFullscreenWasFlagTracker();
   startShuffleWatchdog();
   installTimeupdateWatcher();
   installArmedUrlGuard();
