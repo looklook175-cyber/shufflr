@@ -577,6 +577,9 @@ installExtensionPlaylistSync();
 
 window.addEventListener('shufflr-playlists-merged',(event)=>{
   handleExtensionPlaylistSync(event.detail);
+  if(currentNav==='shows'&&!currentShow){
+    renderHomeScreen('shows');
+  }
 });
 
 window.addEventListener('shufflr-auth-changed',()=>{
@@ -1706,10 +1709,11 @@ function buildHomeEmptyVhsIconHtml(){
 }
 
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
-async function buildYourPlaylistsHtml() {
+async function buildYourPlaylistsHtml(resolvedPlaylists) {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
-  const bridgePlaylists = await getPlaylistsFromBridge();
-  const allPlaylists = bridgePlaylists || playlists || [];
+  const allPlaylists = Array.isArray(resolvedPlaylists)
+    ? resolvedPlaylists
+    : (await getPlaylistsFromBridge() || playlists || []);
   homePlaylistsCache = allPlaylists;
   const displayPlaylists = allPlaylists.filter(p => (p.service || 'max') === connectedService);
   if (!displayPlaylists.length) {
@@ -4229,12 +4233,21 @@ function buildProviderHTML(pd, showName){
 async function renderHomeScreen(navType){
   homeNavType = navType || currentNav || 'shows';
 
-  let allPlaylists = playlists;
-  const bridgePlaylists = await getPlaylistsFromBridge();
-  if (bridgePlaylists?.length) {
-    allPlaylists = bridgePlaylists;
-    playlists = bridgePlaylists;
-    homePlaylistsCache = bridgePlaylists;
+  const signedIn = typeof window.shufflrIsLoggedIn === 'function'
+    ? await window.shufflrIsLoggedIn()
+    : false;
+
+  let allPlaylists = [];
+  if (signedIn) {
+    allPlaylists = playlists;
+    const bridgePlaylists = await getPlaylistsFromBridge();
+    if (bridgePlaylists?.length) {
+      allPlaylists = bridgePlaylists;
+      playlists = bridgePlaylists;
+    }
+    homePlaylistsCache = allPlaylists;
+  } else {
+    homePlaylistsCache = [];
   }
 
   const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists);
@@ -4242,7 +4255,7 @@ async function renderHomeScreen(navType){
 
   let html=`<div class="home-wrap">`;
 
-  html += await buildYourPlaylistsHtml();
+  html += await buildYourPlaylistsHtml(allPlaylists);
 
   let playlistCardLookup=null;
   if(homePlaylistsCache.length){

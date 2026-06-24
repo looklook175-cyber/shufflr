@@ -307,7 +307,6 @@ supabase.auth.getSession().then(async ({ data: { session } }) => {
   const activeSession = session ? await refreshSessionIfStale() : null
   updateAuthUI(activeSession)
   await persistAuthSessionForExtension(activeSession)
-  notifyAuthChanged(activeSession)
   if (activeSession?.user) {
     try {
       cloudSyncReady = true
@@ -316,4 +315,5 @@ supabase.auth.getSession().then(async ({ data: { session } }) => {
       console.error('[Shufflr] Failed to load cloud playlists:', err)
     }
   }
+  notifyAuthChanged(activeSession)
 })
