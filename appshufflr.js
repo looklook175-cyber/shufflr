@@ -2823,22 +2823,9 @@ function getCrossPlaylistShowsForAdd(playlistIndex) {
   ));
 }
 
-function getDrawerAddShowPosterHtml(show) {
-  const raw = show?.poster_path || show?.posterPath || show?.showPoster || show?.poster || show?.image || '';
-  const text = String(raw || '').trim();
-  if (!text) {
-    return '<div class="pl-drawer-add-poster pl-drawer-add-poster-placeholder"></div>';
-  }
-  if (/^https?:\/\//i.test(text)) {
-    return `<img class="pl-drawer-add-poster" src="${escapeHtml(text)}" alt="" onerror="this.outerHTML='<div class=\\'pl-drawer-add-poster pl-drawer-add-poster-placeholder\\'></div>'" />`;
-  }
-  const path = text.startsWith('/') ? text : `/${text}`;
-  return `<img class="pl-drawer-add-poster" src="${IMG}w92${escapeHtml(path)}" alt="" onerror="this.outerHTML='<div class=\\'pl-drawer-add-poster pl-drawer-add-poster-placeholder\\'></div>'" />`;
-}
-
 function buildDrawerAddShowRowHtml(playlistIndex, candidateIndex, show) {
   return `<button type="button" class="pl-drawer-show-row pl-drawer-add-show-row" onclick="addCrossPlaylistShowToDrawer(${playlistIndex}, ${candidateIndex})">
-    ${getDrawerAddShowPosterHtml(show)}
+    ${buildDrawerShowThumbnailHtml(show)}
     <span class="pl-drawer-add-show-name">${escapeHtml(getPlaylistShowLabel(show))}</span>
   </button>`;
 }
@@ -2861,6 +2848,7 @@ function filterDrawerAddShowPicker(playlistIndex) {
   picker.innerHTML = matches
     .map(({ show, i }) => buildDrawerAddShowRowHtml(playlistIndex, i, show))
     .join('');
+  resolveDrawerShowPosters(matches.map(({ show }) => show));
 }
 
 function renderDrawerAddShowPicker(playlistIndex) {
