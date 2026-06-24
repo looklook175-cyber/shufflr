@@ -660,6 +660,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
   height: 195px;
   background: #1a1a1a;
   border: 1px solid transparent;
+  border-bottom: none;
   border-radius: 8px 8px 0 0;
   overflow: hidden;
   display: flex;
@@ -696,6 +697,11 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .recently-watched-card {
   cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.recently-watched-card:hover {
+  border-color: #23A8E0;
+  box-shadow: 0 0 10px rgba(35, 168, 224, 0.5);
 }
 .recently-watched-card * {
   pointer-events: none;
@@ -750,6 +756,7 @@ body.light-mode .watch-history-toggle-btn.active{background:rgba(35,168,224,0.15
 }
 .pl-home-card:hover .pl-home-poster {
   border-color: #23A8E0;
+  border-bottom: none;
   box-shadow: 0 0 10px rgba(35, 168, 224, 0.5);
 }
 .pl-home-card:hover .pl-home-info {
