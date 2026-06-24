@@ -1427,7 +1427,7 @@ body.light-mode .playlist-card .close-modal-btn:hover{color:#111111;border-color
 .timer-phase-label{font-family:var(--font-system);font-size:13px;color:var(--body-text);font-style:italic;}
 
 /* TOAST */
-#share-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--blue);color:#000;font-family:'Press Start 2P',monospace;font-size:0.45rem;padding:10px 20px;border-radius:8px;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;}
+#share-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#fff;font-family:'Press Start 2P',monospace;font-size:0.45rem;padding:10px 20px;border:1px solid #23A8E0;border-radius:8px;box-shadow:0 0 14px rgba(35,168,224,0.35);z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;}
 #share-toast.show{opacity:1;}
 
 /* SHUFFLE RESULT */
