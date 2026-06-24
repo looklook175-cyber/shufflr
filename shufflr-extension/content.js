@@ -130,6 +130,8 @@ let shufflrTargetWatchUrl = null;
 let shufflrTargetEpisodeId = null;
 let shufflrTargetShowHint = null;
 let orderedEpisodesCached = false;
+let shuffleModeCached = 'single';
+const YOUR_SHOWS_ALL_MODE_NAME = '__your_shows_all__';
 let shufflrEpisodeEndedClearTimer = null;
 const SHUFFLR_AUTO_HIDE_MS = 5000;
 let shufflrAutoHideTimer = null;
@@ -622,6 +624,12 @@ function installWebAppHandoffBridge() {
       return;
     }
 
+    if (event.data?.type === 'SHUFFLR_SHUFFLE_SETTINGS') {
+      if (!isChromeContextValid()) return;
+      void applyShuffleSettingsFromWebApp(event.data.settings || {});
+      return;
+    }
+
     if (event.data?.type === 'SHUFFLR_READ_EPISODE_CACHE') {
       if (!isChromeContextValid()) return;
       readEpisodeCacheForShow(event.data.showName, event.data.tmdbId).then(episodeDetails => {
@@ -1047,7 +1055,11 @@ async function runShuffleCopCheck(prevUrl) {
 
     console.log('[Shufflr] Shuffle cop (standalone): Max hijacked navigation, correcting...');
     showToast('Shufflr correcting...');
-    await shuffleToRandomEpisode();
+    if (settings.shuffleMode === 'all') {
+      await shuffleFromYourShowsAllMode(null);
+    } else {
+      await shuffleToRandomEpisode();
+    }
     return;
   }
 
@@ -1474,19 +1486,44 @@ function renderShuffleSettingsSection(settings = {}) {
 }
 
 async function readShuffleSettings() {
-  if (!isChromeContextValid()) return { orderedEpisodes: false };
+  if (!isChromeContextValid()) return { orderedEpisodes: false, shuffleMode: 'single' };
   const stored = await storageLocalGet(SHUFFLR_SHUFFLE_SETTINGS_KEY);
   return {
     orderedEpisodes: !!stored?.orderedEpisodes,
+    shuffleMode: stored?.shuffleMode === 'all' ? 'all' : 'single',
   };
 }
 
-async function saveShuffleSettings(settings) {
-  if (!isChromeContextValid()) return { orderedEpisodes: false };
+async function applyShuffleSettingsFromWebApp(settings) {
+  if (!isChromeContextValid()) return;
+  const existing = await storageLocalGet(SHUFFLR_SHUFFLE_SETTINGS_KEY) || {};
   const payload = {
-    orderedEpisodes: !!settings.orderedEpisodes,
+    orderedEpisodes: settings.orderedEpisodes != null
+      ? !!settings.orderedEpisodes
+      : !!existing.orderedEpisodes,
+    shuffleMode: settings.shuffleMode === 'all' ? 'all' : (
+      settings.shuffleMode === 'single' ? 'single' : (existing.shuffleMode === 'all' ? 'all' : 'single')
+    ),
   };
   await storageLocalSet(SHUFFLR_SHUFFLE_SETTINGS_KEY, payload);
+  orderedEpisodesCached = !!payload.orderedEpisodes;
+  shuffleModeCached = payload.shuffleMode;
+}
+
+async function saveShuffleSettings(settings) {
+  if (!isChromeContextValid()) return { orderedEpisodes: false, shuffleMode: 'single' };
+  const existing = await storageLocalGet(SHUFFLR_SHUFFLE_SETTINGS_KEY) || {};
+  const payload = {
+    orderedEpisodes: settings.orderedEpisodes != null
+      ? !!settings.orderedEpisodes
+      : !!existing.orderedEpisodes,
+    shuffleMode: settings.shuffleMode === 'all' ? 'all' : (
+      settings.shuffleMode === 'single' ? 'single' : (existing.shuffleMode === 'all' ? 'all' : 'single')
+    ),
+  };
+  await storageLocalSet(SHUFFLR_SHUFFLE_SETTINGS_KEY, payload);
+  orderedEpisodesCached = !!payload.orderedEpisodes;
+  shuffleModeCached = payload.shuffleMode;
   return payload;
 }
 
@@ -2456,8 +2493,11 @@ async function handleShufflrNextEpisode(source) {
   try {
     const settings = await readShuffleSettings();
     orderedEpisodesCached = !!settings.orderedEpisodes;
+    shuffleModeCached = settings.shuffleMode;
     if (settings.orderedEpisodes) {
       await navigateToNextOrderedShow(source);
+    } else if (settings.shuffleMode === 'all') {
+      await shuffleFromYourShowsAllMode(active);
     } else {
       await shuffleFromActivePlaylist(active);
     }
@@ -2567,6 +2607,54 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
     [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
   });
   console.log('[Shufflr] Saved active playlist + episode state');
+}
+
+function getYourShowsDedupeKey(show) {
+  if (show?.id != null && show.id !== '' && !MAX_SHOW_UUID_RE.test(String(show.id))) {
+    return `id:${show.id}`;
+  }
+  const maxId = getPlaylistShowMaxId(show);
+  if (maxId) return `max:${normalizeMaxId(maxId)}`;
+  const nameKey = normalizePlaylistShowMatchName(getPlaylistShowTitle(show));
+  if (nameKey) return `name:${nameKey}`;
+  return '';
+}
+
+function getYourShowsFromPlaylists(playlists) {
+  const seen = new Set();
+  const items = [];
+  for (const playlist of playlists || []) {
+    for (const show of playlist?.shows || []) {
+      if (show?.release_date) continue;
+      if (!showHasMaxId(show)) continue;
+      const key = getYourShowsDedupeKey(show);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      items.push(show);
+    }
+  }
+  return items;
+}
+
+async function shuffleFromYourShowsAllMode(activePayload) {
+  if (!isChromeContextValid()) return;
+  const playlists = await readPlaylistsFromStorage();
+  const yourShows = getYourShowsFromPlaylists(playlists);
+  if (!yourShows.length) {
+    showToast('No shows with Max ID in Your Shows');
+    const status = document.getElementById('shufflr-status');
+    if (status) status.textContent = 'NO YOUR SHOWS';
+    return;
+  }
+
+  const syntheticPayload = {
+    ...(activePayload || {}),
+    playlistName: YOUR_SHOWS_ALL_MODE_NAME,
+    playlistIndex: -1,
+    shows: yourShows,
+    episodes: [],
+  };
+  await shuffleFromActivePlaylist(syntheticPayload);
 }
 
 async function shuffleFromActivePlaylist(activePayload) {
@@ -4637,6 +4725,12 @@ async function onEpisodeEnded() {
     await handleShufflrNextEpisode('video-ended');
     return;
   }
+  const settings = await readShuffleSettings();
+  shuffleModeCached = settings.shuffleMode;
+  if (settings.shuffleMode === 'all') {
+    await shuffleFromYourShowsAllMode(null);
+    return;
+  }
   shuffleToRandomEpisode();
 }
 
@@ -6048,6 +6142,7 @@ void checkForLaunchStandaloneShow();
 void checkForLaunchPlaylist();
 void readShuffleSettings().then(settings => {
   orderedEpisodesCached = !!settings.orderedEpisodes;
+  shuffleModeCached = settings.shuffleMode;
 });
 void maybeAutoClickShowPageResume();
 setTimeout(() => {

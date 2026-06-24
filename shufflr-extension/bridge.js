@@ -136,6 +136,19 @@
       chrome.storage.local.set({ shufflr_playlists: event.data.playlists || [] });
       return;
     }
+    if (event.data?.type === 'SHUFFLR_SHUFFLE_SETTINGS') {
+      const settings = event.data.settings || {};
+      chrome.storage.local.get('shufflr_shuffle_settings', (result) => {
+        const existing = result.shufflr_shuffle_settings || {};
+        chrome.storage.local.set({
+          shufflr_shuffle_settings: {
+            ...existing,
+            ...settings,
+          },
+        });
+      });
+      return;
+    }
     if (event.data?.source !== 'shufflr-web') return;
     if (event.data?.type === 'SHUFFLR_AUTH_SESSION') {
       pushAuthSessionPayloadToExtension(event.data.session);

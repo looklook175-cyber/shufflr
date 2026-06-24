@@ -788,6 +788,7 @@ function setNowPlayingShuffleMode(mode){
   if(mode!=='single'&&mode!=='all')return;
   currentShuffleMode=mode;
   syncNowPlayingModeToggleUi();
+  void saveShuffleMode(mode);
 }
 
 function ensureNowPlayingModeToggle(host){
@@ -2965,12 +2966,43 @@ async function readShuffleSettings(){
           resolve(result[SHUFFLR_SHUFFLE_SETTINGS_KEY]);
         });
       });
-      if(stored)return {orderedEpisodes:!!stored.orderedEpisodes};
+      if(stored)return {
+        orderedEpisodes:!!stored.orderedEpisodes,
+        shuffleMode:stored.shuffleMode==='all'?'all':'single',
+      };
     }
   }catch(e){}
   const local=JSON.parse(localStorage.getItem(SHUFFLR_SHUFFLE_SETTINGS_KEY)||'{}');
-  return {orderedEpisodes:!!local.orderedEpisodes};
+  return {
+    orderedEpisodes:!!local.orderedEpisodes,
+    shuffleMode:local.shuffleMode==='all'?'all':'single',
+  };
 }
+async function saveShuffleMode(mode){
+  if(mode!=='single'&&mode!=='all')return;
+  const existing=await readShuffleSettings();
+  const payload={...existing,shuffleMode:mode};
+  localStorage.setItem(SHUFFLR_SHUFFLE_SETTINGS_KEY,JSON.stringify(payload));
+  window.postMessage({type:'SHUFFLR_SHUFFLE_SETTINGS',source:'shufflr-web',settings:{shuffleMode:mode}},'*');
+  try{
+    if(typeof chrome!=='undefined'&&chrome.storage?.local){
+      await new Promise(resolve=>{
+        chrome.storage.local.get(SHUFFLR_SHUFFLE_SETTINGS_KEY,result=>{
+          const stored=result?.[SHUFFLR_SHUFFLE_SETTINGS_KEY]||{};
+          chrome.storage.local.set({
+            [SHUFFLR_SHUFFLE_SETTINGS_KEY]:{...stored,shuffleMode:mode},
+          },resolve);
+        });
+      });
+    }
+  }catch(e){}
+}
+void readShuffleSettings().then(settings=>{
+  if(settings.shuffleMode==='all'||settings.shuffleMode==='single'){
+    currentShuffleMode=settings.shuffleMode;
+    syncNowPlayingModeToggleUi();
+  }
+});
 const MAX_WATCH_ORIGIN='https://play.max.com';
 const SERVICE_AVAILABILITY={
   netflix:{ids:[8],names:['netflix']},
