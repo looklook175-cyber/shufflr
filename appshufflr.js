@@ -2929,11 +2929,11 @@ async function createPlaylistFromDrawerAddMode(playlistIndex) {
   homePlaylistsCache.push(newPlaylist);
   playlists = homePlaylistsCache;
   savePlaylists();
+  if (currentNav === 'shows') renderHomeScreen('shows');
 
   drawerAddShowMode = false;
   drawerAddShowAllCandidates = [];
   closePlaylistDrawer();
-  renderHomeScreen('shows');
 }
 
 function cancelDrawerAddShowMode(playlistIndex) {
@@ -2959,6 +2959,7 @@ function addCrossPlaylistShowToDrawer(playlistIndex, candidateIndex) {
   homePlaylistsCache[playlistIndex] = playlist;
   playlists = homePlaylistsCache;
   savePlaylists();
+  if (currentNav === 'shows') renderHomeScreen('shows');
   cancelDrawerAddShowMode(playlistIndex);
 }
 
