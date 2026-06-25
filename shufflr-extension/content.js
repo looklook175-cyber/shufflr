@@ -15,6 +15,7 @@ const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
 const SHUFFLR_EPISODE_ENDED_KEY = 'shufflr_episode_ended';
+const SHUFFLR_YOUR_SHOWS_KEY = 'shufflr_your_shows';
 const MAX_WATCH_ORIGIN = 'https://play.max.com';
 const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1360,6 +1361,48 @@ function renderPlaylistCreateSection() {
   `;
 }
 
+function renderYourShowsAddButton() {
+  return `<button type="button" class="shufflr-pl-your-shows-btn" data-pl-action="add-your-shows">+ Add to Your Shows</button>`;
+}
+
+function renderPlaylistRow(playlist, index) {
+  const showCount = playlistShowCount(playlist);
+  const name = escapePlaylistLabel(playlist.name || 'Untitled');
+  return `
+    <div class="shufflr-pl-row-wrap" data-pl-index="${index}">
+      <div class="shufflr-pl-row shufflr-pl-row-header" data-pl-index="${index}">
+        <span class="shufflr-pl-name">${name} <span class="shufflr-pl-count">(${showCount})</span></span>
+        <div class="shufflr-pl-row-actions">
+          <button
+            type="button"
+            class="shufflr-pl-action-btn"
+            data-pl-action="shuffle"
+            data-pl-index="${index}"
+            aria-label="Shuffle ${name}"
+          >▶</button>
+          <button
+            type="button"
+            class="shufflr-pl-action-btn shufflr-pl-add-btn"
+            data-pl-index="${index}"
+            aria-label="Add current show to ${name}"
+          >+</button>
+          <button
+            type="button"
+            class="shufflr-pl-action-btn shufflr-pl-shows-toggle"
+            data-pl-action="toggle-shows"
+            data-pl-index="${index}"
+            aria-label="Show shows in ${name}"
+            aria-expanded="false"
+          >▾</button>
+        </div>
+      </div>
+      <div class="shufflr-pl-shows-list" data-pl-index="${index}" hidden>
+        ${renderPlaylistShowListItems(playlist)}
+      </div>
+    </div>
+  `;
+}
+
 function openCreatePlaylistForm() {
   const form = document.getElementById('shufflr-pl-create-form');
   const input = document.getElementById('shufflr-pl-create-input');
@@ -1538,74 +1581,21 @@ async function setOrderedEpisodesEnabled(enabled) {
 function renderPlaylistDropdownContent(playlists, settings = {}) {
   const emptyMessage = 'No playlists yet — create one below';
   const settingsSection = renderShuffleSettingsSection(settings);
-
-  if (!playlists.length) {
-    return `
-      <div class="shufflr-pl-section">
-        <div class="shufflr-pl-section-header">SMART SHUFFLE</div>
-        ${settingsSection}
-        <button type="button" class="shufflr-pl-row shufflr-pl-empty" disabled>${emptyMessage}</button>
-      </div>
-      <div class="shufflr-pl-divider"></div>
-      <div class="shufflr-pl-section">
-        <div class="shufflr-pl-section-header">ADD TO PLAYLIST</div>
-        ${renderPlaylistCreateSection()}
-      </div>
-    `;
-  }
-
-  const shuffleRows = playlists.map((playlist, index) => {
-    const showCount = playlistShowCount(playlist);
-    const label = `🎬 ${playlist.name || 'Untitled'} (${showCount} show${showCount !== 1 ? 's' : ''})`;
-    return `
-      <div class="shufflr-pl-row-wrap" data-pl-index="${index}">
-        <div class="shufflr-pl-row shufflr-pl-row-header" data-pl-index="${index}">
-          <button
-            type="button"
-            class="shufflr-pl-shuffle-btn"
-            data-pl-action="shuffle"
-            data-pl-index="${index}"
-          >
-            <span class="shufflr-pl-name">${escapePlaylistLabel(label)}</span>
-          </button>
-          <button
-            type="button"
-            class="shufflr-pl-shows-toggle"
-            data-pl-action="toggle-shows"
-            data-pl-index="${index}"
-            aria-label="Show shows in ${escapePlaylistLabel(playlist.name || 'playlist')}"
-            aria-expanded="false"
-          >▾</button>
-        </div>
-        <div class="shufflr-pl-shows-list" data-pl-index="${index}" hidden>
-          ${renderPlaylistShowListItems(playlist)}
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  const addRows = playlists.map((playlist, index) => `
-    <div class="shufflr-pl-add-row" data-pl-index="${index}">
-      <span class="shufflr-pl-add-name">${escapePlaylistLabel(playlist.name || 'Untitled')}</span>
-      <button
-        type="button"
-        class="shufflr-pl-add-btn"
-        data-pl-index="${index}"
-        aria-label="Add current show to ${escapePlaylistLabel(playlist.name || 'Untitled')}"
-      >+</button>
-    </div>
-  `).join('');
+  const playlistRows = playlists.length
+    ? playlists.map((playlist, index) => renderPlaylistRow(playlist, index)).join('')
+    : `<button type="button" class="shufflr-pl-row shufflr-pl-empty" disabled>${emptyMessage}</button>`;
 
   return `
-    <div class="shufflr-pl-section">
-      <div class="shufflr-pl-section-header">SMART SHUFFLE</div>
-      ${settingsSection}
-      ${shuffleRows}
+    <div class="shufflr-pl-dropdown-top">
+      ${renderYourShowsAddButton()}
     </div>
-    <div class="shufflr-pl-divider"></div>
-    <div class="shufflr-pl-section">
-      <div class="shufflr-pl-section-header">ADD TO PLAYLIST</div>
-      ${addRows}
+    <div class="shufflr-pl-dropdown-scroll">
+      ${settingsSection}
+      <div class="shufflr-pl-section">
+        ${playlistRows}
+      </div>
+    </div>
+    <div class="shufflr-pl-dropdown-footer">
       ${renderPlaylistCreateSection()}
     </div>
   `;
@@ -1664,6 +1654,40 @@ async function writePlaylistsToStorage(playlists) {
   if (!isChromeContextValid()) return;
   dropdownPlaylists = playlists;
   await setShufflrPlaylistsInStorage(playlists, { syncToWebApp: true });
+}
+
+async function readYourShowsFromStorage() {
+  if (!isChromeContextValid()) return [];
+  const stored = await storageLocalGet(SHUFFLR_YOUR_SHOWS_KEY);
+  return Array.isArray(stored) ? stored : [];
+}
+
+async function writeYourShowsToStorage(shows) {
+  if (!isChromeContextValid()) return;
+  await chromeStorageLocalSet({ [SHUFFLR_YOUR_SHOWS_KEY]: shows });
+}
+
+async function addCurrentShowToYourShows() {
+  if (!isChromeContextValid()) return;
+  const uuid = getCurrentMaxShowUuid();
+  if (!uuid) {
+    showToast('Could not find show ID');
+    return;
+  }
+
+  const title = getCurrentShowTitle();
+  const shows = await readYourShowsFromStorage();
+  const alreadyAdded = shows.some(show => (
+    show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
+  ));
+  if (alreadyAdded) {
+    showToast('Already in Your Shows');
+    return;
+  }
+
+  shows.push({ title, maxId: uuid });
+  await writeYourShowsToStorage(shows);
+  showToast(`Added ${title} to Your Shows`);
 }
 
 async function addCurrentShowToPlaylist(playlistIndex) {
@@ -2323,8 +2347,11 @@ function updateShuffleUI(playlistName) {
     if (shufflrActive) {
       btn.classList.add('active');
       label.textContent = 'ON';
-      status.textContent = playlistName
-        ? playlistName.toUpperCase().slice(0, 24)
+      const statusName = playlistName && playlistName !== YOUR_SHOWS_ALL_MODE_NAME
+        ? playlistName
+        : (playlistName === YOUR_SHOWS_ALL_MODE_NAME ? 'Your Shows' : '');
+      status.textContent = statusName
+        ? statusName.toUpperCase().slice(0, 24)
         : 'WAITING FOR EP END...';
     } else {
       btn.classList.remove('active');
@@ -2620,26 +2647,33 @@ function getYourShowsDedupeKey(show) {
   return '';
 }
 
-function getYourShowsFromPlaylists(playlists) {
+function collectYourShowsFromLists(playlists, standaloneShows = []) {
   const seen = new Set();
   const items = [];
+  const addShow = (show) => {
+    if (show?.release_date) return;
+    if (!showHasMaxId(show)) return;
+    const key = getYourShowsDedupeKey(show);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    items.push(show);
+  };
   for (const playlist of playlists || []) {
-    for (const show of playlist?.shows || []) {
-      if (show?.release_date) continue;
-      if (!showHasMaxId(show)) continue;
-      const key = getYourShowsDedupeKey(show);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      items.push(show);
-    }
+    for (const show of playlist?.shows || []) addShow(show);
   }
+  for (const show of standaloneShows || []) addShow(show);
   return items;
+}
+
+async function getYourShowsFromPlaylists(playlists) {
+  const standaloneShows = await readYourShowsFromStorage();
+  return collectYourShowsFromLists(playlists, standaloneShows);
 }
 
 async function shuffleFromYourShowsAllMode(activePayload) {
   if (!isChromeContextValid()) return;
   const playlists = await readPlaylistsFromStorage();
-  const yourShows = getYourShowsFromPlaylists(playlists);
+  const yourShows = await getYourShowsFromPlaylists(playlists);
   if (!yourShows.length) {
     showToast('No shows with Max ID in Your Shows');
     const status = document.getElementById('shufflr-status');
@@ -3098,6 +3132,13 @@ function onPlaylistDropdownClick(event) {
     return;
   }
 
+  const yourShowsBtn = event.target.closest('[data-pl-action="add-your-shows"]');
+  if (yourShowsBtn) {
+    event.preventDefault();
+    addCurrentShowToYourShows();
+    return;
+  }
+
   const addBtn = event.target.closest('.shufflr-pl-add-btn');
   if (addBtn) {
     event.preventDefault();
@@ -3232,9 +3273,10 @@ function injectShufflrStyles() {
     #shufflr-playlist-toggle,
     #shufflr-playlist-dropdown,
     .shufflr-pl-row,
-    .shufflr-pl-shuffle-btn,
+    .shufflr-pl-action-btn,
     .shufflr-pl-shows-toggle,
     .shufflr-pl-add-btn,
+    .shufflr-pl-your-shows-btn,
     .shufflr-pl-create-btn,
     .shufflr-pl-create-confirm,
     .shufflr-pl-toggle-row,
@@ -3314,22 +3356,56 @@ function injectShufflrStyles() {
     }
     #shufflr-playlist-dropdown {
       display: none;
+      flex-direction: column;
       position: absolute;
       right: 0;
       bottom: calc(100% + 8px);
       min-width: 230px;
       max-width: 280px;
       max-height: 320px;
-      overflow-y: auto;
+      overflow: hidden;
       background: rgba(15, 15, 20, 0.75);
       border: 2px solid rgba(0, 140, 255, 0.5);
       border-radius: 10px;
-      padding: 6px;
+      padding: 0;
       box-shadow: 0 0 24px rgba(26,107,255,0.35);
       backdrop-filter: blur(10px);
     }
     #shufflr-playlist-dropdown.open {
-      display: block;
+      display: flex;
+    }
+    .shufflr-pl-dropdown-top {
+      flex-shrink: 0;
+      padding: 6px;
+      border-bottom: 1px solid rgba(26,107,255,0.25);
+    }
+    .shufflr-pl-dropdown-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 6px;
+    }
+    .shufflr-pl-dropdown-footer {
+      flex-shrink: 0;
+      padding: 6px;
+      border-top: 1px solid rgba(26,107,255,0.25);
+    }
+    .shufflr-pl-your-shows-btn {
+      width: 100%;
+      padding: 10px 12px;
+      background: transparent;
+      border: 1px solid #1a6bff;
+      border-radius: 7px;
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+    .shufflr-pl-your-shows-btn:hover {
+      background: rgba(26,107,255,0.18);
     }
     .shufflr-pl-section {
       display: flex;
@@ -3420,30 +3496,23 @@ function injectShufflrStyles() {
       padding: 0 6px 0 0;
       cursor: default;
     }
-    .shufflr-pl-shuffle-btn {
+    .shufflr-pl-row-header .shufflr-pl-name {
       flex: 1;
       min-width: 0;
+      padding: 10px 0 10px 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .shufflr-pl-row-actions {
       display: flex;
       align-items: center;
-      padding: 10px 12px;
-      background: transparent;
-      border: none;
-      border-radius: 7px;
-      cursor: pointer;
-      text-align: left;
-      transition: background 0.15s ease;
+      gap: 4px;
+      flex-shrink: 0;
     }
-    .shufflr-pl-shuffle-btn:hover {
-      background: rgba(26,107,255,0.18);
-    }
-    .shufflr-pl-row:hover,
-    .shufflr-pl-row-header.open {
-      background: rgba(26,107,255,0.18);
-    }
+    .shufflr-pl-action-btn,
+    .shufflr-pl-shows-toggle,
     .shufflr-pl-add-btn {
-      font-size: 16px;
-    }
-    .shufflr-pl-shows-toggle {
       flex-shrink: 0;
       width: 26px;
       height: 26px;
@@ -3455,15 +3524,21 @@ function injectShufflrStyles() {
       border-radius: 6px;
       color: #1a6bff;
       font-family: monospace;
-      font-size: 20px;
+      font-size: 14px;
       line-height: 1;
       cursor: pointer;
       transition: all 0.15s ease;
       padding: 0;
     }
-    .shufflr-pl-shows-toggle:hover {
+    .shufflr-pl-action-btn:hover,
+    .shufflr-pl-shows-toggle:hover,
+    .shufflr-pl-add-btn:hover {
       background: #1a6bff;
       color: #000;
+    }
+    .shufflr-pl-row:hover,
+    .shufflr-pl-row-header.open {
+      background: rgba(26,107,255,0.18);
     }
     .shufflr-pl-shows-list {
       max-height: 120px;
@@ -3553,7 +3628,7 @@ function injectShufflrStyles() {
     }
     .shufflr-pl-create-btn {
       width: 100%;
-      margin-top: 4px;
+      margin-top: 0;
       padding: 10px 12px;
       background: transparent;
       border: 1px dashed rgba(26,107,255,0.45);
