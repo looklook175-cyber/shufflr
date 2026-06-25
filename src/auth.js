@@ -295,11 +295,13 @@ async function handleLogOut() {
   } catch (err) {
     console.error('[Shufflr] Pre-logout playlist sync failed:', err)
   }
-  await new Promise(resolve => setTimeout(resolve, 500))
-  hideSavingToast()
   cloudSyncReady = false
-  await supabase.auth.signOut()
-  showAuthMessage('')
+  try {
+    await supabase.auth.signOut()
+  } catch (err) {
+    console.error('[Shufflr] Sign out failed:', err)
+  }
+  window.location.reload()
 }
 
 function bindAuthUI() {
