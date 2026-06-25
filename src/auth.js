@@ -94,6 +94,26 @@ function readLocalPlaylists() {
   }
 }
 
+function readPlaylistsForLogoutSync() {
+  if (window.shufflrPlaylists && Array.isArray(window.shufflrPlaylists)) {
+    return window.shufflrPlaylists
+  }
+  return readLocalPlaylists()
+}
+
+function showSavingToast() {
+  const toast = document.getElementById('share-toast')
+  if (!toast) return
+  toast.textContent = 'Saving...'
+  toast.classList.add('show')
+}
+
+function hideSavingToast() {
+  const toast = document.getElementById('share-toast')
+  if (!toast) return
+  toast.classList.remove('show')
+}
+
 function readLocalYourShows() {
   try {
     const raw = localStorage.getItem(SHUFFLR_YOUR_SHOWS_KEY) || '[]'
@@ -269,11 +289,14 @@ async function handleLogIn() {
 }
 
 async function handleLogOut() {
+  showSavingToast()
   try {
-    await syncPlaylistsToCloud(readLocalPlaylists())
+    await syncPlaylistsToCloud(readPlaylistsForLogoutSync())
   } catch (err) {
     console.error('[Shufflr] Pre-logout playlist sync failed:', err)
   }
+  await new Promise(resolve => setTimeout(resolve, 500))
+  hideSavingToast()
   cloudSyncReady = false
   await supabase.auth.signOut()
   showAuthMessage('')
