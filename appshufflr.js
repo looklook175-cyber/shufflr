@@ -2928,8 +2928,7 @@ async function createPlaylistFromDrawerAddMode(playlistIndex) {
 
   homePlaylistsCache.push(newPlaylist);
   playlists = homePlaylistsCache;
-  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY, JSON.stringify(playlists));
-  savePlaylistsViaBridge(homePlaylistsCache);
+  savePlaylists();
 
   drawerAddShowMode = false;
   drawerAddShowAllCandidates = [];
@@ -2959,8 +2958,7 @@ function addCrossPlaylistShowToDrawer(playlistIndex, candidateIndex) {
 
   homePlaylistsCache[playlistIndex] = playlist;
   playlists = homePlaylistsCache;
-  localStorage.setItem(SHUFFLR_PLAYLISTS_KEY, JSON.stringify(playlists));
-  savePlaylistsViaBridge(homePlaylistsCache);
+  savePlaylists();
   cancelDrawerAddShowMode(playlistIndex);
 }
 
