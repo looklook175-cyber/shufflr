@@ -219,7 +219,7 @@ body.light-mode .logo-box{color:#111111;}
 .season-item.blocked .block-btn{color:#ff4455;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .block-btn:hover{color:#ff4455!important;text-shadow:0 0 8px rgba(255,68,85,0.6);}
 .connect-wrap{padding:0 12px 8px;}
-.sidebar-bottom{margin-top:4px;flex-shrink:0;padding-bottom:12px;display:flex;flex-direction:column;gap:8px;}
+.sidebar-bottom{margin-top:-20px;flex-shrink:0;padding-bottom:12px;display:flex;flex-direction:column;gap:8px;}
 .sidebar-section::after{content:'';display:block;height:1px;background:#2a2a2a;margin:8px 4px 0;}
 .sidebar-now-playing-divider{display:none;}
 .auth-section{margin-bottom:12px;}
@@ -1691,7 +1691,7 @@ body.light-mode .main::-webkit-scrollbar-corner {
 
 /* NOW PLAYING SIDEBAR CARD */
 #now-playing-card-host {
-  padding: 2px 12px 0;
+  padding: 0 12px 0;
   display: flex;
   flex-direction: column;
   gap: 8px;

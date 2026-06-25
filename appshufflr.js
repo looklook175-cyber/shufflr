@@ -1788,7 +1788,7 @@ async function buildYourMoviePlaylistsHtml(resolvedPlaylists){
     return `
     <div class="genre-section" style="margin-top:16px;">
       <div class="genre-title">-- YOUR MOVIE PLAYLISTS --</div>
-      <div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noPlaylists')}</p><p class="home-empty-desc">${t('empty.noPlaylistsHint')}</p></div>
+      <div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noPlaylists')}</p><p class="home-empty-desc">Hit Shufflr on your selected service and use the dropdown to create one and save movies.</p></div>
     </div>`;
   }
 
@@ -1830,7 +1830,7 @@ function buildYourMoviesSectionHtml(section){
   const items=section.items||[];
   let html=`<div class="genre-section your-shows-section" style="margin-top:16px;"><div class="genre-title">-- YOUR MOVIES --</div>`;
   if(!items.length){
-    html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noYourShowsTitle')}</p><p class="home-empty-desc">${t('empty.noYourShowsHint')}</p></div></div>`;
+    html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noYourShowsTitle')}</p><p class="home-empty-desc">Movies you add to playlists will appear here.</p></div></div>`;
     return html;
   }
   html+=`<div class="h-scroll-wrap">`;
