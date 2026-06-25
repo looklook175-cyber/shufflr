@@ -1650,10 +1650,113 @@ function getCurrentShowTitle() {
   return 'Unknown Show';
 }
 
+async function syncPlaylistsToSupabaseFromExtension(playlists) {
+  if (!isChromeContextValid()) return playlists;
+  const session = await getValidAuthSession();
+  if (!session?.accessToken || !session?.userId) return playlists;
+
+  const authHeaders = {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${session.accessToken}`,
+    'Content-Type': 'application/json',
+  };
+
+  const synced = (playlists || []).map(pl => ({
+    ...pl,
+    shows: pl.shows || [],
+    episodes: pl.episodes || [],
+  }));
+
+  for (const pl of synced) {
+    const row = {
+      user_id: session.userId,
+      name: pl.name,
+      shows: pl.shows,
+    };
+    if (pl.cloudId) row.id = pl.cloudId;
+
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/playlists?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          Prefer: 'return=representation,resolution=merge-duplicates',
+        },
+        body: JSON.stringify(row),
+      });
+
+      if (!response.ok) {
+        console.error('[Shufflr] Cloud playlist save failed:', response.status);
+        continue;
+      }
+
+      const data = await response.json();
+      const saved = Array.isArray(data) ? data[0] : data;
+      if (saved?.id) pl.cloudId = saved.id;
+    } catch (err) {
+      console.error('[Shufflr] Cloud playlist save error:', err);
+    }
+  }
+
+  try {
+    const listResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/playlists?user_id=eq.${encodeURIComponent(session.userId)}&select=id`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${session.accessToken}` } },
+    );
+    if (listResponse.ok) {
+      const remoteRows = await listResponse.json();
+      const localCloudIds = new Set(synced.map(p => p.cloudId).filter(Boolean));
+      for (const remote of remoteRows || []) {
+        if (!localCloudIds.has(remote.id)) {
+          await fetch(`${SUPABASE_URL}/rest/v1/playlists?id=eq.${encodeURIComponent(remote.id)}`, {
+            method: 'DELETE',
+            headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${session.accessToken}` },
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Shufflr] Cloud playlist orphan cleanup error:', err);
+  }
+
+  await chromeStorageLocalSet({ [SHUFFLR_PLAYLISTS_KEY]: synced });
+  dropdownPlaylists = synced;
+  return synced;
+}
+
+async function syncYourShowsToSupabaseFromExtension(shows) {
+  if (!isChromeContextValid()) return;
+  const session = await getValidAuthSession();
+  if (!session?.accessToken || !session?.userId) return;
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/your_shows?on_conflict=user_id`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal,resolution=merge-duplicates',
+      },
+      body: JSON.stringify({
+        user_id: session.userId,
+        shows: Array.isArray(shows) ? shows : [],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('[Shufflr] your_shows upsert failed:', response.status);
+    }
+  } catch (err) {
+    console.error('[Shufflr] your_shows upsert error:', err);
+  }
+}
+
 async function writePlaylistsToStorage(playlists) {
   if (!isChromeContextValid()) return;
   dropdownPlaylists = playlists;
   await setShufflrPlaylistsInStorage(playlists, { syncToWebApp: true });
+  void syncPlaylistsToSupabaseFromExtension(playlists);
 }
 
 async function readYourShowsFromStorage() {
@@ -1665,6 +1768,7 @@ async function readYourShowsFromStorage() {
 async function writeYourShowsToStorage(shows) {
   if (!isChromeContextValid()) return;
   await chromeStorageLocalSet({ [SHUFFLR_YOUR_SHOWS_KEY]: shows });
+  void syncYourShowsToSupabaseFromExtension(shows);
 }
 
 async function addCurrentShowToYourShows() {

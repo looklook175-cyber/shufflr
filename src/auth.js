@@ -1,6 +1,7 @@
 import { supabase, getWatchHistory, logWatchHistory } from './supabase.js'
 
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists'
+const SHUFFLR_YOUR_SHOWS_KEY = 'shufflr_your_shows'
 const SHUFFLR_AUTH_SESSION_KEY = 'shufflr_auth_session'
 let cloudSyncReady = false
 
@@ -93,6 +94,41 @@ function readLocalPlaylists() {
   }
 }
 
+function readLocalYourShows() {
+  try {
+    const raw = localStorage.getItem(SHUFFLR_YOUR_SHOWS_KEY) || '[]'
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function yourShowDedupeKey(show) {
+  if (show?.id != null && show.id !== '') return `id:${show.id}`
+  const maxId = show?.maxId || show?.maxShowId || show?.max_id
+  if (maxId) return `max:${String(maxId).toLowerCase()}`
+  const name = show?.name || show?.title || ''
+  if (name) return `name:${String(name).trim().toLowerCase()}`
+  return ''
+}
+
+function mergeYourShowsLists(...lists) {
+  const seen = new Set()
+  const merged = []
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue
+    for (const show of list) {
+      if (!show || show.release_date) continue
+      const key = yourShowDedupeKey(show)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      merged.push(show)
+    }
+  }
+  return merged
+}
+
 function cloudRowsToPlaylists(remoteRows) {
   return (remoteRows || []).map(row => ({
     name: row.name,
@@ -119,6 +155,20 @@ async function loadPlaylistsFromCloud(userId) {
   localStorage.setItem(SHUFFLR_PLAYLISTS_KEY, JSON.stringify(playlists))
   window.dispatchEvent(new CustomEvent('shufflr-playlists-merged', { detail: playlists }))
   return playlists
+}
+
+async function loadYourShowsFromCloud(userId) {
+  const { data, error } = await supabase
+    .from('your_shows')
+    .select('shows')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) throw error
+  const cloudShows = Array.isArray(data?.shows) ? data.shows : []
+  const merged = mergeYourShowsLists(readLocalYourShows(), cloudShows)
+  localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(merged))
+  return merged
 }
 
 async function syncPlaylistsToCloud(allPlaylists) {
@@ -213,11 +263,17 @@ async function handleLogIn() {
     updateAuthUI(data.session)
     cloudSyncReady = true
     await loadPlaylistsFromCloud(data.session.user.id)
+    await loadYourShowsFromCloud(data.session.user.id)
     showAuthMessage('')
   }
 }
 
 async function handleLogOut() {
+  try {
+    await syncPlaylistsToCloud(readLocalPlaylists())
+  } catch (err) {
+    console.error('[Shufflr] Pre-logout playlist sync failed:', err)
+  }
   cloudSyncReady = false
   await supabase.auth.signOut()
   showAuthMessage('')
@@ -255,6 +311,23 @@ window.shufflrSyncPlaylistsToCloud = async (playlists) => {
     }
   } catch (err) {
     console.error('[Shufflr] Cloud sync error:', err)
+  }
+}
+
+window.shufflrGetYourShowsFromCloud = async () => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  try {
+    const { data, error } = await supabase
+      .from('your_shows')
+      .select('shows')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (error) throw error
+    return Array.isArray(data?.shows) ? data.shows : []
+  } catch (err) {
+    console.error('[Shufflr] Failed to fetch your_shows:', err)
+    return []
   }
 }
 
@@ -299,8 +372,9 @@ bindSessionWakeRefresh()
 supabase.auth.onAuthStateChange(async (event, session) => {
   updateAuthUI(session)
   await persistAuthSessionForExtension(session)
-  notifyAuthChanged(session)
+  if (event === 'SIGNED_IN') cloudSyncReady = true
   if (event === 'SIGNED_OUT') cloudSyncReady = false
+  notifyAuthChanged(session)
 })
 
 supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -311,8 +385,9 @@ supabase.auth.getSession().then(async ({ data: { session } }) => {
     try {
       cloudSyncReady = true
       await loadPlaylistsFromCloud(activeSession.user.id)
+      await loadYourShowsFromCloud(activeSession.user.id)
     } catch (err) {
-      console.error('[Shufflr] Failed to load cloud playlists:', err)
+      console.error('[Shufflr] Failed to load cloud data:', err)
     }
   }
   notifyAuthChanged(activeSession)

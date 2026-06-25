@@ -536,6 +536,7 @@ let minRating=0,searchTimer=null,isLightMode=false;
 let watchHistory=JSON.parse(localStorage.getItem('shufflr_history')||'[]');
 let recentShows=JSON.parse(localStorage.getItem('shufflr_recent')||'[]');
 const SHUFFLR_PLAYLISTS_KEY='shufflr_playlists';
+const SHUFFLR_YOUR_SHOWS_KEY='shufflr_your_shows';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY='shufflr_active_playlist';
 let playlists=JSON.parse(localStorage.getItem(SHUFFLR_PLAYLISTS_KEY)||'[]');
 let expandedPlaylistIndex=null;
@@ -638,7 +639,33 @@ function getHomeShowDedupeKey(show){
   return'';
 }
 
-function getActivePlaylistShowsForHome(allPlaylists=playlists){
+function readLocalYourShows(){
+  try{
+    const raw=localStorage.getItem(SHUFFLR_YOUR_SHOWS_KEY)||'[]';
+    const parsed=JSON.parse(raw);
+    return Array.isArray(parsed)?parsed:[];
+  }catch{
+    return[];
+  }
+}
+
+function mergeYourShowsLists(...lists){
+  const seen=new Set();
+  const merged=[];
+  for(const list of lists){
+    if(!Array.isArray(list))continue;
+    for(const show of list){
+      if(!show||show.release_date)continue;
+      const key=getHomeShowDedupeKey(show);
+      if(!key||seen.has(key))continue;
+      seen.add(key);
+      merged.push(show);
+    }
+  }
+  return merged;
+}
+
+function getActivePlaylistShowsForHome(allPlaylists=playlists,standaloneShows=[]){
   const seen=new Set();
   const items=[];
   const source=Array.isArray(allPlaylists)?allPlaylists:playlists;
@@ -652,6 +679,14 @@ function getActivePlaylistShowsForHome(allPlaylists=playlists){
       seen.add(key);
       items.push({show,playlistIndex:pi,showIndex:si});
     }
+  }
+  const standalone=Array.isArray(standaloneShows)?standaloneShows:[];
+  for(const show of standalone){
+    if(show?.release_date)continue;
+    const key=getHomeShowDedupeKey(show);
+    if(!key||seen.has(key))continue;
+    seen.add(key);
+    items.push({show,playlistIndex:-1,showIndex:-1});
   }
   return{items};
 }
@@ -4270,7 +4305,19 @@ async function renderHomeScreen(navType){
     homePlaylistsCache = [];
   }
 
-  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists);
+  let standaloneYourShows = [];
+  if (signedIn) {
+    const localYourShows = readLocalYourShows();
+    const cloudYourShows = typeof window.shufflrGetYourShowsFromCloud === 'function'
+      ? await window.shufflrGetYourShowsFromCloud()
+      : [];
+    standaloneYourShows = mergeYourShowsLists(localYourShows, cloudYourShows);
+    try {
+      localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(standaloneYourShows));
+    } catch {}
+  }
+
+  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists, standaloneYourShows);
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
