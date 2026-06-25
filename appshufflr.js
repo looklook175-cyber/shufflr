@@ -1744,6 +1744,130 @@ function buildHomeEmptyVhsIconHtml(){
 </svg></div>`;
 }
 
+function buildHomeEmptyClapperboardIconHtml(){
+  return buildHomeEmptyVhsIconHtml();
+}
+
+function isMovieWatchHistoryEntry(entry){
+  if(entry?.is_movie===true)return true;
+  return entry?.episode_number==null&&entry?.season_num==null;
+}
+
+function filterMovieWatchHistoryEntries(entries){
+  return dedupeWatchHistoryByShowId(entries).filter(isMovieWatchHistoryEntry);
+}
+
+function getActivePlaylistMoviesForHome(allPlaylists=playlists){
+  const seen=new Set();
+  const items=[];
+  const source=Array.isArray(allPlaylists)?allPlaylists:playlists;
+  for(let pi=0;pi<source.length;pi++){
+    if(source[pi]?.type!=='movie')continue;
+    const plShows=source[pi]?.shows||[];
+    for(let si=0;si<plShows.length;si++){
+      const show=plShows[si];
+      if(!show?.release_date)continue;
+      const key=getHomeShowDedupeKey(show);
+      if(!key||seen.has(key))continue;
+      seen.add(key);
+      items.push({show,playlistIndex:pi,showIndex:si});
+    }
+  }
+  return{items};
+}
+
+async function buildYourMoviePlaylistsHtml(resolvedPlaylists){
+  const connectedService=localStorage.getItem('shufflr_service')||'max';
+  const allPlaylists=Array.isArray(resolvedPlaylists)
+    ?resolvedPlaylists
+    :(await getPlaylistsFromBridge()||playlists||[]);
+  const moviePlaylists=allPlaylists.filter(p=>p.type==='movie');
+  homePlaylistsCache=moviePlaylists;
+  const displayPlaylists=moviePlaylists.filter(p=>(p.service||'max')===connectedService);
+  if(!displayPlaylists.length){
+    return `
+    <div class="genre-section" style="margin-top:16px;">
+      <div class="genre-title">-- YOUR MOVIE PLAYLISTS --</div>
+      <div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noPlaylists')}</p><p class="home-empty-desc">${t('empty.noPlaylistsHint')}</p></div>
+    </div>`;
+  }
+
+  const cards=displayPlaylists.map((playlist)=>{
+    const index=allPlaylists.indexOf(playlist);
+    const playlistItems=playlist.shows||[];
+    const itemCount=playlistItems.length;
+    const countLabel=`${itemCount} ${itemCount!==1?t('pl.shows'):t('pl.show')}`;
+    const posterHtml=buildPlaylistCoverPosterHtml(playlist,index);
+
+    return `
+      <div class="pl-home-card" data-pl-index="${index}" data-pl-id="${playlist.id||''}" data-pl-name="${encodeURIComponent(playlist.name||'')}">
+        <div class="pl-home-poster" onclick="togglePlaylistDrawer(${index})">
+          ${posterHtml}
+          <button class="pl-home-camera-btn" onclick="event.stopPropagation();triggerPlaylistPosterPicker('${playlist.id||playlist.name}')" aria-label="Change playlist poster">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="1" y="4" width="14" height="10" rx="1" stroke="white" stroke-width="1.5" fill="none"/>
+              <circle cx="8" cy="9" r="2.5" stroke="white" stroke-width="1.5" fill="none"/>
+              <rect x="5" y="2" width="6" height="2" rx="1" fill="white"/>
+            </svg>
+          </button>
+        </div>
+        <div class="pl-home-info" onclick="togglePlaylistDrawer(${index})">
+          <div class="pl-home-name">${playlist.name||'Untitled'}</div>
+          <div class="pl-home-count">${countLabel}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="genre-section pl-home-section" style="margin-top:16px;">
+      <div class="genre-title">-- YOUR MOVIE PLAYLISTS --</div>
+      <div class="h-scroll-wrap">${cards}</div>
+      <div class="pl-home-drawer" id="pl-home-drawer" hidden></div>
+    </div>`;
+}
+
+function buildYourMoviesSectionHtml(section){
+  const items=section.items||[];
+  let html=`<div class="genre-section your-shows-section" style="margin-top:16px;"><div class="genre-title">-- YOUR MOVIES --</div>`;
+  if(!items.length){
+    html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noYourShowsTitle')}</p><p class="home-empty-desc">${t('empty.noYourShowsHint')}</p></div></div>`;
+    return html;
+  }
+  html+=`<div class="h-scroll-wrap">`;
+  items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
+    const showKey=getHomeShowDedupeKey(s);
+    html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}">
+      ${buildYourShowsPosterHtml(s,showKey)}
+      <div class="ep-card-h-body">
+        <div class="ep-card-h-name">${s.name||s.title||''}</div>
+      </div>
+    </div>`;
+  });
+  html+=`</div><div id="your-show-popup" class="your-show-popup" hidden></div></div>`;
+  return html;
+}
+
+async function buildRecentlyWatchedMoviesHtml(entries){
+  let html=`<div class="genre-section" style="margin-top:16px;"><div class="genre-title">-- RECENTLY WATCHED --</div>`;
+  if(!entries?.length){
+    html+=`<div class="pl-empty-state pl-empty-state--visual">${buildHomeEmptyClapperboardIconHtml()}<p class="home-empty-title">${t('empty.noRecentlyWatchedTitle')}</p><p class="home-empty-desc">${t('empty.noRecentlyWatched')}</p></div></div>`;
+    return html;
+  }
+  html+=`<div class="h-scroll-wrap">${await buildRecentlyWatchedMaxCardsHtml(entries)}</div></div>`;
+  return html;
+}
+
+async function loadRecentlyWatchedMoviesSection(allPlaylists=playlists){
+  if(typeof window.shufflrGetWatchHistory!=='function')return{html:await buildRecentlyWatchedMoviesHtml([]),entries:[]};
+  try{
+    const entries=filterMovieWatchHistoryEntries(await window.shufflrGetWatchHistory(200));
+    return{html:await buildRecentlyWatchedMoviesHtml(entries),entries};
+  }catch(e){
+    console.error('[Shufflr] Failed to load movie watch history:',e);
+    return{html:await buildRecentlyWatchedMoviesHtml([]),entries:[]};
+  }
+}
+
 // Builds the "Your Playlists" horizontal scroll row filtered by the connected streaming service.
 async function buildYourPlaylistsHtml(resolvedPlaylists) {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
@@ -1950,10 +2074,10 @@ function clearSeasonsSidebar(){
 
 // NAV
 function setNav(nav){
-  if(nav==='movies'||nav==='free')return;
+  if(nav==='free')return;
   if(nav!=='playlist')expandedPlaylistIndex=null;
   currentNav=nav;
-  ['shows','playlist','options'].forEach(n=>{
+  ['shows','movies','playlist','options'].forEach(n=>{
     const el=document.getElementById('nav-'+n);
     if(el) el.classList.toggle('active',n===nav);
   });
@@ -1965,6 +2089,14 @@ function setNav(nav){
     allSeasons=[];
     clearSeasonsSidebar();
     renderOptionsPage();
+  }else if(nav==='movies'){
+    currentType='movie';
+    currentShow=null; allSeasons=[]; allEpisodes={}; highlightedEps=[];
+    clearSeasonsSidebar();
+    document.getElementById('search-input').value='';
+    homeScrollPos=0;
+    lastShowNav={shows:null,movies:null};
+    renderMoviesHomeScreen();
   }else if(nav==='shows'){
     currentType='tv';
     currentShow=null; allSeasons=[]; allEpisodes={}; highlightedEps=[];
@@ -4391,6 +4523,67 @@ async function renderHomeScreen(navType){
     }catch(e){
       document.getElementById('recs-section')&&document.getElementById('recs-section').remove();
     }
+  }
+}
+
+async function renderMoviesHomeScreen(){
+  homeNavType='movies';
+
+  const signedIn=typeof window.shufflrIsLoggedIn==='function'
+    ?await window.shufflrIsLoggedIn()
+    :false;
+
+  let allPlaylists=[];
+  if(signedIn){
+    allPlaylists=playlists;
+    const bridgePlaylists=await getPlaylistsFromBridge();
+    if(bridgePlaylists?.length){
+      allPlaylists=bridgePlaylists;
+      playlists=bridgePlaylists;
+    }
+    homePlaylistsCache=allPlaylists.filter(p=>p.type==='movie');
+  }else{
+    homePlaylistsCache=[];
+  }
+
+  const yourMoviesSection=getActivePlaylistMoviesForHome(allPlaylists);
+  const yourMovies=(yourMoviesSection.items||[]).map(item=>item.show);
+
+  let html=`<div class="home-wrap">`;
+
+  html+=await buildYourMoviePlaylistsHtml(allPlaylists);
+
+  let playlistCardLookup=null;
+  if(homePlaylistsCache.length){
+    const connectedService=localStorage.getItem('shufflr_service')||'max';
+    const filtered=homePlaylistsCache.filter(p=>(p.service||'max')===connectedService);
+    if(filtered.length){
+      playlistCardLookup={allPlaylists,filtered};
+    }
+  }
+
+  html+=buildYourMoviesSectionHtml(yourMoviesSection);
+
+  const recentSection=await loadRecentlyWatchedMoviesSection(allPlaylists);
+  html+=recentSection.html;
+  const recentlyWatchedEntries=recentSection.entries;
+
+  html+=`</div>`;
+  stopHomeEmptyStatic();
+  showMain(html);
+  setTimeout(()=>{
+    document.getElementById('main-content').scrollTop=homeScrollPos;
+    initHomeEmptyStatic();
+  },50);
+
+  if(yourMovies.length){
+    resolveYourShowsPosters(yourMoviesSection.items);
+  }
+  if(playlistCardLookup){
+    resolvePlaylistCardPosters(playlistCardLookup.allPlaylists,playlistCardLookup.filtered);
+  }
+  if(recentlyWatchedEntries.length){
+    resolveRecentlyWatchedPosters(recentlyWatchedEntries);
   }
 }
 
