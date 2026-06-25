@@ -288,10 +288,8 @@ async function handleLogIn() {
   }
 }
 
-async function handleLogOut() {
-  showSavingToast()
-  await syncPlaylistsToCloud(readLocalPlaylists())
-  await supabase.auth.signOut()
+function handleLogOut() {
+  sessionStorage.setItem('shufflr_pending_logout', 'true')
   window.location.reload()
 }
 
@@ -394,6 +392,14 @@ supabase.auth.onAuthStateChange(async (event, session) => {
 })
 
 supabase.auth.getSession().then(async ({ data: { session } }) => {
+  if (sessionStorage.getItem('shufflr_pending_logout') === 'true') {
+    sessionStorage.removeItem('shufflr_pending_logout')
+    await supabase.auth.signOut()
+    updateAuthUI(null)
+    notifyAuthChanged(null)
+    return
+  }
+
   const activeSession = session ? await refreshSessionIfStale() : null
   updateAuthUI(activeSession)
   await persistAuthSessionForExtension(activeSession)
