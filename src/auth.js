@@ -290,17 +290,8 @@ async function handleLogIn() {
 
 async function handleLogOut() {
   showSavingToast()
-  try {
-    await syncPlaylistsToCloud(readPlaylistsForLogoutSync())
-  } catch (err) {
-    console.error('[Shufflr] Pre-logout playlist sync failed:', err)
-  }
-  cloudSyncReady = false
-  try {
-    await supabase.auth.signOut()
-  } catch (err) {
-    console.error('[Shufflr] Sign out failed:', err)
-  }
+  await syncPlaylistsToCloud(readLocalPlaylists())
+  await supabase.auth.signOut()
   window.location.reload()
 }
 
