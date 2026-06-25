@@ -3520,21 +3520,30 @@ function injectShufflrStyles() {
       align-items: center;
       justify-content: center;
       background: transparent;
-      border: 1px solid #1a6bff;
-      border-radius: 6px;
-      color: #1a6bff;
+      border: none;
+      outline: none;
+      border-radius: 0;
+      color: #23A8E0;
       font-family: monospace;
       font-size: 14px;
       line-height: 1;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: color 0.2s ease, filter 0.2s ease, text-shadow 0.2s ease;
       padding: 0;
+      box-shadow: none;
+    }
+    .shufflr-pl-add-btn {
+      font-size: 18px;
+      font-weight: 400;
     }
     .shufflr-pl-action-btn:hover,
     .shufflr-pl-shows-toggle:hover,
     .shufflr-pl-add-btn:hover {
-      background: #1a6bff;
-      color: #000;
+      background: transparent;
+      border: none;
+      color: #23A8E0;
+      text-shadow: 0 0 10px rgba(35, 168, 224, 0.85);
+      filter: drop-shadow(0 0 6px rgba(35, 168, 224, 0.65));
     }
     .shufflr-pl-row:hover,
     .shufflr-pl-row-header.open {
@@ -3605,26 +3614,6 @@ function injectShufflrStyles() {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-    }
-    .shufflr-pl-add-btn {
-      flex-shrink: 0;
-      width: 26px;
-      height: 26px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: transparent;
-      border: 1px solid #1a6bff;
-      border-radius: 6px;
-      color: #1a6bff;
-      font-family: monospace;
-      line-height: 1;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .shufflr-pl-add-btn:hover {
-      background: #1a6bff;
-      color: #000;
     }
     .shufflr-pl-create-btn {
       width: 100%;
