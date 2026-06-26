@@ -5033,20 +5033,171 @@ function extractShowId(showPageUrl) {
   return null;
 }
 
-function buildSeasonCollectionUrl(showId, seasonNumber) {
+let cmsPaginationDiagnosticLogged = false;
+
+function buildSeasonCollectionUrl(showId, seasonNumber, pageNumber = 1) {
   const config = getCmsConfig();
   const apiOrigin = config?.apiOrigin || guessCmsApiOrigin();
   const collectionId = config?.collectionId || '227084608563650952176059252419027445293';
   const params = new URLSearchParams(config?.baseQuery || 'include=default&decorators=viewingHistory,isFavorite,contentAction,badges');
   params.set('pf[show.id]', showId);
   params.set('pf[seasonNumber]', String(seasonNumber));
+  params.set('page[number]', String(pageNumber));
   return `${apiOrigin}/cms/collections/${collectionId}?${params}`;
 }
 
-async function fetchExpressContent(showId, seasonNumber) {
-  const url = buildSeasonCollectionUrl(showId, seasonNumber);
-  console.log(`[Shufflr] CMS fetch S${seasonNumber}: ${url}`);
+function resolveCmsNextUrl(nextLink, currentUrl) {
+  if (!nextLink) return null;
+  if (nextLink.startsWith('http')) return nextLink;
+  try {
+    return new URL(nextLink, currentUrl).href;
+  } catch {
+    return null;
+  }
+}
 
+function getCmsPaginationState(json) {
+  if (!json) {
+    return {
+      currentPage: 1,
+      totalPages: null,
+      pageSize: null,
+      totalCount: null,
+      nextLink: null,
+      hasMore: false,
+    };
+  }
+
+  const meta = json.meta || {};
+  const pagination = meta.pagination || meta;
+  const links = json.links || {};
+
+  const currentPage = Number(
+    pagination.currentPage
+    ?? pagination.page
+    ?? pagination.pageNumber
+    ?? pagination.number
+    ?? meta.page
+    ?? meta.currentPage
+    ?? 1
+  );
+
+  const totalPagesRaw = pagination.totalPages
+    ?? pagination.total_pages
+    ?? pagination.totalPage
+    ?? meta.totalPages
+    ?? meta.total_pages
+    ?? meta.totalPage;
+  const totalPages = totalPagesRaw == null ? null : Number(totalPagesRaw);
+
+  const pageSizeRaw = pagination.pageSize
+    ?? pagination.perPage
+    ?? pagination.page_size
+    ?? pagination.size
+    ?? meta.pageSize
+    ?? meta.perPage
+    ?? meta.page_size;
+  const pageSize = pageSizeRaw == null ? null : Number(pageSizeRaw);
+
+  const totalCountRaw = pagination.totalItems
+    ?? pagination.totalCount
+    ?? pagination.total
+    ?? pagination.totalElements
+    ?? meta.totalCount
+    ?? meta.total
+    ?? meta.totalItems;
+  const totalCount = totalCountRaw == null ? null : Number(totalCountRaw);
+
+  const nextLink = links.next || pagination.next || null;
+
+  let hasMore = false;
+  if (nextLink) {
+    hasMore = true;
+  } else if (totalPages != null && Number.isFinite(totalPages) && totalPages > 0) {
+    hasMore = currentPage < totalPages;
+  } else if (
+    pagination.hasMore === true
+    || meta.hasMore === true
+    || pagination.hasNextPage === true
+    || meta.hasNextPage === true
+  ) {
+    hasMore = true;
+  } else if (
+    totalCount != null
+    && pageSize != null
+    && Number.isFinite(totalCount)
+    && Number.isFinite(pageSize)
+    && pageSize > 0
+  ) {
+    hasMore = currentPage * pageSize < totalCount;
+  }
+
+  return {
+    currentPage,
+    totalPages: Number.isFinite(totalPages) ? totalPages : null,
+    pageSize: Number.isFinite(pageSize) ? pageSize : null,
+    totalCount: Number.isFinite(totalCount) ? totalCount : null,
+    nextLink,
+    hasMore,
+    meta,
+    links,
+  };
+}
+
+function logCmsPaginationDiagnostics(json, showId, seasonNumber, paginationState) {
+  if (cmsPaginationDiagnosticLogged) return;
+  cmsPaginationDiagnosticLogged = true;
+
+  console.log('[Shufflr] CMS pagination fields (first season response):', {
+    showId,
+    seasonNumber,
+    topLevelKeys: Object.keys(json || {}),
+    meta: json?.meta ?? null,
+    links: json?.links ?? null,
+    parsedPagination: paginationState,
+    dataItemCount: Array.isArray(json?.data) ? json.data.length : json?.data ? 1 : 0,
+    includedItemCount: json?.included?.length ?? 0,
+  });
+  console.log('[Shufflr] CMS raw response (first season):', json);
+}
+
+function mergeCmsPageResponses(pages) {
+  if (!pages.length) return null;
+  if (pages.length === 1) return pages[0];
+
+  const merged = {
+    ...pages[pages.length - 1],
+    data: [],
+    included: [],
+  };
+  const seenData = new Set();
+  const seenIncluded = new Set();
+
+  for (const page of pages) {
+    const dataItems = Array.isArray(page?.data) ? page.data : page?.data ? [page.data] : [];
+    for (const item of dataItems) {
+      const key = item?.id ? `${item.type || ''}:${item.id}` : null;
+      if (key) {
+        if (seenData.has(key)) continue;
+        seenData.add(key);
+      }
+      merged.data.push(item);
+    }
+
+    for (const item of page?.included || []) {
+      const key = item?.id ? `${item.type || ''}:${item.id}` : null;
+      if (key) {
+        if (seenIncluded.has(key)) continue;
+        seenIncluded.add(key);
+      }
+      merged.included.push(item);
+    }
+  }
+
+  return merged;
+}
+
+async function fetchExpressContentPage(url, showId, seasonNumber, pageNumber) {
   const response = await fetch(url, {
     method: 'GET',
     credentials: 'include',
@@ -5054,10 +5205,67 @@ async function fetchExpressContent(showId, seasonNumber) {
   });
 
   if (!response.ok) {
-    console.log(`[Shufflr] CMS API ${response.status} for show=${showId} season=${seasonNumber}`);
+    console.log(
+      `[Shufflr] CMS API ${response.status} for show=${showId} season=${seasonNumber} page=${pageNumber}`
+    );
     return null;
   }
   return response.json();
+}
+
+async function fetchExpressContent(showId, seasonNumber) {
+  const pages = [];
+  let pageNumber = 1;
+  let nextUrl = null;
+  const maxPages = 50;
+
+  while (pageNumber <= maxPages) {
+    const url = nextUrl || buildSeasonCollectionUrl(showId, seasonNumber, pageNumber);
+    console.log(`[Shufflr] CMS fetch S${seasonNumber} p${pageNumber}: ${url}`);
+
+    const json = await fetchExpressContentPage(url, showId, seasonNumber, pageNumber);
+    if (!json) {
+      if (!pages.length) return null;
+      break;
+    }
+
+    if (!pages.length) {
+      logCmsPaginationDiagnostics(json, showId, seasonNumber, getCmsPaginationState(json));
+    }
+
+    const episodeCount = parseEpisodesFromCmsResponse(json).length;
+    pages.push(json);
+
+    const paginationState = getCmsPaginationState(json);
+    if (paginationState.hasMore) {
+      nextUrl = resolveCmsNextUrl(paginationState.nextLink, url);
+      pageNumber += 1;
+      continue;
+    }
+
+    if (episodeCount === 0) break;
+
+    const probePage = pageNumber + 1;
+    const probeUrl = buildSeasonCollectionUrl(showId, seasonNumber, probePage);
+    const probeJson = await fetchExpressContentPage(probeUrl, showId, seasonNumber, probePage);
+    const probeCount = probeJson ? parseEpisodesFromCmsResponse(probeJson).length : 0;
+    if (!probeCount) break;
+
+    pages.push(probeJson);
+    pageNumber = probePage + 1;
+    nextUrl = null;
+  }
+
+  if (!pages.length) return null;
+
+  const merged = mergeCmsPageResponses(pages);
+  if (pages.length > 1) {
+    const mergedCount = parseEpisodesFromCmsResponse(merged).length;
+    console.log(
+      `[Shufflr] CMS merged S${seasonNumber}: ${pages.length} page(s), ${mergedCount} episode(s)`
+    );
+  }
+  return merged;
 }
 
 function cmsItemToWatchUrl(item) {
