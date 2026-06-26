@@ -6331,6 +6331,155 @@ function tubiEpisodeCacheKey(showId) {
   return `${TUBI_EPISODE_CACHE_PREFIX}${showId}`;
 }
 
+function extractBalancedBraceObject(text, openBraceIndex) {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = openBraceIndex; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (c === '\\') escape = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return text.slice(openBraceIndex, i + 1);
+    }
+  }
+  return null;
+}
+
+function parseTubiJsObjectLiteral(raw) {
+  if (!raw) return null;
+  let text = raw.trim();
+  if (text.endsWith(';')) text = text.slice(0, -1).trim();
+  text = text.replace(/\bundefined\b/g, 'null');
+  text = text.replace(/,\s*([}\]])/g, '$1');
+  return JSON.parse(text);
+}
+
+function readTubiReactQueryStateFromPageWindow() {
+  const holderId = 'shufflr-tubi-rqs-holder';
+  try {
+    document.getElementById(holderId)?.remove();
+    const runner = document.createElement('script');
+    runner.textContent = `(function(){try{var s=window.__REACT_QUERY_STATE__;if(!s)return;var h=document.createElement('script');h.id='${holderId}';h.type='application/json';h.textContent=JSON.stringify(s);(document.head||document.documentElement).appendChild(h);}catch(e){}})();`;
+    (document.head || document.documentElement).appendChild(runner);
+    runner.remove();
+    const holder = document.getElementById(holderId);
+    if (!holder?.textContent) return null;
+    return JSON.parse(holder.textContent);
+  } catch {
+    return null;
+  }
+}
+
+function readTubiReactQueryStateFromScripts() {
+  const marker = 'window.__REACT_QUERY_STATE__';
+  const sources = [];
+
+  for (const script of document.querySelectorAll('script:not([src])')) {
+    const text = script.textContent;
+    if (text?.includes(marker)) sources.push(text);
+  }
+
+  if (!sources.length) {
+    const html = document.documentElement?.innerHTML;
+    if (html?.includes(marker)) sources.push(html);
+  }
+
+  for (const text of sources) {
+    const markerIndex = text.indexOf(marker);
+    if (markerIndex === -1) continue;
+    const eqIndex = text.indexOf('=', markerIndex);
+    if (eqIndex === -1) continue;
+    let braceIndex = eqIndex + 1;
+    while (braceIndex < text.length && text[braceIndex] !== '{') braceIndex++;
+    if (text[braceIndex] !== '{') continue;
+    const objectText = extractBalancedBraceObject(text, braceIndex);
+    if (!objectText) continue;
+    try {
+      return parseTubiJsObjectLiteral(objectText);
+    } catch { /* try next source */ }
+  }
+
+  return null;
+}
+
+function getTubiReactQueryState() {
+  return readTubiReactQueryStateFromPageWindow()
+    || readTubiReactQueryStateFromScripts();
+}
+
+function findTubiSeriesDataInReactQueryState(state) {
+  if (!state?.queries?.length) return null;
+  for (const query of state.queries) {
+    const data = query?.state?.data;
+    if (!Array.isArray(data?.seasons)) continue;
+    if (data.seasons.some(season => Array.isArray(season?.episodes) && season.episodes.length)) {
+      return data;
+    }
+  }
+  return null;
+}
+
+function tubiEpisodeTitleSlug(title) {
+  const match = (title || '').match(/\bS\d+\s*:?\s*E\d+\s*[-–—]\s*(.+)/i);
+  const name = (match?.[1] || title || '').trim();
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildTubiEpisodeUrl(id, season, episode, title) {
+  const seasonPart = String(season).padStart(2, '0');
+  const episodePart = String(episode).padStart(2, '0');
+  const slug = tubiEpisodeTitleSlug(title);
+  const path = slug
+    ? `s${seasonPart}-e${episodePart}-${slug}`
+    : `s${seasonPart}-e${episodePart}`;
+  return `https://tubitv.com/tv-shows/${id}/${path}`;
+}
+
+function parseTubiEpisodesFromPageState() {
+  const state = getTubiReactQueryState();
+  const seriesData = findTubiSeriesDataInReactQueryState(state);
+  if (!seriesData?.seasons?.length) return [];
+
+  const episodes = [];
+  const seen = new Set();
+
+  for (const season of seriesData.seasons) {
+    const seasonNumber = Number(season?.number);
+    if (!Number.isFinite(seasonNumber) || seasonNumber <= 0) continue;
+
+    for (const episode of season.episodes || []) {
+      const id = episode?.id;
+      const episodeNumber = Number(episode?.num ?? episode?.episode_number);
+      if (!id || !Number.isFinite(episodeNumber) || episodeNumber <= 0) continue;
+
+      const title = (episode?.title || '').trim()
+        || `${formatTubiEpisodeLabel(seasonNumber, episodeNumber)}`;
+      const url = buildTubiEpisodeUrl(id, seasonNumber, episodeNumber, title);
+      if (seen.has(url)) continue;
+      seen.add(url);
+      episodes.push({ url, title, season: seasonNumber, episode: episodeNumber });
+    }
+  }
+
+  return episodes;
+}
+
 function parseTubiEpisodeLink(anchor) {
   const href = anchor.href?.split('?')[0];
   if (!href || !/\/tv-shows\/\d+/i.test(href)) return null;
@@ -6383,7 +6532,7 @@ function mergeTubiEpisodes(existing, found) {
   return existing;
 }
 
-async function collectTubiEpisodes() {
+async function collectTubiEpisodesFromSeasonDropdown() {
   let all = collectTubiEpisodesFromCurrentDom();
 
   let dropdownReady = false;
@@ -6394,13 +6543,11 @@ async function collectTubiEpisodes() {
   }
 
   if (!dropdownReady) {
-    console.log(`[Shufflr] Tubi: collected ${all.length} episode(s) from visible season`);
     return all;
   }
 
   const seasonOptions = findSeasonDropdownOptions();
   if (!seasonOptions.length) {
-    console.log(`[Shufflr] Tubi: collected ${all.length} episode(s) — no season dropdown options`);
     return all;
   }
 
@@ -6421,8 +6568,20 @@ async function collectTubiEpisodes() {
     mergeTubiEpisodes(all, collectTubiEpisodesFromCurrentDom());
   }
 
-  console.log(`[Shufflr] Tubi: collected ${all.length} episode(s) across season(s)`);
   return all;
+}
+
+async function collectTubiEpisodes() {
+  const fromPageState = parseTubiEpisodesFromPageState();
+  if (fromPageState.length) {
+    console.log(`[Shufflr] Tubi: collected ${fromPageState.length} episode(s) via __REACT_QUERY_STATE__ (fast path)`);
+    return fromPageState;
+  }
+
+  console.log('[Shufflr] Tubi: __REACT_QUERY_STATE__ unavailable — falling back to season dropdown');
+  const fromDropdown = await collectTubiEpisodesFromSeasonDropdown();
+  console.log(`[Shufflr] Tubi: collected ${fromDropdown.length} episode(s) via season dropdown (fallback)`);
+  return fromDropdown;
 }
 
 async function getCachedTubiEpisodes(showId) {
