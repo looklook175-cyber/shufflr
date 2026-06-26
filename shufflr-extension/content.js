@@ -117,7 +117,6 @@ const IS_MAX = ['play.max.com', 'www.max.com', 'play.hbomax.com', 'www.hbomax.co
 const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
 const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
-const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
 
 let extensionContextInvalidated = false;
 let extensionContextHealthCheckTimer = null;
@@ -6272,7 +6271,6 @@ let tubiEpisodeEndTriggered = false;
 let tubiTimeupdateVideo = null;
 let tubiTimeupdateHandler = null;
 let tubiButtonObserver = null;
-let tubiResumeShuffleAfterReload = false;
 
 function isTubiSeriesPage() {
   return IS_TUBI && location.pathname.includes('/series/');
@@ -6774,16 +6772,6 @@ async function startTubiShuffle() {
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
 
-  // Store intent to shuffle this show, then reload so React state is fresh
-  const pendingRaw = sessionStorage.getItem(TUBI_PENDING_KEY);
-  if (!pendingRaw && !tubiResumeShuffleAfterReload) {
-    sessionStorage.setItem(TUBI_PENDING_KEY, JSON.stringify({ showId, showName }));
-    location.reload();
-    return;
-  }
-  tubiResumeShuffleAfterReload = false;
-  if (pendingRaw) sessionStorage.removeItem(TUBI_PENDING_KEY);
-
   let episodes = (isTubiEpisodePage() && shufflrActive) ? await getCachedTubiEpisodes(showId) : null;
   if (!episodes?.length) {
     await new Promise(r => setTimeout(r, 800));
@@ -6882,18 +6870,6 @@ function tryInjectShufflrButtonOnTubi() {
 
 if (IS_TUBI) {
   console.log('[Shufflr] Tubi detected');
-  const pendingRaw = sessionStorage.getItem(TUBI_PENDING_KEY);
-  if (pendingRaw) {
-    try {
-      const { showId, showName } = JSON.parse(pendingRaw);
-      if (showId) {
-        sessionStorage.removeItem(TUBI_PENDING_KEY);
-        tubiResumeShuffleAfterReload = true;
-        void startTubiShuffle();
-        return;
-      }
-    } catch { sessionStorage.removeItem(TUBI_PENDING_KEY); }
-  }
   restoreTubiShuffleSession();
   tryInjectShufflrButtonOnTubi();
 }
