@@ -3227,6 +3227,10 @@ function onShuffleBtnClick(event) {
   event.preventDefault();
   event.stopPropagation();
   if (IS_TUBI && (isTubiSeriesPage() || isTubiEpisodePage())) {
+    if (shufflrActive) {
+      stopTubiShuffle();
+      return;
+    }
     void startTubiShuffle();
     return;
   }
@@ -6686,6 +6690,24 @@ function restoreTubiShuffleSession() {
     installTubiEpisodeEndWatcher();
   }
   return true;
+}
+
+function teardownTubiEpisodeEndWatcher() {
+  if (tubiTimeupdateVideo && tubiTimeupdateHandler) {
+    tubiTimeupdateVideo.removeEventListener('timeupdate', tubiTimeupdateHandler);
+  }
+  tubiTimeupdateVideo = null;
+  tubiTimeupdateHandler = null;
+  tubiEpisodeEndTriggered = false;
+}
+
+function stopTubiShuffle() {
+  shufflrActive = false;
+  sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY);
+  teardownTubiEpisodeEndWatcher();
+  updateShuffleUI('');
+  showToast('Shufflr OFF');
+  console.log('[Shufflr] Tubi shuffle turned off');
 }
 
 function pickRandomTubiEpisode(episodes, currentUrl = null) {
