@@ -1298,7 +1298,7 @@ const urlObserver = new MutationObserver(() => {
     setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
   }
 });
-if (!IS_SHUFFLR_WEB_APP) {
+if (IS_MAX) {
 urlObserver.observe(document.body, { childList: true, subtree: true });
 }
 
@@ -2464,6 +2464,7 @@ function updateShuffleUI(playlistName) {
 }
 
 async function fullyRestoreArmedShuffleSessionAfterInject() {
+  if (!IS_MAX) return false;
   if (!isChromeContextValid()) return false;
   const active = await getActivePlaylistFromStorage();
   armedPlaylistCached = !!active?.armed;
@@ -2510,6 +2511,7 @@ async function fullyRestoreArmedShuffleSessionAfterInject() {
 }
 
 async function restoreArmedShuffleSession() {
+  if (!IS_MAX) return false;
   if (!isChromeContextValid()) return false;
   return fullyRestoreArmedShuffleSessionAfterInject();
 }
@@ -6301,6 +6303,91 @@ function getTubiEpisodeInfo() {
 
 function tryInjectShufflrButtonOnTubi() {
   console.log('[Shufflr] Tubi ready - button injection coming soon');
+  console.log('[Shufflr] Tubi DOM diagnostic — document.title:', document.title);
+
+  const titleSelectors = [
+    'h1',
+    'h2',
+    'main h1',
+    '[data-testid]',
+    '[data-testid*="title"]',
+    '[data-testid*="Title"]',
+    '[class*="title"]',
+    '[class*="Title"]',
+    'strong',
+    'b',
+  ];
+  console.log('[Shufflr] Tubi DOM diagnostic — show title probe:');
+  for (const selector of titleSelectors) {
+    const nodes = document.querySelectorAll(selector);
+    if (!nodes.length) continue;
+    const samples = Array.from(nodes).slice(0, 5).map(el => ({
+      selector,
+      tag: el.tagName.toLowerCase(),
+      testId: el.getAttribute('data-testid'),
+      className: typeof el.className === 'string' ? el.className.slice(0, 80) : '',
+      text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    }));
+    console.log('[Shufflr] Tubi title candidates:', samples);
+  }
+
+  const episodePattern = /\bS\d+\s*:?\s*E\d+\b/i;
+  const episodeSelectors = [
+    'h1', 'h2', 'h3', 'p', 'span', 'div',
+    '[data-testid]',
+    '[class*="episode"]',
+    '[class*="Episode"]',
+    '[class*="subtitle"]',
+    '[class*="Subtitle"]',
+  ];
+  console.log('[Shufflr] Tubi DOM diagnostic — episode info probe (S##:E## pattern):');
+  for (const selector of episodeSelectors) {
+    for (const el of document.querySelectorAll(selector)) {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 200 || !episodePattern.test(text)) continue;
+      console.log('[Shufflr] Tubi episode info candidate:', {
+        selector,
+        tag: el.tagName.toLowerCase(),
+        testId: el.getAttribute('data-testid'),
+        className: typeof el.className === 'string' ? el.className.slice(0, 80) : '',
+        text: text.slice(0, 200),
+      });
+    }
+  }
+
+  const linkSelectors = [
+    'a[href*="/tv-shows/"]',
+    'a[href*="/series/"]',
+    'a[href*="tubitv.com"]',
+    '[data-testid] a',
+    'a',
+  ];
+  console.log('[Shufflr] Tubi DOM diagnostic — episode list links probe:');
+  for (const selector of linkSelectors) {
+    const links = Array.from(document.querySelectorAll(selector)).filter(a => {
+      const href = a.getAttribute('href') || '';
+      return /\/tv-shows\/\d+/i.test(href) || /\/series\/\d+/i.test(href);
+    });
+    if (!links.length) continue;
+    console.log('[Shufflr] Tubi episode link candidates:', {
+      selector,
+      count: links.length,
+      samples: links.slice(0, 8).map(a => ({
+        href: a.href,
+        testId: a.getAttribute('data-testid'),
+        parentTestId: a.parentElement?.getAttribute?.('data-testid') || null,
+        text: (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+      })),
+    });
+  }
+
+  console.log('[Shufflr] Tubi helper snapshot:', {
+    showTitle: getTubiShowTitle(),
+    episodeInfo: getTubiEpisodeInfo(),
+    showId: getTubiShowIdFromUrl(),
+    isSeriesPage: isTubiSeriesPage(),
+    isEpisodePage: isTubiEpisodePage(),
+  });
 }
 
 if (IS_TUBI) {
