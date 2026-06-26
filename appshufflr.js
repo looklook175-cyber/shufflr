@@ -1482,7 +1482,8 @@ function buildYourShowsSectionHtml(section){
   html+=`<div class="h-scroll-wrap">`;
   items.forEach(({show:s,playlistIndex:pi,showIndex:si})=>{
     const showKey=getHomeShowDedupeKey(s);
-    html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}">
+    const standaloneAttr = pi === -1 ? ` data-show-json='${JSON.stringify(s).replace(/'/g, "&#39;")}'` : '';
+    html+=`<div class="ep-card-h your-show-card" data-show-playlist-index="${pi}" data-show-index="${si}"${standaloneAttr}>
       ${buildYourShowsPosterHtml(s,showKey)}
       <div class="ep-card-h-body">
         <div class="ep-card-h-name">${s.name||s.title||''}</div>
@@ -3599,8 +3600,16 @@ async function toggleYourShowPopup(pi,si){
 }
 
 async function openYourShowPopup(pi,si){
-  const show=playlists[pi]?.shows?.[si];
-  if(!show)return;
+  let show;
+  if (pi === -1) {
+    const card = document.querySelector(`.your-show-card[data-show-playlist-index="-1"][data-show-index="-1"]`);
+    const json = card?.dataset?.showJson;
+    if (!json) return;
+    try { show = JSON.parse(json); } catch { return; }
+  } else {
+    show = playlists[pi]?.shows?.[si];
+  }
+  if (!show) return;
   closePlaylistDrawer();
   const showName=getShowLabel(show)||show.name||show.title||'';
   const maxId=getShowMaxId(show);
