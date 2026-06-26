@@ -1816,33 +1816,51 @@ async function addCurrentShowToYourShows() {
 
 async function addCurrentShowToPlaylist(playlistIndex) {
   if (!isChromeContextValid()) return;
-  const uuid = getCurrentMaxShowUuid();
-  if (!uuid) {
-    showToast('Could not find show ID');
-    return;
+
+  let showId, title, serviceTag;
+
+  if (IS_TUBI) {
+    showId = getTubiShowIdFromUrl();
+    if (!showId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    title = getTubiShowTitle() || 'Unknown Show';
+    serviceTag = 'tubi';
+  } else {
+    showId = getCurrentMaxShowUuid();
+    if (!showId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    title = getCurrentShowTitle();
+    serviceTag = 'max';
   }
 
-  const title = getCurrentShowTitle();
   const playlists = await readPlaylistsFromStorage();
   const playlist = playlists[playlistIndex];
   if (!playlist) {
     showToast('Playlist not found');
     return;
   }
-
   if (!playlist.shows) playlist.shows = [];
 
-  const alreadyAdded = playlist.shows.some(show => (
-    show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
-  ));
+  const alreadyAdded = IS_TUBI
+    ? playlist.shows.some(show => show.tubiId === showId)
+    : playlist.shows.some(show => show.maxId === showId || show.maxShowId === showId || show.max_id === showId);
+
   if (alreadyAdded) {
     showToast(`Already in ${playlist.name || 'playlist'}`);
     return;
   }
 
-  playlist.shows.push({ title, maxId: uuid });
-  // Tag the playlist with the service it belongs to if not already set.
-  if (!playlist.service) playlist.service = 'max';
+  const showEntry = IS_TUBI
+    ? { title, tubiId: showId }
+    : { title, maxId: showId };
+
+  playlist.shows.push(showEntry);
+  if (!playlist.service) playlist.service = serviceTag;
+
   await writePlaylistsToStorage(playlists);
   showToast(`Added ${title} to ${playlist.name || 'playlist'}`);
 
