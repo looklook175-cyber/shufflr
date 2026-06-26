@@ -668,7 +668,9 @@ function mergeYourShowsLists(...lists){
 function getActivePlaylistShowsForHome(allPlaylists=playlists,standaloneShows=[]){
   const seen=new Set();
   const items=[];
-  const source=Array.isArray(allPlaylists)?allPlaylists:playlists;
+  const connectedService = localStorage.getItem('shufflr_service') || 'max';
+  const allSource = Array.isArray(allPlaylists) ? allPlaylists : playlists;
+  const source = allSource.filter(p => (p.service || 'max') === connectedService);
   for(let pi=0;pi<source.length;pi++){
     const plShows=source[pi]?.shows||[];
     for(let si=0;si<plShows.length;si++){
