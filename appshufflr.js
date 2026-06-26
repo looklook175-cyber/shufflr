@@ -3665,7 +3665,8 @@ async function openYourShowPopup(pi,si){
 function launchYourShowPopupShuffle(){
   const show = yourShowPopupContext?.show;
   if (show?.tubiId) {
-    const tubiUrl = `https://tubitv.com/series/${show.tubiId}`;
+    const query = encodeURIComponent(show.name || show.title || '');
+    const tubiUrl = `https://tubitv.com/search/${query}`;
     window.open(tubiUrl, '_blank');
     return;
   }
