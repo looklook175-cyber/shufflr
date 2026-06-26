@@ -4304,19 +4304,24 @@ async function renderHomeScreen(navType){
     homePlaylistsCache = [];
   }
 
-  let standaloneYourShows = [];
+  let filteredYourShows = [];
   if (signedIn) {
     const localYourShows = readLocalYourShows();
     const cloudYourShows = typeof window.shufflrGetYourShowsFromCloud === 'function'
       ? await window.shufflrGetYourShowsFromCloud()
       : [];
-    standaloneYourShows = mergeYourShowsLists(localYourShows, cloudYourShows);
+    const mergedYourShows = mergeYourShowsLists(localYourShows, cloudYourShows);
     try {
-      localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(standaloneYourShows));
+      localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(mergedYourShows));
     } catch {}
+    const connectedService = localStorage.getItem('shufflr_service') || 'max';
+    filteredYourShows = mergedYourShows.filter(show => {
+      if (connectedService === 'tubi') return !!show.tubiId;
+      return !!show.maxId || !!show.maxShowId || !!show.max_id;
+    });
   }
 
-  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists, standaloneYourShows);
+  const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists, filteredYourShows);
   const yourShows = (yourShowsSection.items || []).map(item => item.show);
 
   let html=`<div class="home-wrap">`;
