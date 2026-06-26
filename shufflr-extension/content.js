@@ -6768,7 +6768,14 @@ async function startTubiShuffle() {
     showToast('Could not identify this show.');
     return;
   }
-
+  const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
+  const alreadyReloaded = sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded';
+  if (!alreadyReloaded) {
+    sessionStorage.setItem(TUBI_PENDING_KEY, 'reloaded');
+    location.reload();
+    return;
+  }
+  sessionStorage.removeItem(TUBI_PENDING_KEY);
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
 
@@ -6870,8 +6877,14 @@ function tryInjectShufflrButtonOnTubi() {
 
 if (IS_TUBI) {
   console.log('[Shufflr] Tubi detected');
-  restoreTubiShuffleSession();
-  tryInjectShufflrButtonOnTubi();
+  const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
+  if (sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded') {
+    tryInjectShufflrButtonOnTubi();
+    setTimeout(() => { startTubiShuffle(); }, 2500);
+  } else {
+    restoreTubiShuffleSession();
+    tryInjectShufflrButtonOnTubi();
+  }
 }
 
 if (IS_MAX) {
