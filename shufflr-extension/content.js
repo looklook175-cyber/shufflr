@@ -1787,7 +1787,8 @@ async function addCurrentShowToYourShows() {
       showToast('Already in Your Shows');
       return;
     }
-    const tubiSeriesUrl = location.pathname.includes('/series/') ? location.href : null;
+    const tubiSlug = (title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const tubiSeriesUrl = `https://tubitv.com/series/${tubiId}/${tubiSlug}`;
     shows.push({ title, tubiId, tubiSeriesUrl });
     await writeYourShowsToStorage(shows);
     showToast(`Added ${title} to Your Shows`);
@@ -1855,7 +1856,8 @@ async function addCurrentShowToPlaylist(playlistIndex) {
     return;
   }
 
-  const tubiSeriesUrl = IS_TUBI && location.pathname.includes('/series/') ? location.href : null;
+  const tubiSlug = IS_TUBI ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null;
+  const tubiSeriesUrl = IS_TUBI ? `https://tubitv.com/series/${showId}/${tubiSlug}` : null;
   const showEntry = IS_TUBI
     ? { title, tubiId: showId, tubiSeriesUrl }
     : { title, maxId: showId };
