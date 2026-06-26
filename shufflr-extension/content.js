@@ -6329,8 +6329,7 @@ function getTubiSeriesId(url = location.href) {
   } catch { /* ignore */ }
 
   return readTubiSeriesIdFromReactQueryState()
-    || readTubiSeriesIdFromPageData()
-    || getTubiActiveShuffleSeriesId();
+    || readTubiSeriesIdFromPageData();
 }
 
 function getTubiShowIdFromUrl(url = location.href) {
