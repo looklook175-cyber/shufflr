@@ -2944,12 +2944,22 @@ function tryInjectButton() {
   if (!isChromeContextValid()) return Promise.resolve(false);
   if (document.getElementById('shufflr-wrap')) {
     const video = document.querySelector('video');
-    if (video) attachVideoListeners(video);
-    return IS_MAX ? fullyRestoreArmedShuffleSessionAfterInject() : Promise.resolve(false);
+    if (video && IS_MAX) attachVideoListeners(video);
+    if (isTubiEpisodePage()) installTubiEpisodeEndWatcher();
+    syncTubiShuffleUiState();
+    return IS_MAX ? fullyRestoreArmedShuffleSessionAfterInject() : Promise.resolve(true);
   }
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
-  if (!isVideoPage && !isShowPage) return Promise.resolve(false);
+  const isTubiPage = isTubiSeriesPage() || isTubiEpisodePage();
+  if (!isVideoPage && !isShowPage && !isTubiPage) return Promise.resolve(false);
+
+  if (isTubiPage) {
+    injectShufflrButton(null);
+    if (isTubiEpisodePage()) installTubiEpisodeEndWatcher();
+    syncTubiShuffleUiState();
+    return Promise.resolve(true);
+  }
 
   if (isShowPage) {
     saveShowPageUrl(location.href);
@@ -3215,6 +3225,10 @@ function onShuffleBtnClick(event) {
   if (!chrome.runtime?.id) return;
   event.preventDefault();
   event.stopPropagation();
+  if (IS_TUBI && (isTubiSeriesPage() || isTubiEpisodePage())) {
+    void startTubiShuffle();
+    return;
+  }
   toggleShuffle();
 }
 
@@ -6482,14 +6496,18 @@ async function startTubiShuffle() {
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
 
-  const episodes = await collectTubiEpisodes();
-  if (!episodes.length) {
+  let episodes = isTubiEpisodePage() ? await getCachedTubiEpisodes(showId) : null;
+  if (!episodes?.length) {
+    episodes = await collectTubiEpisodes();
+  }
+  if (!episodes?.length) {
     showToast('Could not find episodes.');
     return;
   }
 
   await setCachedTubiEpisodes(showId, episodes, showName);
   sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
+  syncTubiShuffleUiState();
 
   const pick = pickRandomTubiEpisode(episodes, location.href);
   if (!pick) {
@@ -6501,122 +6519,27 @@ async function startTubiShuffle() {
   window.location.href = pick.url;
 }
 
-function findTubiPlayButton() {
-  for (const el of document.querySelectorAll('button, a[role="button"], [role="button"]')) {
-    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    if (/^Play\s+S\d+/i.test(text)) return el;
-  }
-  return null;
-}
-
-function injectTubiStyles() {
-  if (document.getElementById('shufflr-tubi-styles')) return;
-
-  const style = document.createElement('style');
-  style.id = 'shufflr-tubi-styles';
-  style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-    #shufflr-tubi-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-left: 10px;
-      padding: 10px 16px;
-      background: rgba(15, 15, 20, 0.75);
-      border: 2px solid #1a6bff;
-      border-radius: 12px;
-      color: #1a6bff;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 11px;
-      letter-spacing: 1.5px;
-      line-height: 1.4;
-      cursor: pointer;
-      box-shadow: 0 0 20px rgba(26,107,255,0.4);
-      transition: all 0.2s ease;
-      backdrop-filter: blur(8px);
-      vertical-align: middle;
-    }
-    #shufflr-tubi-btn:hover {
-      background: #1a6bff;
-      color: #000;
-      box-shadow: 0 0 30px rgba(26,107,255,0.7);
-      transform: scale(1.04);
-    }
-    #shufflr-toast {
-      position: fixed;
-      bottom: 170px;
-      right: 24px;
-      z-index: 999999;
-      background: rgba(0,0,0,0.9);
-      border: 1px solid #1a6bff;
-      border-radius: 8px;
-      padding: 10px 16px;
-      color: #fff;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 11px;
-      opacity: 0;
-      transform: translateY(10px);
-      transition: all 0.3s ease;
-      pointer-events: none;
-      max-width: 280px;
-      line-height: 1.6;
-    }
-    #shufflr-toast.show {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-function ensureTubiToastElement() {
-  injectTubiStyles();
-  if (document.getElementById('shufflr-toast')) return;
-  const toast = document.createElement('div');
-  toast.id = 'shufflr-toast';
-  document.body.appendChild(toast);
-}
-
-function injectTubiSeriesPageButton() {
-  if (!isChromeContextValid() || !isTubiSeriesPage()) return;
-  if (document.getElementById('shufflr-tubi-btn')) return;
-
-  const playBtn = findTubiPlayButton();
-  if (!playBtn?.parentElement) {
-    console.log('[Shufflr] Tubi: Play button not found — shuffle button not injected');
-    return;
-  }
-
-  ensureTubiToastElement();
-
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.id = 'shufflr-tubi-btn';
-  btn.textContent = 'SHUFFLE';
-  btn.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    void startTubiShuffle();
-  });
-
-  if (playBtn.nextSibling) {
-    playBtn.parentElement.insertBefore(btn, playBtn.nextSibling);
-  } else {
-    playBtn.parentElement.appendChild(btn);
-  }
-
-  console.log('[Shufflr] Tubi: SHUFFLE button injected next to Play button');
+function syncTubiShuffleUiState() {
+  if (!IS_TUBI) return;
+  const showId = getTubiShowIdFromUrl();
+  if (!isTubiShuffleActiveForShow(showId)) return;
+  shufflrActive = true;
+  const btn = document.getElementById('shufflr-btn');
+  const label = document.getElementById('shufflr-label');
+  if (btn) btn.classList.add('active');
+  if (label) label.textContent = 'ON';
 }
 
 function installTubiButtonPersistenceObserver() {
-  if (!isChromeContextValid() || !isTubiSeriesPage()) return;
+  if (!isChromeContextValid()) return;
   if (window.__shufflrTubiButtonObserver) return;
   window.__shufflrTubiButtonObserver = true;
 
   tubiButtonObserver = new MutationObserver(() => {
-    if (!IS_TUBI || !isTubiSeriesPage()) return;
-    if (document.getElementById('shufflr-tubi-btn')) return;
-    injectTubiSeriesPageButton();
+    if (!IS_TUBI) return;
+    if (!isTubiSeriesPage() && !isTubiEpisodePage()) return;
+    if (document.getElementById('shufflr-wrap')) return;
+    void tryInjectButton();
   });
   tubiButtonObserver.observe(document.body, { childList: true, subtree: true });
 }
@@ -6658,15 +6581,13 @@ function tryInjectShufflrButtonOnTubi() {
   setTimeout(() => {
     if (!IS_TUBI) return;
 
-    if (isTubiSeriesPage()) {
-      console.log('[Shufflr] Tubi series page — injecting shuffle button');
-      injectTubiSeriesPageButton();
+    if (isTubiSeriesPage() || isTubiEpisodePage()) {
+      console.log('[Shufflr] Tubi page — injecting fixed Shufflr button');
+      void tryInjectButton();
       installTubiButtonPersistenceObserver();
     }
 
     if (isTubiEpisodePage()) {
-      console.log('[Shufflr] Tubi episode page — installing episode-end watcher');
-      ensureTubiToastElement();
       installTubiEpisodeEndWatcher();
     }
   }, 2000);
