@@ -1787,7 +1787,8 @@ async function addCurrentShowToYourShows() {
       showToast('Already in Your Shows');
       return;
     }
-    shows.push({ title, tubiId });
+    const tubiSeriesUrl = location.pathname.includes('/series/') ? location.href : null;
+    shows.push({ title, tubiId, tubiSeriesUrl });
     await writeYourShowsToStorage(shows);
     showToast(`Added ${title} to Your Shows`);
     return;
@@ -1854,8 +1855,9 @@ async function addCurrentShowToPlaylist(playlistIndex) {
     return;
   }
 
+  const tubiSeriesUrl = IS_TUBI && location.pathname.includes('/series/') ? location.href : null;
   const showEntry = IS_TUBI
-    ? { title, tubiId: showId }
+    ? { title, tubiId: showId, tubiSeriesUrl }
     : { title, maxId: showId };
 
   playlist.shows.push(showEntry);
