@@ -6328,8 +6328,18 @@ function getTubiSeriesId(url = location.href) {
     if (seriesMatch) return seriesMatch[1];
   } catch { /* ignore */ }
 
-  return readTubiSeriesIdFromReactQueryState()
-    || readTubiSeriesIdFromPageData();
+  const fromReactQuery = readTubiSeriesIdFromReactQueryState();
+  if (fromReactQuery) return fromReactQuery;
+  const fromPageData = readTubiSeriesIdFromPageData();
+  if (fromPageData) return fromPageData;
+
+  // new fallback: use episode video ID from URL as surrogate cache key
+  try {
+    const vidMatch = new URL(location.href, location.origin).pathname.match(/\/tv-shows\/(\d+)/);
+    if (vidMatch) return 'vid-' + vidMatch[1];
+  } catch { /* ignore */ }
+
+  return null;
 }
 
 function getTubiShowIdFromUrl(url = location.href) {
