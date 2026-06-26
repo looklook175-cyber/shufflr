@@ -107,6 +107,7 @@ function maxWatchUrlsRepresentSameEpisode(urlA, urlB, showMaxIdHint = null) {
 }
 const CMS_CAPTURE_KEY = 'shufflr_cms_template';
 const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
+const SHUFFLR_CACHE_CLEARED_V2_KEY = 'shufflr_cache_cleared_v2';
 const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const SUPABASE_URL = 'https://bzrwekraevbflypxahan.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_kNuk_g4uMWvhrexbh2MBmw_zxJ_7pFz';
@@ -5280,6 +5281,45 @@ function episodeCacheKey(showId) {
   return `${EPISODE_CACHE_PREFIX}${showId}`;
 }
 
+async function clearAllEpisodeCaches() {
+  if (!isChromeContextValid()) return 0;
+  const all = await new Promise(resolve => {
+    try {
+      chrome.storage.local.get(null, result => {
+        try {
+          if (handleChromeRuntimeLastError()) {
+            resolve({});
+            return;
+          }
+          resolve(result || {});
+        } catch (err) {
+          if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+          resolve({});
+        }
+      });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
+      resolve({});
+    }
+  });
+
+  const keys = Object.keys(all).filter(key => key.startsWith(EPISODE_CACHE_PREFIX));
+  if (!keys.length) return 0;
+
+  await chromeStorageLocalRemove(keys);
+  console.log(`[Shufflr] Cleared ${keys.length} stale episode cache(s)`);
+  return keys.length;
+}
+
+async function maybeClearStaleEpisodeCachesOnce() {
+  if (!isChromeContextValid()) return;
+  const flag = await storageLocalGet(SHUFFLR_CACHE_CLEARED_V2_KEY);
+  if (flag) return;
+
+  await clearAllEpisodeCaches();
+  await storageLocalSet(SHUFFLR_CACHE_CLEARED_V2_KEY, true);
+}
+
 function storageLocalGet(key) {
   if (!isChromeContextValid()) return Promise.resolve(undefined);
   return new Promise(resolve => {
@@ -6306,6 +6346,7 @@ async function checkForLaunchPlaylist() {
 
 if (!IS_SHUFFLR_WEB_APP) {
 installMaxPlaylistSyncListener();
+void maybeClearStaleEpisodeCachesOnce();
 void checkForLaunchStandaloneShow();
 void checkForLaunchPlaylist();
 void readShuffleSettings().then(settings => {
