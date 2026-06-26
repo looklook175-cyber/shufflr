@@ -3581,9 +3581,7 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
     ${buildYourShowPopupDescriptionHtml(overview)}
     <div class="pl-drawer-actions">
       <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="event.stopPropagation(); launchYourShowPopupShuffle()">▶ Play</button>
-      <div style="text-align:right;margin-top:8px;">
-        <button onclick="removeYourShowFromPopup()" style="background:none;border:none;color:#ff4444;font-family:'Press Start 2P',monospace;font-size:8px;cursor:pointer;padding:4px 0;">✕ Remove Show</button>
-      </div>
+      <button onclick="removeYourShowFromPopup()" style="background:none;border:none;color:#ff4444;font-family:'Press Start 2P',monospace;font-size:8px;cursor:pointer;padding:8px 0 0 0;display:block;">✕ Remove Show</button>
     </div>
     <div class="ysp-seasons-scroll">
       <div class="your-show-popup-seasons-label">SEASONS</div>
