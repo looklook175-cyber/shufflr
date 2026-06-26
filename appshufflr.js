@@ -1922,6 +1922,7 @@ function selectService(btn, svc){
   btn.classList.add('connected');
   // Update sidebar button label
   updateConnectBtnLabel();
+  renderHomeScreen();
 }
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
