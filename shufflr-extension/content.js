@@ -225,13 +225,6 @@ function handleExtensionContextInvalidated() {
     window.__shufflrFullscreenListener = false;
   }
 
-  if (window.__shufflrShowPageClickInterceptor) {
-    try {
-      document.removeEventListener('click', handleShowPageEpisodeClick, true);
-    } catch {}
-    window.__shufflrShowPageClickInterceptor = false;
-  }
-
   if (armedUrlPopstateHandler) {
     try {
       window.removeEventListener('popstate', armedUrlPopstateHandler);
@@ -5997,109 +5990,6 @@ function showToast(message) {
 
 let showPageAutoplayPollTimer = null;
 
-// Returns true when the click target is inside Shufflr's injected UI.
-function isShufflrUiClick(target) {
-  return !!target?.closest('[id^="shufflr"], [class*="shufflr-"]');
-}
-
-// Finds the nearest episode watch link from a show-page click target.
-function findEpisodeLinkFromClick(target) {
-  const anchor = target?.closest('a[href*="/video/watch/"], a[href*="/video/"], a[href*="/play/"]');
-  if (!anchor?.href || anchor.href.includes('javascript')) return null;
-  if (!isVideoWatchUrl(anchor.href)) return null;
-  return anchor;
-}
-
-// Sync pre-checks before intercepting a show-page episode click.
-function shouldInterceptShowPageEpisodeClick() {
-  if (!location.href.includes('/show/')) return false;
-  if (!shufflrActive) return false;
-  if (armedPlaylistCached) return false;
-  if (orderedEpisodesCached) return false;
-  return true;
-}
-
-// Standalone mode: intercept show-page episode clicks and redirect to a random episode.
-async function handleShowPageEpisodeClick(e) {
-  if (!isChromeContextValid()) return;
-  if (!shouldInterceptShowPageEpisodeClick()) return;
-  if (isShufflrUiClick(e.target)) return;
-
-  const anchor = findEpisodeLinkFromClick(e.target);
-  if (!anchor) return;
-
-  const clickedUrl = normalizeEpisodeUrl(anchor.href);
-
-  e.preventDefault();
-  e.stopPropagation();
-  if (typeof e.stopImmediatePropagation === 'function') {
-    e.stopImmediatePropagation();
-  }
-
-  const active = await getActivePlaylistFromStorage();
-  if (active?.armed) {
-    location.href = clickedUrl;
-    return;
-  }
-
-  const settings = await readShuffleSettings();
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-  if (settings.orderedEpisodes) {
-    location.href = clickedUrl;
-    return;
-  }
-
-  if (!shufflrActive && !(await isStandaloneShuffleEnabled())) {
-    location.href = clickedUrl;
-    return;
-  }
-
-  const showId = extractShowId(location.href) || extractMaxShowUuidFromUrl(location.href);
-  if (!showId) {
-    location.href = clickedUrl;
-    return;
-  }
-
-  saveShowPageUrl(location.href);
-
-  let episodes = await getCachedEpisodes(showId);
-  if (!episodes?.length) {
-    showToast('Loading episodes...');
-    episodes = await collectEpisodesViaApi(location.href);
-  }
-
-  if (!episodes?.length) {
-    showToast('Could not load episode list.');
-    location.href = clickedUrl;
-    return;
-  }
-
-  const showHint = showId;
-  const currentKeys = buildCurrentEpisodeKeys(clickedUrl, showHint);
-  const pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
-
-  if (!pool.length) {
-    showToast('No other episodes to shuffle to.');
-    location.href = clickedUrl;
-    return;
-  }
-
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  console.log(`[Shufflr] Show-page click shuffle: ${clickedUrl} → ${pick}`);
-
-  const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
-  beginShufflrNavigation(episodeId);
-  console.log('[Shufflr] Show-page intercept fired, navigating to:', pick.id);
-  beginShufflrNavigation(pick.id);
-}
-
-// Capture-phase listener so we intercept episode clicks before Max navigates.
-function installShowPageEpisodeClickInterceptor() {
-  if (window.__shufflrShowPageClickInterceptor) return;
-  window.__shufflrShowPageClickInterceptor = true;
-  document.addEventListener('click', handleShowPageEpisodeClick, true);
-}
-
 // Warm the CMS episode cache on show pages when standalone shuffle is active.
 async function prefetchShowPageEpisodeCacheIfStandalone() {
   if (!isChromeContextValid()) return;
@@ -6365,7 +6255,6 @@ setTimeout(() => {
   startShuffleWatchdog();
   installTimeupdateWatcher();
   installArmedUrlGuard();
-  installShowPageEpisodeClickInterceptor();
   void syncShuffleUIFromStorage().then(() => {
     void maybeAutoClickShowPageResume();
     void prefetchShowPageEpisodeCacheIfStandalone();
