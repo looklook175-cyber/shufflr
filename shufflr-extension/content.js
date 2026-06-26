@@ -113,6 +113,8 @@ const SUPABASE_URL = 'https://bzrwekraevbflypxahan.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_kNuk_g4uMWvhrexbh2MBmw_zxJ_7pFz';
 const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
+const IS_MAX = ['play.max.com', 'www.max.com', 'play.hbomax.com', 'www.hbomax.com'].includes(location.hostname);
+const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 
 let extensionContextInvalidated = false;
 let extensionContextHealthCheckTimer = null;
@@ -6234,7 +6236,79 @@ async function checkForLaunchPlaylist() {
   }, 1500);
 }
 
-if (!IS_SHUFFLR_WEB_APP) {
+// ── TUBI HELPERS ───────────────────────────────────────────────────────────
+function isTubiSeriesPage() {
+  return IS_TUBI && location.pathname.includes('/series/');
+}
+
+function isTubiEpisodePage() {
+  return IS_TUBI && location.pathname.includes('/tv-shows/');
+}
+
+function getTubiShowIdFromUrl(url = location.href) {
+  try {
+    const path = new URL(url, location.origin).pathname;
+    const seriesMatch = path.match(/\/series\/(\d+)/);
+    if (seriesMatch) return seriesMatch[1];
+    const episodeMatch = path.match(/\/tv-shows\/(\d+)/);
+    if (episodeMatch) return episodeMatch[1];
+  } catch { /* ignore */ }
+  return null;
+}
+
+function getTubiShowTitle() {
+  const selectors = [
+    'h1[data-testid="video-title"]',
+    '[data-testid="video-title"]',
+    '[class*="VideoTitle"]',
+    '[class*="video-title"]',
+    'main h1',
+    'h1',
+  ];
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    const text = el?.textContent?.replace(/\s+/g, ' ').trim();
+    if (text) return text;
+  }
+  const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+  return ogTitle?.trim() || null;
+}
+
+function formatTubiEpisodeLabel(season, episode) {
+  return `S${String(season).padStart(2, '0')}:E${String(episode).padStart(2, '0')}`;
+}
+
+function getTubiEpisodeInfo() {
+  const episodePattern = /\bS(\d+)\s*:?\s*E(\d+)\b/i;
+  const playerRoot = document.querySelector('video')?.closest('main, section, [class*="player"], [class*="Player"]')
+    || document.querySelector('main')
+    || document.body;
+
+  for (const el of playerRoot.querySelectorAll('h2, h3, p, span, div, [data-testid*="episode"], [class*="episode"], [class*="Episode"]')) {
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text || text.length > 80) continue;
+    const match = text.match(episodePattern);
+    if (match) return formatTubiEpisodeLabel(match[1], match[2]);
+  }
+
+  try {
+    const slugMatch = location.pathname.match(/s(\d+)-e(\d+)/i);
+    if (slugMatch) return formatTubiEpisodeLabel(slugMatch[1], slugMatch[2]);
+  } catch { /* ignore */ }
+
+  return null;
+}
+
+function tryInjectShufflrButtonOnTubi() {
+  console.log('[Shufflr] Tubi ready - button injection coming soon');
+}
+
+if (IS_TUBI) {
+  console.log('[Shufflr] Tubi detected');
+  tryInjectShufflrButtonOnTubi();
+}
+
+if (IS_MAX) {
 installMaxPlaylistSyncListener();
 void maybeClearStaleEpisodeCachesOnce();
 void checkForLaunchStandaloneShow();
