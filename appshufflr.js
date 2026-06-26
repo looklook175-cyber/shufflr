@@ -3663,8 +3663,14 @@ async function openYourShowPopup(pi,si){
 }
 
 function launchYourShowPopupShuffle(){
+  const show = yourShowPopupContext?.show;
+  if (show?.tubiId) {
+    const tubiUrl = `https://tubitv.com/series/${show.tubiId}`;
+    window.open(tubiUrl, '_blank');
+    return;
+  }
   if(!yourShowPopupContext)return;
-  const{show,maxId}=yourShowPopupContext;
+  const{maxId}=yourShowPopupContext;
   const launchUrl=getShowMaxUrlFromPlaylistShow(show)||(maxId?`https://play.max.com/show/${String(maxId)}`:null);
   if(!launchUrl){
     showToast('NO MAX URL');
