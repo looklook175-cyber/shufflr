@@ -6772,7 +6772,7 @@ async function startTubiShuffle() {
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
 
-  let episodes = isTubiEpisodePage() ? await getCachedTubiEpisodes(showId) : null;
+  let episodes = (isTubiEpisodePage() && shufflrActive) ? await getCachedTubiEpisodes(showId) : null;
   if (!episodes?.length) {
     episodes = await collectTubiEpisodes();
   }
