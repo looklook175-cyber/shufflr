@@ -1773,6 +1773,26 @@ async function writeYourShowsToStorage(shows) {
 
 async function addCurrentShowToYourShows() {
   if (!isChromeContextValid()) return;
+
+  if (IS_TUBI) {
+    const tubiId = getTubiShowIdFromUrl();
+    if (!tubiId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const shows = await readYourShowsFromStorage();
+    const alreadyAdded = shows.some(show => show.tubiId === tubiId);
+    if (alreadyAdded) {
+      showToast('Already in Your Shows');
+      return;
+    }
+    shows.push({ title, tubiId });
+    await writeYourShowsToStorage(shows);
+    showToast(`Added ${title} to Your Shows`);
+    return;
+  }
+
   const uuid = getCurrentMaxShowUuid();
   if (!uuid) {
     showToast('Could not find show ID');
