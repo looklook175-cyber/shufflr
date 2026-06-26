@@ -6748,7 +6748,12 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
 
 async function startTubiShuffle() {
   if (!isChromeContextValid()) return;
-  const showId = getTubiShowIdFromUrl();
+  let showId = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    showId = getTubiShowIdFromUrl();
+    if (showId) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
   if (!showId) {
     showToast('Could not identify this show.');
     return;
