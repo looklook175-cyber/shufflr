@@ -6774,6 +6774,7 @@ async function startTubiShuffle() {
 
   let episodes = (isTubiEpisodePage() && shufflrActive) ? await getCachedTubiEpisodes(showId) : null;
   if (!episodes?.length) {
+    await new Promise(r => setTimeout(r, 800));
     episodes = await collectTubiEpisodes();
   }
   if (!episodes?.length) {
