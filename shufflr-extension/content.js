@@ -1429,20 +1429,35 @@ async function submitCreatePlaylistForm() {
     return;
   }
 
-  const uuid = getCurrentMaxShowUuid();
-  if (!uuid) {
-    showToast('Could not find show ID');
-    return;
+  let showEntry, serviceTag;
+  if (IS_TUBI) {
+    const tubiId = getTubiShowIdFromUrl();
+    if (!tubiId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const tubiSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const tubiSeriesUrl = `https://tubitv.com/series/${tubiId}/${tubiSlug}`;
+    showEntry = { title, tubiId, tubiSeriesUrl };
+    serviceTag = 'tubi';
+  } else {
+    const uuid = getCurrentMaxShowUuid();
+    if (!uuid) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getCurrentShowTitle();
+    showEntry = { title, maxId: uuid };
+    serviceTag = 'max';
   }
-
-  const title = getCurrentShowTitle();
   const playlists = await readPlaylistsFromStorage();
   playlists.push({
     id: generatePlaylistId(),
     name,
-    shows: [{ title, maxId: uuid }],
+    shows: [showEntry],
     episodes: [],
-    service: 'max',
+    service: serviceTag,
   });
 
   await writePlaylistsToStorage(playlists);
