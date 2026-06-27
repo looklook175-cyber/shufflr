@@ -6819,6 +6819,10 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
   tubiEpisodeEndTriggered = true;
   window.location.href = pick.url;
+  setTimeout(() => {
+    tubiEpisodeEndTriggered = false;
+    installTubiEpisodeEndWatcher();
+  }, 3000);
 }
 
 async function startTubiShuffle() {
