@@ -3583,7 +3583,10 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
       <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="event.stopPropagation(); launchYourShowPopupShuffle()">▶ Play</button>
     </div>
     <div class="ysp-seasons-scroll">
-      <div class="your-show-popup-seasons-label">SEASONS</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+        <div class="your-show-popup-seasons-label" style="color:#23A8E0;font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:1px;">SEASONS</div>
+        <button onclick="removeYourShowFromPopup()" style="background:none;border:none;color:#ff4444;font-family:'Press Start 2P',monospace;font-size:9px;cursor:pointer;padding:0;">✕ Remove</button>
+      </div>
       <div class="your-show-popup-season-list">${buildYourShowPopupSeasonAccordionHtml()}</div>
     </div>`;
   bindYourShowPopupAccordion(popup);
@@ -3679,6 +3682,28 @@ function launchYourShowPopupShuffle(){
   closeYourShowPopup();
   setStandaloneLaunchViaBridge(launchUrl,maxId,null);
   window.open(launchUrl,'_blank');
+}
+
+async function removeYourShowFromPopup() {
+  if (!yourShowPopupContext) return;
+  const { pi, show } = yourShowPopupContext;
+  if (pi !== -1) {
+    showToast('Remove this show from its playlist instead.');
+    return;
+  }
+  const stored = readLocalYourShows();
+  const key = show.tubiId || show.maxId || show.maxShowId || show.max_id;
+  const filtered = stored.filter(s => {
+    const k = s.tubiId || s.maxId || s.maxShowId || s.max_id;
+    return k !== key;
+  });
+  localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(filtered));
+  if (typeof window.shufflrSaveYourShowsToCloud === 'function') {
+    await window.shufflrSaveYourShowsToCloud(filtered);
+  }
+  closeYourShowPopup();
+  showToast('Show removed.');
+  renderHomeScreen();
 }
 
 async function openYourShowDetailPage(pi,si){
