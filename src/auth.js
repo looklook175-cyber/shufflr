@@ -345,6 +345,18 @@ window.shufflrGetYourShowsFromCloud = async () => {
   }
 }
 
+window.shufflrSaveYourShowsToCloud = async (shows) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  try {
+    await supabase
+      .from('your_shows')
+      .upsert({ user_id: user.id, shows: Array.isArray(shows) ? shows : [] }, { onConflict: 'user_id' });
+  } catch (e) {
+    console.error('[Shufflr] Failed to save Your Shows to cloud:', e);
+  }
+};
+
 bindAuthUI()
 
 // Refresh the Supabase session when the tab wakes up so Recently Watched stays signed in.
