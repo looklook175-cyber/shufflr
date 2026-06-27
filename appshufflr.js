@@ -3585,7 +3585,7 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
     <div class="ysp-seasons-scroll">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;margin-bottom:8px;">
         <div style="color:#23A8E0;font-size:11px;letter-spacing:1px;">SEASONS</div>
-        <button onclick="removeYourShowFromPopup()" onmouseover="this.style.color='#ff4444';this.style.textShadow='0 0 8px #ff4444';" onmouseout="this.style.color='#666';this.style.textShadow='none';" style="background:none;border:none;color:#666;font-size:11px;cursor:pointer;padding:0;letter-spacing:1px;transition:color 0.2s;">✕ Remove</button>
+        <button onclick="removeYourShowFromPopup()" onmouseover="this.style.color='#ff4444';this.style.textShadow='0 0 8px #ff4444';" onmouseout="this.style.color='#999';this.style.textShadow='none';" style="background:none;border:none;color:#999;font-size:11px;cursor:pointer;padding:0;letter-spacing:1px;transition:color 0.2s;">✕ Remove</button>
       </div>
       <div class="your-show-popup-season-list">${buildYourShowPopupSeasonAccordionHtml()}</div>
     </div>`;
