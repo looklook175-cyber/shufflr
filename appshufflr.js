@@ -2597,39 +2597,60 @@ function renderPlaylistPage(){
   if(!playlists.length){
     html+=`<div class="empty-state"><div class="empty-sub">${t('empty.noPlaylistsPlaylistTab')}</div></div>`;
   } else {
-    html+=playlists.map((p,pi)=>{
-      const itemCount=(p.shows||[]).length+(p.episodes||[]).length;
-      const expanded=expandedPlaylistIndex===pi;
-      return `
-      <div class="pl-card${expanded?' expanded':''}" data-pl-index="${pi}">
-        <div class="pl-card-header" onclick="handlePlaylistHeaderClick(event, ${pi})">
-          <div class="pl-card-header-info">
-            <div class="pl-card-name-row">
-              <div class="pl-card-name">${escapeHtml(p.name)}</div>
-              <button type="button" class="pl-rename-btn" onclick="startPlaylistRename(event, ${pi})" aria-label="Rename playlist" title="Rename playlist">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-              </button>
+    const serviceGroups = {};
+    playlists.forEach((p, pi) => {
+      const svc = p.service || 'max';
+      if (!serviceGroups[svc]) serviceGroups[svc] = [];
+      serviceGroups[svc].push({ p, pi });
+    });
+    const serviceLabels = { max: 'HBO Max', tubi: 'Tubi', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
+    html += Object.entries(serviceGroups).map(([svc, entries]) => {
+      const label = serviceLabels[svc] || svc.toUpperCase();
+      const groupId = `pl-group-${svc}`;
+      const rows = entries.map(({ p, pi }) => {
+        const itemCount = (p.shows||[]).length + (p.episodes||[]).length;
+        const expanded = expandedPlaylistIndex === pi;
+        return `
+        <div class="pl-card${expanded?' expanded':''}" data-pl-index="${pi}">
+          <div class="pl-card-header" onclick="handlePlaylistHeaderClick(event, ${pi})">
+            <div class="pl-card-header-info">
+              <div class="pl-card-name-row">
+                <div class="pl-card-name">${escapeHtml(p.name)}</div>
+                <button type="button" class="pl-rename-btn" onclick="startPlaylistRename(event, ${pi})" aria-label="Rename playlist" title="Rename playlist">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+              </div>
+              <div class="pl-card-count">${itemCount} ${itemCount!==1?t('pl.items'):t('pl.item')}</div>
             </div>
-            <div class="pl-card-count">${itemCount} ${itemCount!==1?t('pl.items'):t('pl.item')}</div>
+            <div class="pl-card-actions" onclick="event.stopPropagation()">
+              <button class="pl-shuffle-btn" onclick="sharePlaylist(${pi})" style="border-color:var(--muted);color:var(--muted);">
+                <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+                ${t('btn.share').toUpperCase()}
+              </button>
+              <button class="pl-shuffle-btn" onclick="playPlaylist(${pi})" style="background:var(--blue);color:#000;border-color:var(--blue);" title="Open your connected streaming service">
+                ▶ ${t('btn.play').toUpperCase()}
+              </button>
+              <button class="pl-delete-btn" onclick="deletePlaylist(${pi})">${t('btn.delete')}</button>
+            </div>
           </div>
-          <div class="pl-card-actions" onclick="event.stopPropagation()">
-            <button class="pl-shuffle-btn" onclick="sharePlaylist(${pi})" style="border-color:var(--muted);color:var(--muted);">
-              <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-              ${t('btn.share').toUpperCase()}
-            </button>
-            <button class="pl-shuffle-btn" onclick="playPlaylist(${pi})" style="background:var(--blue);color:#000;border-color:var(--blue);" title="Open your connected streaming service">
-              ▶ ${t('btn.play').toUpperCase()}
-            </button>
-            <button class="pl-delete-btn" onclick="deletePlaylist(${pi})">${t('btn.delete')}</button>
+          <div class="pl-card-body">
+            <div class="pl-card-body-inner">
+              ${buildPlCardItemsHtml(p, pi)}
+              <button type="button" class="pl-add-show-btn" onclick="showAddShowFromPlaylistToast(event)">+ ${t('btn.addShow')}</button>
+            </div>
           </div>
-        </div>
-        <div class="pl-card-body">
-          <div class="pl-card-body-inner">
-            ${buildPlCardItemsHtml(p, pi)}
-            <button type="button" class="pl-add-show-btn" onclick="showAddShowFromPlaylistToast(event)">+ ${t('btn.addShow')}</button>
+        </div>`;
+      }).join('');
+      return `
+        <div class="pl-service-group">
+          <div class="pl-service-header" onclick="this.parentElement.classList.toggle('collapsed')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px 0 8px;color:var(--blue);font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;border-bottom:1px solid #222;margin-bottom:8px;">
+            <span class="pl-service-chevron" style="display:inline-block;transition:transform 0.2s;">▼</span>
+            ${label}
           </div>
-        </div>
-      </div>`;
+          <div class="pl-service-body">
+            ${rows}
+          </div>
+        </div>`;
     }).join('');
   }
   html+=`</div>`;

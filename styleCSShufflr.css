@@ -2115,3 +2115,6 @@ body.light-mode .main::-webkit-scrollbar-corner {
 /* ============================================================
    END STARS
    ============================================================ */
+
+.pl-service-group.collapsed .pl-service-body { display: none; }
+.pl-service-group.collapsed .pl-service-chevron { transform: rotate(-90deg); }
