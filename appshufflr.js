@@ -3355,6 +3355,15 @@ async function playPlaylist(pi){
   if(!loggedIn){showToast('You must sign in to use this feature.');return;}
   const p=playlists[pi];
   if(!(p.shows||[]).length&&!(p.episodes||[]).length){showToast('NOTHING IN PLAYLIST');return;}
+  if ((p.service || 'max') === 'tubi') {
+    const tubiShows = (p.shows || []).filter(s => s.tubiId);
+    if (!tubiShows.length) { showToast('NO TUBI SHOWS IN PLAYLIST'); return; }
+    const pick = tubiShows[Math.floor(Math.random() * tubiShows.length)];
+    const url = pick.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(pick.title || '')}`;
+    showToast('OPENING: ' + (pick.title || '').toUpperCase().slice(0, 18));
+    window.open(url, '_blank');
+    return;
+  }
   const selectedService=localStorage.getItem('shufflr_service')||'netflix';
   showToast('SMART SHUFFLE...');
   const playedByShow={};
