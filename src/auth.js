@@ -155,13 +155,14 @@ function cloudRowsToPlaylists(remoteRows) {
     shows: Array.isArray(row.shows) ? row.shows : [],
     episodes: [],
     cloudId: row.id,
+    service: row.service || 'max',
   }))
 }
 
 async function loadCloudPlaylists(userId) {
   const { data, error } = await supabase
     .from('playlists')
-    .select('id, name, shows')
+    .select('id, name, shows, service')
     .eq('user_id', userId)
 
   if (error) throw error
