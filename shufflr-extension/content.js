@@ -1893,7 +1893,9 @@ async function populatePlaylistDropdown() {
   if (!isChromeContextValid()) return;
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (!dropdown) return;
-  dropdownPlaylists = await readPlaylistsFromStorage();
+  const allPlaylists = await readPlaylistsFromStorage();
+  const currentService = IS_TUBI ? 'tubi' : 'max';
+  dropdownPlaylists = allPlaylists.filter(p => (p.service || 'max') === currentService);
   const settings = await readShuffleSettings();
   dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists, settings);
 }
