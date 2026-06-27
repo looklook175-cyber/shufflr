@@ -57,7 +57,7 @@
 </div>
 
 <!-- CONNECT MODAL -->
-<div id="connect-modal">
+<div id="connect-modal" onclick="if(event.target===this)closeConnect()">
   <div class="connect-card">
     <div class="connect-title" data-i18n="connect.yourService">YOUR SERVICE</div>
     <div class="connect-sub" data-i18n="connect.pickService">Pick the service you use. Episode links will open there.</div>
@@ -73,7 +73,7 @@
       <div class="service-row" data-svc="appletv"><div><div class="service-name">Apple TV+</div></div><button class="service-connect-btn" onclick="selectService(this,'appletv')">Connect</button></div>
       <div class="service-row" data-svc="crunchyroll"><div><div class="service-name">Crunchyroll</div></div><button class="service-connect-btn" onclick="selectService(this,'crunchyroll')">Connect</button></div>
     </div>
-    <button class="close-modal-btn" onclick="closeConnect()" data-i18n="connect.done">Done</button>
+    <button class="close-modal-btn" onclick="closeConnect()" style="color:#999;background:none;" data-i18n="connect.done">Done</button>
   </div>
 </div>
 
