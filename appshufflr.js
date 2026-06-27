@@ -2846,6 +2846,13 @@ async function launchShowFromDrawer(playlistIndex, showIndex) {
   const playlist = homePlaylistsCache[playlistIndex];
   const show = (playlist?.shows || [])[showIndex];
   if (!playlist || !show) return;
+  if (show.tubiId) {
+    const url = show.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(show.title || '')}`;
+    showToast('OPENING: ' + (show.title || '').toUpperCase().slice(0, 18));
+    window.open(url, '_blank');
+    closePlaylistDrawer();
+    return;
+  }
   const launchUrl = getShowMaxUrlFromPlaylistShow(show);
   if (!launchUrl) return;
   setActivePlaylistViaBridge(playlist, launchUrl);
