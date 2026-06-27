@@ -1377,13 +1377,13 @@ function renderPlaylistRow(playlist, index) {
             type="button"
             class="shufflr-pl-action-btn"
             data-pl-action="shuffle"
-            data-pl-index="${index}"
+            data-pl-index="${playlist._globalIndex !== undefined ? playlist._globalIndex : index}"
             aria-label="Shuffle ${name}"
           >▶</button>
           <button
             type="button"
             class="shufflr-pl-action-btn shufflr-pl-add-btn"
-            data-pl-index="${index}"
+            data-pl-index="${playlist._globalIndex !== undefined ? playlist._globalIndex : index}"
             aria-label="Add current show to ${name}"
           >+</button>
           <button
@@ -1895,9 +1895,14 @@ async function populatePlaylistDropdown() {
   if (!dropdown) return;
   const allPlaylists = await readPlaylistsFromStorage();
   const currentService = IS_TUBI ? 'tubi' : 'max';
-  dropdownPlaylists = allPlaylists.filter(p => (p.service || 'max') === currentService);
+  const filteredPlaylists = allPlaylists.filter(p => (p.service || 'max') === currentService);
+  dropdownPlaylists = allPlaylists;
   const settings = await readShuffleSettings();
-  dropdown.innerHTML = renderPlaylistDropdownContent(dropdownPlaylists, settings);
+  const indexedPlaylists = filteredPlaylists.map(p => ({
+    ...p,
+    _globalIndex: allPlaylists.indexOf(p)
+  }));
+  dropdown.innerHTML = renderPlaylistDropdownContent(indexedPlaylists, settings);
 }
 
 function smartShuffleEpKey(seasonNum, epNum) {
