@@ -1687,6 +1687,7 @@ async function syncPlaylistsToSupabaseFromExtension(playlists) {
       user_id: session.userId,
       name: pl.name,
       shows: pl.shows,
+      service: pl.service || 'max',
     };
     if (pl.cloudId) row.id = pl.cloudId;
 
