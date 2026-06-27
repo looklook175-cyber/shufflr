@@ -671,15 +671,16 @@ function getActivePlaylistShowsForHome(allPlaylists=playlists,standaloneShows=[]
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
   const allSource = Array.isArray(allPlaylists) ? allPlaylists : playlists;
   const source = allSource.filter(p => (p.service || 'max') === connectedService);
-  for(let pi=0;pi<source.length;pi++){
-    const plShows=source[pi]?.shows||[];
+  for(let fi=0;fi<source.length;fi++){
+    const globalPi = allSource.indexOf(source[fi]);
+    const plShows=source[fi]?.shows||[];
     for(let si=0;si<plShows.length;si++){
       const show=plShows[si];
       if(show?.release_date)continue;
       const key=getHomeShowDedupeKey(show);
       if(!key||seen.has(key))continue;
       seen.add(key);
-      items.push({show,playlistIndex:pi,showIndex:si});
+      items.push({show,playlistIndex:globalPi,showIndex:si});
     }
   }
   const standalone=Array.isArray(standaloneShows)?standaloneShows:[];
