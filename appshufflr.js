@@ -3630,19 +3630,19 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
   popup.hidden=false;
 }
 
-async function toggleYourShowPopup(pi,si){
-  const key=yourShowPopupKey(pi,si);
-  if(openYourShowPopupKey===key){
+function toggleYourShowPopup(pi,si,card){
+  const key=`${pi}:${si}`;
+  if(yourShowPopupKey===key&&yourShowPopupContext){
     closeYourShowPopup();
-    return;
+  } else {
+    openYourShowPopup(pi,si,card);
   }
-  await openYourShowPopup(pi,si);
 }
 
-async function openYourShowPopup(pi,si){
+async function openYourShowPopup(pi,si,clickedCard){
   let show;
   if (pi === -1) {
-    const card = document.querySelector(`.your-show-card[data-show-playlist-index="-1"][data-show-index="-1"]`);
+    const card = clickedCard || document.querySelector(`.your-show-card[data-show-playlist-index="-1"][data-show-index="-1"]`);
     const json = card?.dataset?.showJson;
     if (!json) return;
     try { show = JSON.parse(json); } catch { return; }
@@ -4934,7 +4934,7 @@ document.addEventListener('click',e=>{
   if(yourShowCard){
     const pi=parseInt(yourShowCard.dataset.showPlaylistIndex,10);
     const si=parseInt(yourShowCard.dataset.showIndex,10);
-    if(Number.isFinite(pi)&&Number.isFinite(si))toggleYourShowPopup(pi,si);
+    if(Number.isFinite(pi)&&Number.isFinite(si))toggleYourShowPopup(pi,si,yourShowCard);
     return;
   }
   if(!e.target.closest('#your-show-popup')){
