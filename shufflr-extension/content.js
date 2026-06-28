@@ -6858,6 +6858,22 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   }
 
   let episodes = await getCachedTubiEpisodes(targetShowId);
+
+  // If target show has no cache and is different from current show,
+  // navigate to its series page so episodes can be collected on arrival
+  if (!episodes?.length && targetShowId !== showId) {
+    const targetShow = allTubiShowIds.length > 1
+      ? tubiPlaylists.flatMap(p => p.shows || []).find(s => s.tubiId === targetShowId)
+      : null;
+    if (targetShow) {
+      const targetUrl = targetShow.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(targetShow.title || '')}`;
+      console.log(`[Shufflr] Tubi round-robin: navigating to ${targetShow.title} to collect episodes`);
+      showToast(`Switching to ${targetShow.title}...`);
+      window.location.href = targetUrl;
+      return;
+    }
+  }
+
   if (!episodes?.length) {
     episodes = await getCachedTubiEpisodes(showId);
   }
