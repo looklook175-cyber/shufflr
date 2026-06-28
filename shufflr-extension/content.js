@@ -7016,7 +7016,7 @@ if (IS_TUBI) {
   const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
   const pendingVal = sessionStorage.getItem(TUBI_PENDING_KEY);
   if (pendingVal === 'reloaded' || pendingVal === 'roundrobin') {
-    restoreTubiShuffleSession();
+    sessionStorage.removeItem(TUBI_PENDING_KEY);
     tryInjectShufflrButtonOnTubi();
     setTimeout(() => { startTubiShuffle(); }, 2500);
   } else {
