@@ -7023,17 +7023,8 @@ function tryInjectShufflrButtonOnTubi() {
 
 if (IS_TUBI) {
   console.log('[Shufflr] Tubi detected');
-  const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
-  const hasPending = sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded';
-  if (hasPending) {
-    sessionStorage.removeItem(TUBI_PENDING_KEY);
-    shufflrActive = false;
-    tryInjectShufflrButtonOnTubi();
-    setTimeout(() => { startTubiShuffle(); }, 2500);
-  } else {
-    restoreTubiShuffleSession();
-    tryInjectShufflrButtonOnTubi();
-  }
+  restoreTubiShuffleSession();
+  tryInjectShufflrButtonOnTubi();
 
   // Tubi shuffle cop — detects native autoplay navigation and corrects it
   let tubiLastUrl = location.href;
