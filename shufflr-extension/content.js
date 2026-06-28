@@ -6894,6 +6894,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
   tubiEpisodeEndTriggered = true;
+  captureFullscreenBeforeShufflrNavigation();
   window.location.href = pick.url;
   setTimeout(() => {
     tubiEpisodeEndTriggered = false;
@@ -7025,6 +7026,9 @@ function installTubiEpisodeEndWatcher() {
   };
 
   video.addEventListener('timeupdate', tubiTimeupdateHandler);
+  video.addEventListener('playing', () => {
+    showFullscreenRestorePrompt();
+  }, { once: true });
   console.log('[Shufflr] Tubi: episode-end watcher installed');
 }
 
