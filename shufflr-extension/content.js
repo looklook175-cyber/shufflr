@@ -6901,6 +6901,29 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   }, 3000);
 }
 
+async function autoStartTubiShuffleAfterReload() {
+  if (!isChromeContextValid()) return;
+  let showId = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    showId = getTubiShowIdFromUrl();
+    if (showId) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (!showId) return;
+  const showName = getTubiShowTitle() || 'this show';
+  showToast(`Shuffling ${showName}...`);
+  let episodes = await collectTubiEpisodes();
+  if (!episodes?.length) { showToast('Could not find episodes.'); return; }
+  await setCachedTubiEpisodes(showId, episodes, showName);
+  sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
+  shufflrActive = true;
+  syncTubiShuffleUiState();
+  const pick = pickRandomTubiEpisode(episodes, location.href);
+  if (!pick) { showToast('Could not pick an episode.'); return; }
+  console.log(`[Shufflr] Tubi auto-start: ${episodes.length} episodes → ${pick.url}`);
+  window.location.href = pick.url;
+}
+
 async function startTubiShuffle() {
   if (!isChromeContextValid()) return;
   let showId = null;
@@ -7023,8 +7046,17 @@ function tryInjectShufflrButtonOnTubi() {
 
 if (IS_TUBI) {
   console.log('[Shufflr] Tubi detected');
-  restoreTubiShuffleSession();
-  tryInjectShufflrButtonOnTubi();
+  const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
+  const hasPending = sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded';
+  if (hasPending) {
+    sessionStorage.removeItem(TUBI_PENDING_KEY);
+    shufflrActive = false;
+    tryInjectShufflrButtonOnTubi();
+    setTimeout(() => { void autoStartTubiShuffleAfterReload(); }, 2500);
+  } else {
+    restoreTubiShuffleSession();
+    tryInjectShufflrButtonOnTubi();
+  }
 
   // Tubi shuffle cop — detects native autoplay navigation and corrects it
   let tubiLastUrl = location.href;
