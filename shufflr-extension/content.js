@@ -6869,6 +6869,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
       const targetUrl = targetShow.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(targetShow.title || '')}`;
       console.log(`[Shufflr] Tubi round-robin: navigating to ${targetShow.title} to collect episodes`);
       showToast(`Switching to ${targetShow.title}...`);
+      sessionStorage.setItem('shufflr_tubi_pending_shuffle', 'reloaded');
       window.location.href = targetUrl;
       return;
     }
