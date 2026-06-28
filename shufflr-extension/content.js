@@ -6794,7 +6794,7 @@ function stopTubiShuffle() {
   sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY);
   teardownTubiEpisodeEndWatcher();
   updateShuffleUI('');
-  showToast('Shufflr OFF');
+  showToast('Shufflr OFF — double-click to turn on');
   console.log('[Shufflr] Tubi shuffle turned off');
 }
 
