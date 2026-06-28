@@ -3002,7 +3002,7 @@ async function playPlaylistFromDropdown(playlistIndex) {
     const pick = tubiShows[Math.floor(Math.random() * tubiShows.length)];
     const url = pick.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(pick.title || '')}`;
     sessionStorage.setItem('shufflr_tubi_pending_shuffle', 'reloaded');
-    window.open(url, '_blank');
+    window.location.href = url;
     return;
   }
 
