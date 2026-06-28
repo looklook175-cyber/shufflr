@@ -6954,6 +6954,28 @@ if (IS_TUBI) {
     restoreTubiShuffleSession();
     tryInjectShufflrButtonOnTubi();
   }
+
+  // Tubi shuffle cop — detects native autoplay navigation and corrects it
+  let tubiLastUrl = location.href;
+  const tubiCopObserver = new MutationObserver(() => {
+    if (!isChromeContextValid()) return;
+    if (location.href === tubiLastUrl) return;
+    const prevUrl = tubiLastUrl;
+    tubiLastUrl = location.href;
+    if (!shufflrActive) return;
+    if (tubiEpisodeEndTriggered) {
+      tubiEpisodeEndTriggered = false;
+      return;
+    }
+    // URL changed while shuffle is ON but Shufflr didn't trigger it — Tubi autopilot
+    console.log('[Shufflr] Tubi cop: native autoplay detected, correcting...');
+    showToast('Shufflr correcting...');
+    setTimeout(() => {
+      tubiEpisodeEndTriggered = false;
+      void navigateToRandomTubiEpisode('tubi-cop');
+    }, 500);
+  });
+  tubiCopObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 if (IS_MAX) {
