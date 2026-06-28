@@ -6858,7 +6858,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
     if (targetShow && targetId !== showId) {
       const url = targetShow.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(targetShow.title || '')}`;
       showToast(`Switching to ${targetShow.title}...`);
-      sessionStorage.setItem('shufflr_tubi_pending_shuffle', 'roundrobin');
+      sessionStorage.setItem('shufflr_tubi_pending_shuffle', 'reloaded');
       window.location.href = url;
       return;
     }
@@ -6898,16 +6898,6 @@ async function startTubiShuffle() {
     showToast('Could not identify this show.');
     return;
   }
-  const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
-  const pendingVal = sessionStorage.getItem(TUBI_PENDING_KEY);
-  const isRoundRobin = pendingVal === 'roundrobin';
-  const isReloaded = pendingVal === 'reloaded';
-  if (!isReloaded && !isRoundRobin) {
-    sessionStorage.setItem(TUBI_PENDING_KEY, 'reloaded');
-    location.reload();
-    return;
-  }
-  sessionStorage.removeItem(TUBI_PENDING_KEY);
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
 
@@ -7013,16 +7003,8 @@ function tryInjectShufflrButtonOnTubi() {
 
 if (IS_TUBI) {
   console.log('[Shufflr] Tubi detected');
-  const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
-  const pendingVal = sessionStorage.getItem(TUBI_PENDING_KEY);
-  if (pendingVal === 'reloaded' || pendingVal === 'roundrobin') {
-    restoreTubiShuffleSession();
-    tryInjectShufflrButtonOnTubi();
-    setTimeout(() => { startTubiShuffle(); }, 2500);
-  } else {
-    restoreTubiShuffleSession();
-    tryInjectShufflrButtonOnTubi();
-  }
+  restoreTubiShuffleSession();
+  tryInjectShufflrButtonOnTubi();
 
   // Tubi shuffle cop — detects native autoplay navigation and corrects it
   let tubiLastUrl = location.href;
