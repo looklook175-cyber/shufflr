@@ -6970,8 +6970,11 @@ if (IS_TUBI) {
     // URL changed while shuffle is ON but Shufflr didn't trigger it — Tubi autopilot
     console.log('[Shufflr] Tubi cop: native autoplay detected, correcting...');
     showToast('Shufflr correcting...');
-    setTimeout(() => {
+    setTimeout(async () => {
       tubiEpisodeEndTriggered = false;
+      const showId = getTubiShowIdFromUrl();
+      const isActive = showId ? isTubiShuffleActiveForShow(showId) : false;
+      console.log('[Shufflr] Tubi cop debug:', { showId, isActive, shufflrActive, url: location.href });
       void navigateToRandomTubiEpisode('tubi-cop');
     }, 500);
   });
