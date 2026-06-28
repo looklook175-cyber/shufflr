@@ -6844,46 +6844,70 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   const showId = getTubiShowIdFromUrl();
   if (!showId || !isTubiShuffleActiveForShow(showId)) return;
 
-  // Get all shows in active Tubi playlists for round-robin
-  const allPlaylists = await readPlaylistsFromStorage();
-  const tubiPlaylists = allPlaylists.filter(p => (p.service || 'max') === 'tubi');
-  const allTubiShows = tubiPlaylists.flatMap(p => (p.shows || []).filter(s => s.tubiId));
-  const uniqueTubiShows = [...new Map(allTubiShows.map(s => [s.tubiId, s])).values()];
+  // Get all shows in the active Tubi playlist for round-robin
+  const activePlaylists = await readPlaylistsFromStorage();
+  const activeService = 'tubi';
+  const tubiPlaylists = activePlaylists.filter(p => (p.service || 'max') === activeService);
+  const allTubiShowIds = [...new Set(
+    tubiPlaylists.flatMap(p => (p.shows || []).map(s => s.tubiId).filter(Boolean))
+  )];
 
-  if (uniqueTubiShows.length > 1) {
-    // Round-robin: pick next show and navigate to its series page
-    const showIds = uniqueTubiShows.map(s => s.tubiId);
-    const targetId = await pickRoundRobinTubiShow(showIds, showId);
-    const targetShow = uniqueTubiShows.find(s => s.tubiId === targetId);
-    if (targetShow && targetId !== showId) {
-      const url = targetShow.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(targetShow.title || '')}`;
+  let targetShowId = showId;
+  if (allTubiShowIds.length > 1) {
+    targetShowId = await pickRoundRobinTubiShow(allTubiShowIds, showId);
+  }
+
+  console.log('[Shufflr] Tubi round-robin debug:', {
+    showId,
+    allTubiShowIds,
+    targetShowId,
+    tubiPlaylistCount: tubiPlaylists.length,
+    roundState: getTubiRoundState()
+  });
+
+  let episodes = await getCachedTubiEpisodes(targetShowId);
+
+  // If target show has no cache and is different from current show,
+  // navigate to its series page so episodes can be collected on arrival
+  if (!episodes?.length && targetShowId !== showId) {
+    const targetShow = allTubiShowIds.length > 1
+      ? tubiPlaylists.flatMap(p => p.shows || []).find(s => s.tubiId === targetShowId)
+      : null;
+    if (targetShow) {
+      const targetUrl = targetShow.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(targetShow.title || '')}`;
+      console.log(`[Shufflr] Tubi round-robin: navigating to ${targetShow.title} to collect episodes`);
       showToast(`Switching to ${targetShow.title}...`);
       sessionStorage.setItem('shufflr_tubi_pending_shuffle', 'reloaded');
-      window.location.href = url;
+      window.location.href = targetUrl;
       return;
     }
   }
 
-  // Single show or same show picked — shuffle within current show
-  let episodes = await getCachedTubiEpisodes(showId);
+  if (!episodes?.length) {
+    episodes = await getCachedTubiEpisodes(showId);
+  }
   if (!episodes?.length && isTubiSeriesPage()) {
     episodes = await collectTubiEpisodes();
-    if (episodes.length) await setCachedTubiEpisodes(showId, episodes, getTubiShowTitle());
+    if (episodes.length) {
+      await setCachedTubiEpisodes(targetShowId, episodes, getTubiShowTitle());
+    }
   }
   if (!episodes?.length) {
-    console.log(`[Shufflr] Tubi: no cached episodes (${source})`);
+    console.log(`[Shufflr] Tubi: no cached episodes for shuffle (${source})`);
     return;
   }
   const pick = pickRandomTubiEpisode(episodes, location.href);
   if (!pick) return;
-  showToast(`Shuffling ${getTubiShowTitle() || 'Tubi'}...`);
+
+  const showName = getTubiShowTitle() || 'Tubi';
+  showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
   tubiEpisodeEndTriggered = true;
   window.location.href = pick.url;
   setTimeout(() => {
     tubiEpisodeEndTriggered = false;
     installTubiEpisodeEndWatcher();
-  }, 1500);
+  }, 3000);
 }
 
 async function startTubiShuffle() {
