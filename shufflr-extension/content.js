@@ -6857,14 +6857,6 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
     targetShowId = pickRoundRobinTubiShow(allTubiShowIds, showId);
   }
 
-  console.log('[Shufflr] Tubi round-robin debug:', {
-    showId,
-    allTubiShowIds,
-    targetShowId,
-    tubiPlaylistCount: tubiPlaylists.length,
-    roundState: getTubiRoundState()
-  });
-
   let episodes = await getCachedTubiEpisodes(targetShowId);
 
   // If target show has no cache and is different from current show,
