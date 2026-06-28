@@ -6945,10 +6945,7 @@ async function startTubiShuffle() {
 
   await setCachedTubiEpisodes(showId, episodes, showName);
   sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
-  const isRestore = sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded';
-  if (!isRestore) {
-    await saveTubiRoundState({ roundPlayed: [], lastShow: null });
-  }
+  await saveTubiRoundState({ roundPlayed: [], lastShow: null });
   shufflrActive = true;
   syncTubiShuffleUiState();
 
