@@ -6972,10 +6972,21 @@ if (IS_TUBI) {
     showToast('Shufflr correcting...');
     setTimeout(async () => {
       tubiEpisodeEndTriggered = false;
-      const showId = getTubiShowIdFromUrl();
-      const isActive = showId ? isTubiShuffleActiveForShow(showId) : false;
-      console.log('[Shufflr] Tubi cop debug:', { showId, isActive, shufflrActive, url: location.href });
-      void navigateToRandomTubiEpisode('tubi-cop');
+      const activeId = getTubiActiveShuffleSeriesId();
+      if (!activeId) {
+        console.log('[Shufflr] Tubi cop: no active shuffle session, skipping');
+        return;
+      }
+      const episodes = await getCachedTubiEpisodes(activeId);
+      if (!episodes?.length) {
+        console.log('[Shufflr] Tubi cop: no cached episodes, skipping');
+        return;
+      }
+      const pick = pickRandomTubiEpisode(episodes, location.href);
+      if (!pick) return;
+      console.log('[Shufflr] Tubi cop: correcting to', pick.url);
+      showToast('Shufflr correcting...');
+      window.location.href = pick.url;
     }, 500);
   });
   tubiCopObserver.observe(document.body, { childList: true, subtree: true });
