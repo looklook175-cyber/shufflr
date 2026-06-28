@@ -2992,6 +2992,20 @@ async function armPlaylistFromDropdown(playlistIndex) {
 
 async function playPlaylistFromDropdown(playlistIndex) {
   if (!isChromeContextValid()) return;
+
+  if (IS_TUBI) {
+    const playlists = await readPlaylistsFromStorage();
+    const playlist = playlists[playlistIndex];
+    if (!playlist) { showToast('Playlist not found'); return; }
+    const tubiShows = (playlist.shows || []).filter(s => s.tubiId);
+    if (!tubiShows.length) { showToast('No Tubi shows in playlist'); return; }
+    const pick = tubiShows[Math.floor(Math.random() * tubiShows.length)];
+    const url = pick.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(pick.title || '')}`;
+    sessionStorage.setItem('shufflr_tubi_pending_shuffle', 'reloaded');
+    window.open(url, '_blank');
+    return;
+  }
+
   const session = await getStoredAuthSession();
   if (!session?.userId || !session?.accessToken) {
     showToast('You must sign in to use this feature.');
