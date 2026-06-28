@@ -6808,21 +6808,21 @@ function pickRandomTubiEpisode(episodes, currentUrl = null) {
   return pickFrom[Math.floor(Math.random() * pickFrom.length)];
 }
 
-async function getTubiRoundState() {
+function getTubiRoundState() {
   try {
-    const result = await storageLocalGet('shufflr_tubi_round_state');
-    return result || { roundPlayed: [], lastShow: null };
+    const raw = sessionStorage.getItem('shufflr_tubi_round_state');
+    return raw ? JSON.parse(raw) : { roundPlayed: [], lastShow: null };
   } catch { return { roundPlayed: [], lastShow: null }; }
 }
 
-async function saveTubiRoundState(state) {
+function saveTubiRoundState(state) {
   try {
-    await storageLocalSet('shufflr_tubi_round_state', state);
+    sessionStorage.setItem('shufflr_tubi_round_state', JSON.stringify(state));
   } catch {}
 }
 
-async function pickRoundRobinTubiShow(showIds, currentShowId) {
-  let state = await getTubiRoundState();
+function pickRoundRobinTubiShow(showIds, currentShowId) {
+  let state = getTubiRoundState();
   let pool = showIds.filter(id => !state.roundPlayed.includes(id));
   if (!pool.length) {
     state.roundPlayed = [];
@@ -6835,7 +6835,7 @@ async function pickRoundRobinTubiShow(showIds, currentShowId) {
   const pick = pool[Math.floor(Math.random() * pool.length)];
   state.roundPlayed.push(pick);
   state.lastShow = pick;
-  await saveTubiRoundState(state);
+  saveTubiRoundState(state);
   return pick;
 }
 
@@ -6854,7 +6854,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
 
   let targetShowId = showId;
   if (allTubiShowIds.length > 1) {
-    targetShowId = await pickRoundRobinTubiShow(allTubiShowIds, showId);
+    targetShowId = pickRoundRobinTubiShow(allTubiShowIds, showId);
   }
 
   console.log('[Shufflr] Tubi round-robin debug:', {
@@ -6945,7 +6945,7 @@ async function startTubiShuffle() {
 
   await setCachedTubiEpisodes(showId, episodes, showName);
   sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
-  await saveTubiRoundState({ roundPlayed: [], lastShow: null });
+  saveTubiRoundState({ roundPlayed: [], lastShow: null });
   shufflrActive = true;
   syncTubiShuffleUiState();
 
