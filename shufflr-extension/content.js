@@ -6794,23 +6794,69 @@ function pickRandomTubiEpisode(episodes, currentUrl = null) {
   return pickFrom[Math.floor(Math.random() * pickFrom.length)];
 }
 
+function getTubiRoundState() {
+  try {
+    const raw = sessionStorage.getItem('shufflr_tubi_round_state');
+    return raw ? JSON.parse(raw) : { roundPlayed: [], lastShow: null };
+  } catch { return { roundPlayed: [], lastShow: null }; }
+}
+
+function saveTubiRoundState(state) {
+  try {
+    sessionStorage.setItem('shufflr_tubi_round_state', JSON.stringify(state));
+  } catch {}
+}
+
+function pickRoundRobinTubiShow(showIds, currentShowId) {
+  let state = getTubiRoundState();
+  let pool = showIds.filter(id => !state.roundPlayed.includes(id));
+  if (!pool.length) {
+    state.roundPlayed = [];
+    pool = showIds;
+  }
+  if (state.lastShow && pool.length > 1) {
+    const withoutLast = pool.filter(id => id !== state.lastShow);
+    if (withoutLast.length) pool = withoutLast;
+  }
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  state.roundPlayed.push(pick);
+  state.lastShow = pick;
+  saveTubiRoundState(state);
+  return pick;
+}
+
 async function navigateToRandomTubiEpisode(source = 'episode-end') {
   if (!isChromeContextValid()) return;
   const showId = getTubiShowIdFromUrl();
   if (!showId || !isTubiShuffleActiveForShow(showId)) return;
 
-  let episodes = await getCachedTubiEpisodes(showId);
+  // Get all shows in the active Tubi playlist for round-robin
+  const activePlaylists = await readPlaylistsFromStorage();
+  const activeService = 'tubi';
+  const tubiPlaylists = activePlaylists.filter(p => (p.service || 'max') === activeService);
+  const allTubiShowIds = [...new Set(
+    tubiPlaylists.flatMap(p => (p.shows || []).map(s => s.tubiId).filter(Boolean))
+  )];
+
+  let targetShowId = showId;
+  if (allTubiShowIds.length > 1) {
+    targetShowId = pickRoundRobinTubiShow(allTubiShowIds, showId);
+  }
+
+  let episodes = await getCachedTubiEpisodes(targetShowId);
+  if (!episodes?.length) {
+    episodes = await getCachedTubiEpisodes(showId);
+  }
   if (!episodes?.length && isTubiSeriesPage()) {
     episodes = await collectTubiEpisodes();
     if (episodes.length) {
-      await setCachedTubiEpisodes(showId, episodes, getTubiShowTitle());
+      await setCachedTubiEpisodes(targetShowId, episodes, getTubiShowTitle());
     }
   }
   if (!episodes?.length) {
     console.log(`[Shufflr] Tubi: no cached episodes for shuffle (${source})`);
     return;
   }
-
   const pick = pickRandomTubiEpisode(episodes, location.href);
   if (!pick) return;
 
@@ -6860,6 +6906,7 @@ async function startTubiShuffle() {
 
   await setCachedTubiEpisodes(showId, episodes, showName);
   sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
+  saveTubiRoundState({ roundPlayed: [], lastShow: null });
   shufflrActive = true;
   syncTubiShuffleUiState();
 
