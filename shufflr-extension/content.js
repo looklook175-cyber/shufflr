@@ -115,6 +115,7 @@ const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
 const IS_MAX = ['play.max.com', 'www.max.com', 'play.hbomax.com', 'www.hbomax.com'].includes(location.hostname);
 const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
+const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
 const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
 
@@ -7125,4 +7126,15 @@ setTimeout(() => {
     void prefetchShowPageEpisodeCacheIfStandalone();
   });
 }, 2500);
+}
+
+if (isCrunchyroll) {
+  console.log('[Shufflr] Crunchyroll detected');
+  console.log('[Shufflr] URL:', window.location.href);
+
+  const isWatchPage = window.location.pathname.includes('/watch/');
+  console.log('[Shufflr] Is watch page:', isWatchPage);
+
+  const video = document.querySelector('#bitmovinplayer-video-null');
+  console.log('[Shufflr] Video element found:', !!video);
 }
