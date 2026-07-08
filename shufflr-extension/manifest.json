@@ -11,6 +11,7 @@
     "https://www.hbomax.com/*",
     "https://tubitv.com/*",
     "https://www.tubitv.com/*",
+    "*://*.crunchyroll.com/*",
     "https://shufflr-app.netlify.app/*",
     "https://*.api.hbomax.com/*",
     "https://*.api.max.com/*",
@@ -31,6 +32,13 @@
       "matches": [
         "https://tubitv.com/*",
         "https://www.tubitv.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.crunchyroll.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
