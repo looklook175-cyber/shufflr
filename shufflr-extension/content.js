@@ -7184,7 +7184,7 @@ function injectCrunchyrollButton() {
   // Wait for the player controls to appear
   const controlsObserver = new MutationObserver(() => {
     // Target the player controls bar
-    const controls = document.querySelector('.erc-vilos-controls');
+    const controls = document.querySelector('[data-testid="player-controls-root"]');
     if (!controls) return;
 
     controlsObserver.disconnect();
