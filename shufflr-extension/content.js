@@ -7003,6 +7003,30 @@ function installTubiButtonPersistenceObserver() {
   tubiButtonObserver.observe(document.body, { childList: true, subtree: true });
 }
 
+function installCrunchyrollUrlObserver() {
+  if (window.__shufflrCrunchyrollUrlObserver) return;
+  window.__shufflrCrunchyrollUrlObserver = true;
+
+  let lastCrunchyrollUrl = location.href;
+
+  const observer = new MutationObserver(() => {
+    if (!isCrunchyroll) return;
+    if (location.href === lastCrunchyrollUrl) return;
+    lastCrunchyrollUrl = location.href;
+
+    removeShufflrUI();
+    if (window.location.pathname.includes('/watch/')) {
+      setTimeout(() => {
+        if (!isChromeContextValid()) return;
+        console.log('[Shufflr] Crunchyroll URL changed — re-injecting');
+        void tryInjectButton();
+      }, 2500);
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 function installTubiEpisodeEndWatcher() {
   if (!isChromeContextValid() || !isTubiEpisodePage()) return;
 
@@ -7104,6 +7128,17 @@ if (IS_TUBI) {
     }, 500);
   });
   tubiCopObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+if (isCrunchyroll) {
+  setTimeout(() => {
+    if (!isCrunchyroll) return;
+    if (window.location.pathname.includes('/watch/')) {
+      console.log('[Shufflr] Crunchyroll watch page — injecting Shufflr button');
+      void tryInjectButton();
+      installCrunchyrollUrlObserver();
+    }
+  }, 2500);
 }
 
 if (IS_MAX) {
