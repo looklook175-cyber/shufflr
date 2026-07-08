@@ -7167,6 +7167,7 @@ function initCrunchyrollWatchPage() {
 
 function onCrunchyrollVideoReady(video) {
   console.log('[Shufflr] Crunchyroll video ready');
+  injectCrunchyrollButton();
 
   video.addEventListener('ended', () => {
     console.log('[Shufflr] Episode ended — shuffle on:', crunchyrollShuffleOn);
@@ -7174,6 +7175,61 @@ function onCrunchyrollVideoReady(video) {
       crunchyrollAdvanceToNext();
     }
   });
+}
+
+function injectCrunchyrollButton() {
+  // Don't inject twice
+  if (document.getElementById('shufflr-cr-btn')) return;
+
+  // Wait for the player controls to appear
+  const controlsObserver = new MutationObserver(() => {
+    // Target the player controls bar
+    const controls = document.querySelector('.erc-vilos-controls');
+    if (!controls) return;
+
+    controlsObserver.disconnect();
+
+    const btn = document.createElement('button');
+    btn.id = 'shufflr-cr-btn';
+    btn.textContent = '⚡ SHUFFLR';
+    btn.style.cssText = `
+      background: #f47521;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-left: 10px;
+      letter-spacing: 1px;
+    `;
+
+    btn.addEventListener('click', () => {
+      crunchyrollShuffleOn = !crunchyrollShuffleOn;
+      chrome.storage.local.set({ crunchyrollShuffleOn });
+      updateCrunchyrollButton(btn);
+      console.log('[Shufflr] Toggle:', crunchyrollShuffleOn);
+    });
+
+    updateCrunchyrollButton(btn);
+    controls.appendChild(btn);
+    console.log('[Shufflr] Button injected');
+  });
+
+  controlsObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function updateCrunchyrollButton(btn) {
+  if (crunchyrollShuffleOn) {
+    btn.textContent = '⚡ SHUFFLR ON';
+    btn.style.background = '#f47521';
+    btn.style.opacity = '1';
+  } else {
+    btn.textContent = '⚡ SHUFFLR OFF';
+    btn.style.background = '#555';
+    btn.style.opacity = '0.8';
+  }
 }
 
 function crunchyrollAdvanceToNext() {
