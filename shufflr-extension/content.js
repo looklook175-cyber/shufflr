@@ -7135,6 +7135,31 @@ if (isCrunchyroll) {
   const isWatchPage = window.location.pathname.includes('/watch/');
   console.log('[Shufflr] Is watch page:', isWatchPage);
 
-  const video = document.querySelector('#bitmovinplayer-video-null');
-  console.log('[Shufflr] Video element found:', !!video);
+  if (isWatchPage) {
+    initCrunchyrollWatchPage();
+  }
+}
+
+function initCrunchyrollWatchPage() {
+  console.log('[Shufflr] Waiting for video element...');
+
+  const observer = new MutationObserver(() => {
+    const video = document.querySelector('#bitmovinplayer-video-null');
+    if (video) {
+      observer.disconnect();
+      console.log('[Shufflr] Video element found!');
+      console.log('[Shufflr] Video src:', video.src);
+      onCrunchyrollVideoReady(video);
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function onCrunchyrollVideoReady(video) {
+  console.log('[Shufflr] Crunchyroll video ready — shuffle logic will go here');
+
+  video.addEventListener('ended', () => {
+    console.log('[Shufflr] Episode ended!');
+  });
 }
