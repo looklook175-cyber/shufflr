@@ -7140,15 +7140,24 @@ if (isCrunchyroll) {
   }
 }
 
+// ─── CRUNCHYROLL ────────────────────────────────────────────────
+
+let crunchyrollShuffleOn = false;
+
 function initCrunchyrollWatchPage() {
   console.log('[Shufflr] Waiting for video element...');
+
+  // Restore toggle state from storage
+  chrome.storage.local.get('crunchyrollShuffleOn', (data) => {
+    crunchyrollShuffleOn = !!data.crunchyrollShuffleOn;
+    console.log('[Shufflr] Shuffle state restored:', crunchyrollShuffleOn);
+  });
 
   const observer = new MutationObserver(() => {
     const video = document.querySelector('#bitmovinplayer-video-null');
     if (video) {
       observer.disconnect();
       console.log('[Shufflr] Video element found!');
-      console.log('[Shufflr] Video src:', video.src);
       onCrunchyrollVideoReady(video);
     }
   });
@@ -7160,13 +7169,15 @@ function onCrunchyrollVideoReady(video) {
   console.log('[Shufflr] Crunchyroll video ready');
 
   video.addEventListener('ended', () => {
-    console.log('[Shufflr] Episode ended — looking for next episode button...');
-    crunchyrollAdvanceToNext();
+    console.log('[Shufflr] Episode ended — shuffle on:', crunchyrollShuffleOn);
+    if (crunchyrollShuffleOn) {
+      crunchyrollAdvanceToNext();
+    }
   });
 }
 
 function crunchyrollAdvanceToNext() {
-  // Try to find the next episode button by aria-label
+  console.log('[Shufflr] Looking for next episode button...');
   const nextBtn = document.querySelector('[aria-label="Next Episode"]');
 
   if (nextBtn) {
@@ -7176,3 +7187,13 @@ function crunchyrollAdvanceToNext() {
     console.log('[Shufflr] No next episode button found — may be last episode');
   }
 }
+
+// Listen for toggle messages from the extension
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'CRUNCHYROLL_TOGGLE') {
+    crunchyrollShuffleOn = message.value;
+    chrome.storage.local.set({ crunchyrollShuffleOn: crunchyrollShuffleOn });
+    console.log('[Shufflr] Toggle set to:', crunchyrollShuffleOn);
+    sendResponse({ ok: true });
+  }
+});
