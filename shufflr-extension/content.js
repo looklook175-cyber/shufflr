@@ -7157,9 +7157,22 @@ function initCrunchyrollWatchPage() {
 }
 
 function onCrunchyrollVideoReady(video) {
-  console.log('[Shufflr] Crunchyroll video ready — shuffle logic will go here');
+  console.log('[Shufflr] Crunchyroll video ready');
 
   video.addEventListener('ended', () => {
-    console.log('[Shufflr] Episode ended!');
+    console.log('[Shufflr] Episode ended — looking for next episode button...');
+    crunchyrollAdvanceToNext();
   });
+}
+
+function crunchyrollAdvanceToNext() {
+  // Try to find the next episode button by aria-label
+  const nextBtn = document.querySelector('[aria-label="Next Episode"]');
+
+  if (nextBtn) {
+    console.log('[Shufflr] Next episode button found — clicking');
+    nextBtn.click();
+  } else {
+    console.log('[Shufflr] No next episode button found — may be last episode');
+  }
 }
