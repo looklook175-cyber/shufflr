@@ -1896,7 +1896,7 @@ async function populatePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (!dropdown) return;
   const allPlaylists = await readPlaylistsFromStorage();
-  const currentService = IS_TUBI ? 'tubi' : 'max';
+  const currentService = IS_TUBI ? 'tubi' : isCrunchyroll ? 'crunchyroll' : 'max';
   const filteredPlaylists = allPlaylists.filter(p => (p.service || 'max') === currentService);
   dropdownPlaylists = allPlaylists;
   const settings = await readShuffleSettings();
@@ -3032,12 +3032,18 @@ function tryInjectButton() {
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
   const isTubiPage = isTubiSeriesPage() || isTubiEpisodePage();
-  if (!isVideoPage && !isShowPage && !isTubiPage) return Promise.resolve(false);
+  const isCrunchyrollPage = isCrunchyroll && window.location.pathname.includes('/watch/');
+  if (!isVideoPage && !isShowPage && !isTubiPage && !isCrunchyrollPage) return Promise.resolve(false);
 
   if (isTubiPage) {
     injectShufflrButton(null);
     if (isTubiEpisodePage()) installTubiEpisodeEndWatcher();
     syncTubiShuffleUiState();
+    return Promise.resolve(true);
+  }
+
+  if (isCrunchyrollPage) {
+    injectShufflrButton(null);
     return Promise.resolve(true);
   }
 
@@ -7127,129 +7133,3 @@ setTimeout(() => {
   });
 }, 2500);
 }
-
-if (isCrunchyroll) {
-  console.log('[Shufflr] Crunchyroll detected');
-  console.log('[Shufflr] URL:', window.location.href);
-
-  const isWatchPage = window.location.pathname.includes('/watch/');
-  console.log('[Shufflr] Is watch page:', isWatchPage);
-
-  if (isWatchPage) {
-    initCrunchyrollWatchPage();
-  }
-}
-
-// ─── CRUNCHYROLL ────────────────────────────────────────────────
-
-let crunchyrollShuffleOn = false;
-
-function initCrunchyrollWatchPage() {
-  console.log('[Shufflr] Waiting for video element...');
-
-  // Restore toggle state from storage
-  chrome.storage.local.get('crunchyrollShuffleOn', (data) => {
-    crunchyrollShuffleOn = !!data.crunchyrollShuffleOn;
-    console.log('[Shufflr] Shuffle state restored:', crunchyrollShuffleOn);
-  });
-
-  const observer = new MutationObserver(() => {
-    const video = document.querySelector('#bitmovinplayer-video-null');
-    if (video) {
-      observer.disconnect();
-      console.log('[Shufflr] Video element found!');
-      onCrunchyrollVideoReady(video);
-    }
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-}
-
-function onCrunchyrollVideoReady(video) {
-  console.log('[Shufflr] Crunchyroll video ready');
-  injectCrunchyrollButton();
-
-  video.addEventListener('ended', () => {
-    console.log('[Shufflr] Episode ended — shuffle on:', crunchyrollShuffleOn);
-    if (crunchyrollShuffleOn) {
-      crunchyrollAdvanceToNext();
-    }
-  });
-}
-
-function injectCrunchyrollButton() {
-  // Don't inject twice
-  if (document.getElementById('shufflr-cr-btn')) return;
-
-  // Wait for the player controls to appear
-  const controlsObserver = new MutationObserver(() => {
-    // Target the player controls bar
-    const controls = document.querySelector('[data-testid="player-controls-root"]');
-    if (!controls) return;
-
-    controlsObserver.disconnect();
-
-    const btn = document.createElement('button');
-    btn.id = 'shufflr-cr-btn';
-    btn.textContent = '⚡ SHUFFLR';
-    btn.style.cssText = `
-      background: #f47521;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      padding: 6px 14px;
-      font-size: 13px;
-      font-weight: bold;
-      cursor: pointer;
-      margin-left: 10px;
-      letter-spacing: 1px;
-    `;
-
-    btn.addEventListener('click', () => {
-      crunchyrollShuffleOn = !crunchyrollShuffleOn;
-      chrome.storage.local.set({ crunchyrollShuffleOn });
-      updateCrunchyrollButton(btn);
-      console.log('[Shufflr] Toggle:', crunchyrollShuffleOn);
-    });
-
-    updateCrunchyrollButton(btn);
-    controls.appendChild(btn);
-    console.log('[Shufflr] Button injected');
-  });
-
-  controlsObserver.observe(document.body, { childList: true, subtree: true });
-}
-
-function updateCrunchyrollButton(btn) {
-  if (crunchyrollShuffleOn) {
-    btn.textContent = '⚡ SHUFFLR ON';
-    btn.style.background = '#f47521';
-    btn.style.opacity = '1';
-  } else {
-    btn.textContent = '⚡ SHUFFLR OFF';
-    btn.style.background = '#555';
-    btn.style.opacity = '0.8';
-  }
-}
-
-function crunchyrollAdvanceToNext() {
-  console.log('[Shufflr] Looking for next episode button...');
-  const nextBtn = document.querySelector('[aria-label="Next Episode"]');
-
-  if (nextBtn) {
-    console.log('[Shufflr] Next episode button found — clicking');
-    nextBtn.click();
-  } else {
-    console.log('[Shufflr] No next episode button found — may be last episode');
-  }
-}
-
-// Listen for toggle messages from the extension
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'CRUNCHYROLL_TOGGLE') {
-    crunchyrollShuffleOn = message.value;
-    chrome.storage.local.set({ crunchyrollShuffleOn: crunchyrollShuffleOn });
-    console.log('[Shufflr] Toggle set to:', crunchyrollShuffleOn);
-    sendResponse({ ok: true });
-  }
-});
