@@ -976,7 +976,7 @@ function ensureNowPlayingShuffleControls(host){
     hint.id='now-playing-shuffle-hint';
     hint.className='now-playing-shuffle-hint';
     hint.hidden=true;
-    hint.textContent='Shuffles across all of Your Shows.';
+    hint.textContent='Shuffles across Your Shows.';
     container.appendChild(hint);
   }
   reorderNowPlayingHostChildren(container);
@@ -1062,7 +1062,16 @@ async function onNowPlayingShuffleClick(){
 function onNowPlayingShufflePosterClick(){
   if(!isNowPlayingShuffleActive())return;
   if(nowPlayingShufflePlaylistIndex===-1){
-    launchStandaloneShowFromPowerPick(nowPlayingShufflePickedShow);
+    const show=nowPlayingShufflePickedShow;
+    if(!show)return;
+    yourShowPopupContext={
+      pi:-1,
+      si:-1,
+      show,
+      showName:getShowLabel(show)||show.name||show.title||'',
+      maxId:getShowMaxId(show),
+    };
+    launchYourShowPopupShuffle();
     return;
   }
   if(nowPlayingShufflePlaylistIndex==null||nowPlayingShuffleShowIndex==null)return;
@@ -2768,23 +2777,6 @@ function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const launchUrl = getShowMaxUrlFromPlaylistShow(show);
   if (!launchUrl) return;
   setStandaloneLaunchViaBridge(launchUrl);
-  window.open(launchUrl, '_blank');
-}
-
-function launchStandaloneShowFromPowerPick(show) {
-  if (!show) return;
-  if (show.tubiId) {
-    const tubiUrl = show.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(show.name || show.title || '')}`;
-    window.open(tubiUrl, '_blank');
-    return;
-  }
-  const maxId = getShowMaxId(show);
-  const launchUrl = getShowMaxUrlFromPlaylistShow(show) || (maxId ? `https://play.max.com/show/${String(maxId)}` : null);
-  if (!launchUrl) {
-    showToast('NO MAX URL');
-    return;
-  }
-  setStandaloneLaunchViaBridge(launchUrl, maxId, null);
   window.open(launchUrl, '_blank');
 }
 
