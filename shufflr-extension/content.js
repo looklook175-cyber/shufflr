@@ -1787,6 +1787,46 @@ async function readYourShowsFromStorage() {
   return Array.isArray(stored) ? stored : [];
 }
 
+/** Fetch Your Shows from Supabase and replace local storage. Returns the cloud list, or null if unreachable. */
+async function refreshYourShowsFromCloudIfPossible() {
+  if (!isChromeContextValid()) return null;
+  const session = await getValidAuthSession();
+  if (!session?.accessToken || !session?.userId) return null;
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/your_shows?user_id=eq.${encodeURIComponent(session.userId)}&select=shows`,
+      {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${session.accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+    if (!response.ok) {
+      console.log('[Shufflr] your_shows cloud fetch failed:', response.status);
+      return null;
+    }
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return null;
+    const cloudShows = rows.length === 0
+      ? []
+      : (Array.isArray(rows[0]?.shows) ? rows[0].shows : []);
+    await chromeStorageLocalSet({ [SHUFFLR_YOUR_SHOWS_KEY]: cloudShows });
+    return cloudShows;
+  } catch (err) {
+    console.log('[Shufflr] your_shows cloud fetch error:', err);
+    return null;
+  }
+}
+
+async function readYourShowsPreferCloud() {
+  const cloudShows = await refreshYourShowsFromCloudIfPossible();
+  if (cloudShows !== null) return cloudShows;
+  return readYourShowsFromStorage();
+}
+
 async function writeYourShowsToStorage(shows) {
   if (!isChromeContextValid()) return;
   await chromeStorageLocalSet({ [SHUFFLR_YOUR_SHOWS_KEY]: shows });
@@ -1824,7 +1864,7 @@ async function addCurrentShowToYourShows() {
   }
 
   const title = getCurrentShowTitle();
-  const shows = await readYourShowsFromStorage();
+  const shows = await readYourShowsPreferCloud();
   const alreadyAdded = shows.some(show => (
     show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
   ));
@@ -2861,7 +2901,7 @@ function collectYourShowsFromLists(playlists, standaloneShows = []) {
 }
 
 async function getYourShowsFromPlaylists(playlists) {
-  const standaloneShows = await readYourShowsFromStorage();
+  const standaloneShows = await readYourShowsPreferCloud();
   return collectYourShowsFromLists(playlists, standaloneShows);
 }
 
