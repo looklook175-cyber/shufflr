@@ -1591,6 +1591,14 @@ async function saveShuffleSettings(settings) {
   return payload;
 }
 
+async function resetShuffleModeToSingle() {
+  if (!isChromeContextValid()) {
+    shuffleModeCached = 'single';
+    return;
+  }
+  await saveShuffleSettings({ shuffleMode: 'single' });
+}
+
 async function setOrderedEpisodesEnabled(enabled) {
   if (!isChromeContextValid()) return { orderedEpisodes: false };
   const next = await saveShuffleSettings({ orderedEpisodes: !!enabled });
@@ -5019,6 +5027,7 @@ async function toggleShuffle() {
       await setStandaloneShuffleEnabled(false);
       await clearActivePlaylist();
       armedPlaylistCached = false;
+      await resetShuffleModeToSingle();
       if (!isChromeContextValid()) return;
       updateShuffleUI('');
       showToast('Shufflr OFF');
@@ -6996,6 +7005,7 @@ function stopTubiShuffle() {
   shufflrActive = false;
   sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY);
   teardownTubiEpisodeEndWatcher();
+  void resetShuffleModeToSingle();
   updateShuffleUI('');
   showToast('Shufflr OFF — double-click to turn on');
   console.log('[Shufflr] Tubi shuffle turned off');
@@ -7519,6 +7529,7 @@ function stopCrunchyrollShuffle() {
   shufflrActive = false;
   sessionStorage.removeItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY);
   teardownCrunchyrollEpisodeEndWatcher();
+  void resetShuffleModeToSingle();
   updateShuffleUI('');
   showToast('Shufflr OFF');
   console.log('[Shufflr] Crunchyroll shuffle turned off');

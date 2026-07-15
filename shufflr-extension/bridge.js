@@ -3,6 +3,7 @@
 
 (function () {
   const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
+  const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 
   function syncSupabaseSessionToExtension() {
     try {
@@ -103,6 +104,21 @@
   }
 
   scheduleSupabaseSessionSyncOnPageLoad();
+
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local' || !changes[SHUFFLR_SHUFFLE_SETTINGS_KEY]) return;
+      const next = changes[SHUFFLR_SHUFFLE_SETTINGS_KEY].newValue;
+      if (!next || typeof next !== 'object') return;
+      window.postMessage({
+        type: 'SHUFFLR_SHUFFLE_SETTINGS_FROM_EXTENSION',
+        source: 'shufflr-extension',
+        settings: next,
+      }, '*');
+    });
+  } catch (err) {
+    console.error('[Shufflr] bridge.js — shuffle settings listener failed:', err);
+  }
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;

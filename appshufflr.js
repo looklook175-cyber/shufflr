@@ -823,10 +823,11 @@ function syncNowPlayingModeToggleUi(){
   });
 }
 
-function setNowPlayingShuffleMode(mode){
+function setNowPlayingShuffleMode(mode, options = {}){
   if(mode!=='single'&&mode!=='all')return;
   currentShuffleMode=mode;
   syncNowPlayingModeToggleUi();
+  if(options.skipPersist)return;
   void saveShuffleMode(mode);
 }
 
@@ -3159,6 +3160,24 @@ void readShuffleSettings().then(settings=>{
     syncNowPlayingModeToggleUi();
   }
 });
+
+window.addEventListener('message',(event)=>{
+  if(event.source!==window)return;
+  if(event.data?.type!=='SHUFFLR_SHUFFLE_SETTINGS_FROM_EXTENSION')return;
+  if(event.data?.source!=='shufflr-extension')return;
+  const settings=event.data.settings||{};
+  const mode=settings.shuffleMode==='all'?'all':'single';
+  try{
+    const existing=JSON.parse(localStorage.getItem(SHUFFLR_SHUFFLE_SETTINGS_KEY)||'{}');
+    localStorage.setItem(SHUFFLR_SHUFFLE_SETTINGS_KEY,JSON.stringify({
+      ...existing,
+      ...settings,
+      shuffleMode:mode,
+    }));
+  }catch(e){}
+  setNowPlayingShuffleMode(mode,{skipPersist:true});
+});
+
 const MAX_WATCH_ORIGIN='https://play.max.com';
 const SERVICE_AVAILABILITY={
   netflix:{ids:[8],names:['netflix']},
