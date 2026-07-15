@@ -2505,9 +2505,19 @@ function collapseExpandedPlaylist() {
   document.querySelectorAll('.pl-card.expanded').forEach((card) => card.classList.remove('expanded'));
 }
 
-function showAddShowFromPlaylistToast(event) {
+function openPlaylistPageAddShowPicker(event, playlistIndex) {
   event?.stopPropagation?.();
-  showToast('Add shows from Max using the Shufflr button');
+  homePlaylistsCache = playlists;
+  expandedPlaylistIndex = playlistIndex;
+  document.querySelectorAll('.pl-card').forEach((card) => {
+    const cardIndex = parseInt(card.dataset.plIndex, 10);
+    card.classList.toggle('expanded', cardIndex === playlistIndex);
+  });
+  const host = document.querySelector(`.pl-card[data-pl-index="${playlistIndex}"] .pl-card-body-inner`);
+  if (!host) return;
+  addShowPickerHost = 'playlist-page';
+  drawerAddShowMode = true;
+  renderAddShowPicker(playlistIndex, host);
 }
 
 function teardownPlaylistRenameListener(){
@@ -2655,7 +2665,7 @@ function renderPlaylistPage(){
           <div class="pl-card-body">
             <div class="pl-card-body-inner">
               ${buildPlCardItemsHtml(p, pi)}
-              <button type="button" class="pl-add-show-btn" onclick="showAddShowFromPlaylistToast(event)">+ ${t('btn.addShow')}</button>
+              <button type="button" class="pl-add-show-btn" onclick="openPlaylistPageAddShowPicker(event, ${pi})">+ ${t('btn.addShow')}</button>
             </div>
           </div>
         </div>`;
@@ -2730,6 +2740,7 @@ let homePlaylistsCache = [];
 let openDrawerPlaylistIndex = null;
 let drawerAddShowMode = false;
 let drawerAddShowAllCandidates = [];
+let addShowPickerHost = 'drawer';
 
 function getPlaylistShowLabel(show) {
   return show?.title || show?.name || 'Untitled';
@@ -2886,7 +2897,8 @@ function editPlaylistFromDrawer(index) {
 
 function openDrawerAddShowMode(playlistIndex) {
   drawerAddShowMode = true;
-  renderDrawerAddShowPicker(playlistIndex);
+  addShowPickerHost = 'drawer';
+  renderAddShowPicker(playlistIndex, document.getElementById('pl-drawer-body'));
 }
 
 function getDrawerAddShowDedupeKey(show) {
@@ -2906,8 +2918,14 @@ function getServiceFilteredYourShowsForDrawer() {
   });
 }
 
+function getPlaylistsForAddShowPicker() {
+  if (Array.isArray(homePlaylistsCache) && homePlaylistsCache.length) return homePlaylistsCache;
+  return Array.isArray(playlists) ? playlists : [];
+}
+
 function getCrossPlaylistShowsForAdd(playlistIndex) {
-  const currentPlaylist = homePlaylistsCache[playlistIndex];
+  const source = getPlaylistsForAddShowPicker();
+  const currentPlaylist = source[playlistIndex];
   const seen = new Set();
   const candidates = [];
 
@@ -2920,7 +2938,7 @@ function getCrossPlaylistShowsForAdd(playlistIndex) {
     candidates.push(show);
   };
 
-  homePlaylistsCache.forEach((playlist, pi) => {
+  source.forEach((playlist, pi) => {
     if (pi === playlistIndex) return;
     for (const show of playlist.shows || []) addCandidate(show);
   });
@@ -2962,15 +2980,14 @@ function filterDrawerAddShowPicker(playlistIndex) {
   resolveDrawerShowPosters(matches.map(({ show }) => show));
 }
 
-function renderDrawerAddShowPicker(playlistIndex) {
-  const body = document.getElementById('pl-drawer-body');
-  if (!body) return;
+function renderAddShowPicker(playlistIndex, container) {
+  if (!container) return;
 
   drawerAddShowAllCandidates = getCrossPlaylistShowsForAdd(playlistIndex);
   const createBtn = `<button type="button" class="pl-drawer-create-playlist-btn" onclick="createPlaylistFromDrawerAddMode(${playlistIndex})">＋ Create New Playlist</button>`;
 
   if (!drawerAddShowAllCandidates.length) {
-    body.innerHTML = `
+    container.innerHTML = `
       <div class="pl-drawer-add-mode">
         <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ ${t('drawer.cancelAdd')}</button>
         <div class="pl-drawer-empty">No shows saved yet.</div>
@@ -2979,7 +2996,7 @@ function renderDrawerAddShowPicker(playlistIndex) {
     return;
   }
 
-  body.innerHTML = `
+  container.innerHTML = `
     <div class="pl-drawer-add-mode">
       <div class="pl-drawer-add-toolbar">
         <button type="button" class="pl-drawer-cancel-add" onclick="cancelDrawerAddShowMode(${playlistIndex})">✕ ${t('drawer.cancelAdd')}</button>
@@ -2989,6 +3006,10 @@ function renderDrawerAddShowPicker(playlistIndex) {
       ${createBtn}
     </div>`;
   filterDrawerAddShowPicker(playlistIndex);
+}
+
+function renderDrawerAddShowPicker(playlistIndex) {
+  renderAddShowPicker(playlistIndex, document.getElementById('pl-drawer-body'));
 }
 
 async function createPlaylistFromDrawerAddMode(playlistIndex) {
@@ -3001,26 +3022,41 @@ async function createPlaylistFromDrawerAddMode(playlistIndex) {
     service: 'max',
   };
 
-  homePlaylistsCache.push(newPlaylist);
-  playlists = homePlaylistsCache;
+  const source = getPlaylistsForAddShowPicker();
+  source.push(newPlaylist);
+  homePlaylistsCache = source;
+  playlists = source;
   savePlaylists();
-  if (currentNav === 'shows') renderHomeScreen('shows');
 
   drawerAddShowMode = false;
   drawerAddShowAllCandidates = [];
+  if (addShowPickerHost === 'playlist-page') {
+    addShowPickerHost = 'drawer';
+    renderPlaylistPage();
+    return;
+  }
+  addShowPickerHost = 'drawer';
+  if (currentNav === 'shows') renderHomeScreen('shows');
   closePlaylistDrawer();
 }
 
 function cancelDrawerAddShowMode(playlistIndex) {
   drawerAddShowMode = false;
   drawerAddShowAllCandidates = [];
+  if (addShowPickerHost === 'playlist-page') {
+    addShowPickerHost = 'drawer';
+    renderPlaylistPage();
+    return;
+  }
+  addShowPickerHost = 'drawer';
   const playlist = homePlaylistsCache[playlistIndex];
   if (playlist) renderDrawerShowList(playlistIndex, playlist);
 }
 
 function addCrossPlaylistShowToDrawer(playlistIndex, candidateIndex) {
   const show = drawerAddShowAllCandidates[candidateIndex];
-  const playlist = homePlaylistsCache[playlistIndex];
+  const source = getPlaylistsForAddShowPicker();
+  const playlist = source[playlistIndex];
   if (!show || !playlist) return;
   if (!playlist.shows) playlist.shows = [];
   if (isShowInPlaylist(playlist, show)) {
@@ -3031,9 +3067,20 @@ function addCrossPlaylistShowToDrawer(playlistIndex, candidateIndex) {
   playlist.shows.push({ ...show });
   if (!playlist.service) playlist.service = 'max';
 
-  homePlaylistsCache[playlistIndex] = playlist;
-  playlists = homePlaylistsCache;
+  source[playlistIndex] = playlist;
+  homePlaylistsCache = source;
+  playlists = source;
   savePlaylists();
+
+  if (addShowPickerHost === 'playlist-page') {
+    drawerAddShowMode = false;
+    drawerAddShowAllCandidates = [];
+    addShowPickerHost = 'drawer';
+    expandedPlaylistIndex = playlistIndex;
+    renderPlaylistPage();
+    return;
+  }
+
   if (currentNav === 'shows') renderHomeScreen('shows');
   cancelDrawerAddShowMode(playlistIndex);
 }
