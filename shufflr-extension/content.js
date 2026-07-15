@@ -5752,8 +5752,8 @@ async function handleShowPageShuffle() {
   }
 
   if (!episodes?.length) {
-    console.log('[Shufflr] Waiting 2000ms then scraping DOM...');
-    await wait(2000);
+    console.log('[Shufflr] Waiting for show page episode UI before DOM scrape...');
+    await waitForShowPageScrapeReady(3000);
     episodes = await collectEpisodesFromAllSeasons();
     if (episodes?.length) {
       const showId = extractShowId(pending.showPageUrl);
@@ -5971,6 +5971,30 @@ function findSeasonDropdownButton() {
   return null;
 }
 
+function hasOpenSeasonDropdownOptions() {
+  const optionSelectors = [
+    '[role="listbox"] [role="option"]',
+    '[role="menu"] [role="menuitem"]',
+    '[role="listbox"] button',
+    '[role="menu"] button',
+    '[role="listbox"] li',
+  ];
+
+  for (const selector of optionSelectors) {
+    for (const el of document.querySelectorAll(selector)) {
+      const clickable = el.closest('button, [role="option"], [role="menuitem"], li') || el;
+      if (getSeasonLabel(clickable)) return true;
+    }
+  }
+
+  for (const el of document.querySelectorAll('button, [role="option"], [role="menuitem"], li')) {
+    if (!isInsideDropdownList(el)) continue;
+    if (getSeasonLabel(el)) return true;
+  }
+
+  return false;
+}
+
 function findSeasonDropdownOptions() {
   const byLabel = new Map();
   const optionSelectors = [
@@ -6013,6 +6037,61 @@ function findSeasonDropdownOptions() {
   return options;
 }
 
+function episodeHrefSetKey(links) {
+  return (links || []).slice().sort().join('\n');
+}
+
+/** Quiet href scrape for polling — same selectors/normalization as extractEpisodeLinksFromPage. */
+function getEpisodeWatchHrefs() {
+  const seen = new Set();
+  const links = [];
+  for (const a of document.querySelectorAll('a[href*="/video/watch/"]')) {
+    const href = a.href;
+    if (!href || href.includes('javascript')) continue;
+    const normalized = normalizeEpisodeUrl(href);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    links.push(normalized);
+  }
+  return links;
+}
+
+async function waitForPollCondition(checkFn, timeoutMs, intervalMs = 100) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (!isChromeContextValid()) return false;
+    if (checkFn()) return true;
+    await wait(intervalMs);
+  }
+  return !!checkFn();
+}
+
+async function waitForShowPageScrapeReady(timeoutMs = 3000) {
+  console.log('[Shufflr] Polling for show page episode links or season dropdown...');
+  const ready = await waitForPollCondition(
+    () => getEpisodeWatchHrefs().length > 0 || !!findSeasonDropdownButton(),
+    timeoutMs
+  );
+  console.log(`[Shufflr] Show page scrape ready: ${ready}`);
+  return ready;
+}
+
+async function waitForSeasonEpisodeLinks(previousLinks, { isFirstSeason, timeoutMs = 3000 } = {}) {
+  const previousKey = episodeHrefSetKey(previousLinks || []);
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    if (!isChromeContextValid()) break;
+    const links = getEpisodeWatchHrefs();
+    const nonEmpty = links.length > 0;
+    const changed = episodeHrefSetKey(links) !== previousKey;
+    if (nonEmpty && (isFirstSeason || changed)) return links;
+    await wait(100);
+  }
+
+  return getEpisodeWatchHrefs();
+}
+
 async function openSeasonDropdown(stepLabel) {
   console.log(`[Shufflr] ${stepLabel}: finding season dropdown button...`);
   const dropdown = findSeasonDropdownButton();
@@ -6022,10 +6101,10 @@ async function openSeasonDropdown(stepLabel) {
   clickElement(dropdown.el);
   console.log(`[Shufflr] ${stepLabel}: click dispatched`);
 
-  console.log(`[Shufflr] ${stepLabel}: waiting 500ms for dropdown to open...`);
-  await wait(500);
-  console.log(`[Shufflr] ${stepLabel}: dropdown open wait complete`);
-  return true;
+  console.log(`[Shufflr] ${stepLabel}: polling for season options...`);
+  const opened = await waitForPollCondition(() => hasOpenSeasonDropdownOptions(), 1500);
+  console.log(`[Shufflr] ${stepLabel}: dropdown open poll complete — options=${opened}`);
+  return opened;
 }
 
 async function collectEpisodesFromAllSeasons() {
@@ -6046,15 +6125,17 @@ async function collectEpisodesFromAllSeasons() {
   };
 
   console.log('[Shufflr] Step 1: collecting episodes from default visible season...');
-  addLinks(extractEpisodeLinksFromPage(), 'Step 1 default season');
+  const defaultLinks = extractEpisodeLinksFromPage();
+  addLinks(defaultLinks, 'Step 1 default season');
+  let lastSeasonLinks = defaultLinks;
 
   let dropdownReady = false;
   for (let attempt = 1; attempt <= 8; attempt++) {
     console.log(`[Shufflr] Step 2.${attempt}: trying to open season dropdown...`);
     dropdownReady = await openSeasonDropdown(`Step 2.${attempt}`);
     if (dropdownReady) break;
-    console.log(`[Shufflr] Step 2.${attempt}: retrying in 500ms...`);
-    await wait(500);
+    console.log(`[Shufflr] Step 2.${attempt}: polling for dropdown button before retry...`);
+    await waitForPollCondition(() => !!findSeasonDropdownButton(), 500);
   }
 
   if (!dropdownReady) {
@@ -6104,9 +6185,9 @@ async function collectEpisodesFromAllSeasons() {
     clickElement(option.el);
     console.log(`[Shufflr] Step ${sub}c: click dispatched`);
 
-    console.log(`[Shufflr] Step ${sub}d: waiting 2000ms for episodes to load...`);
-    await wait(2000);
-    console.log(`[Shufflr] Step ${sub}d: wait complete`);
+    console.log(`[Shufflr] Step ${sub}d: polling for season episode links (max 3s)...`);
+    lastSeasonLinks = await waitForSeasonEpisodeLinks(lastSeasonLinks, { isFirstSeason: i === 0 });
+    console.log(`[Shufflr] Step ${sub}d: poll complete — ${lastSeasonLinks.length} link(s)`);
 
     console.log(`[Shufflr] Step ${sub}e: collecting episode links for "${label}"...`);
     addLinks(extractEpisodeLinksFromPage(), `Step ${sub}e "${label}"`);
