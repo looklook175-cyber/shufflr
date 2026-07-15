@@ -5738,6 +5738,12 @@ async function handleShowPageShuffle() {
     console.log('[Shufflr] Waiting 2000ms then scraping DOM...');
     await wait(2000);
     episodes = await collectEpisodesFromAllSeasons();
+    if (episodes?.length) {
+      const showId = extractShowId(pending.showPageUrl);
+      if (showId) {
+        await setCachedEpisodes(showId, episodes, [], null, null);
+      }
+    }
   }
 
   if (!episodes?.length) {
