@@ -1793,6 +1793,28 @@ async function writeYourShowsToStorage(shows) {
   void syncYourShowsToSupabaseFromExtension(shows);
 }
 
+async function migrateYourShowsStoredTitles() {
+  if (!isChromeContextValid()) return;
+  const shows = await readYourShowsFromStorage();
+  if (!shows.length) return;
+
+  let changed = false;
+  const cleaned = shows.map(show => {
+    if (!show || typeof show !== 'object') return show;
+    const raw = show.title;
+    if (raw == null || raw === '') return show;
+    const normalized = normalizeWatchHistoryShowName(raw);
+    if (!normalized || normalized === String(raw).trim()) return show;
+    changed = true;
+    return { ...show, title: normalized };
+  });
+
+  if (changed) {
+    await writeYourShowsToStorage(cleaned);
+    console.log('[Shufflr] Migrated Your Shows titles (stripped service suffixes)');
+  }
+}
+
 async function addCurrentShowToYourShows() {
   if (!isChromeContextValid()) return;
 
@@ -1823,7 +1845,8 @@ async function addCurrentShowToYourShows() {
     return;
   }
 
-  const title = getCurrentShowTitle();
+  const rawTitle = getCurrentShowTitle();
+  const title = normalizeWatchHistoryShowName(rawTitle) || rawTitle || 'Unknown Show';
   const shows = await readYourShowsFromStorage();
   const alreadyAdded = shows.some(show => (
     show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
@@ -7654,6 +7677,7 @@ if (isCrunchyroll) {
 if (IS_MAX) {
 installMaxPlaylistSyncListener();
 void maybeClearStaleEpisodeCachesOnce();
+void migrateYourShowsStoredTitles();
 void checkForLaunchStandaloneShow();
 void checkForLaunchPlaylist();
 void readShuffleSettings().then(settings => {
