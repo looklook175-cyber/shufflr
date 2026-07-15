@@ -2871,21 +2871,45 @@ function openDrawerAddShowMode(playlistIndex) {
   renderDrawerAddShowPicker(playlistIndex);
 }
 
+function getDrawerAddShowDedupeKey(show) {
+  if (show?.tubiId) return `tubi:${String(show.tubiId)}`;
+  const maxId = getShowMaxId(show);
+  if (maxId) return `max:${String(maxId).toLowerCase()}`;
+  const nameKey = normalizePlShowName(getPlaylistShowLabel(show));
+  if (nameKey) return `name:${nameKey}`;
+  return '';
+}
+
+function getServiceFilteredYourShowsForDrawer() {
+  const connectedService = localStorage.getItem('shufflr_service') || 'max';
+  return readLocalYourShows().filter(show => {
+    if (connectedService === 'tubi') return !!show.tubiId;
+    return !!show.maxId || !!show.maxShowId || !!show.max_id;
+  });
+}
+
 function getCrossPlaylistShowsForAdd(playlistIndex) {
   const currentPlaylist = homePlaylistsCache[playlistIndex];
-  const seenNames = new Set();
+  const seen = new Set();
   const candidates = [];
+
+  const addCandidate = (show) => {
+    if (!show || show.release_date) return;
+    if (isShowInPlaylist(currentPlaylist, show)) return;
+    const key = getDrawerAddShowDedupeKey(show);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    candidates.push(show);
+  };
 
   homePlaylistsCache.forEach((playlist, pi) => {
     if (pi === playlistIndex) return;
-    for (const show of playlist.shows || []) {
-      if (isShowInPlaylist(currentPlaylist, show)) continue;
-      const nameKey = normalizePlShowName(getPlaylistShowLabel(show));
-      if (!nameKey || seenNames.has(nameKey)) continue;
-      seenNames.add(nameKey);
-      candidates.push(show);
-    }
+    for (const show of playlist.shows || []) addCandidate(show);
   });
+
+  for (const show of getServiceFilteredYourShowsForDrawer()) {
+    addCandidate(show);
+  }
 
   return candidates.sort((a, b) => (
     getPlaylistShowLabel(a).localeCompare(getPlaylistShowLabel(b), undefined, { sensitivity: 'base' })
