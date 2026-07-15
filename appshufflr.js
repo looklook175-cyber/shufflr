@@ -3771,6 +3771,15 @@ async function removeYourShowFromPopup() {
     showToast('Remove this show from its playlist instead.');
     return;
   }
+
+  const playlistMatchCount = countPlaylistsContainingLibraryShow(show);
+  if (playlistMatchCount > 0) {
+    const confirmed = window.confirm(
+      `Also removes this show from ${playlistMatchCount} playlist(s). Delete?`
+    );
+    if (!confirmed) return;
+  }
+
   const stored = readLocalYourShows();
   const key = show.tubiId || show.maxId || show.maxShowId || show.max_id;
   const filtered = stored.filter(s => {
@@ -3781,9 +3790,48 @@ async function removeYourShowFromPopup() {
   if (typeof window.shufflrSaveYourShowsToCloud === 'function') {
     await window.shufflrSaveYourShowsToCloud(filtered);
   }
+
+  if (playlistMatchCount > 0) {
+    removeLibraryShowFromAllPlaylists(show);
+    homePlaylistsCache = playlists;
+    savePlaylists();
+  }
+
   closeYourShowPopup();
   showToast('Show removed.');
   renderHomeScreen();
+}
+
+function libraryShowsMatchForDelete(a, b) {
+  if (!a || !b) return false;
+  if (a.tubiId || b.tubiId) {
+    return !!(a.tubiId && b.tubiId && String(a.tubiId) === String(b.tubiId));
+  }
+  const maxA = getShowMaxId(a);
+  const maxB = getShowMaxId(b);
+  if (maxA || maxB) {
+    return !!(maxA && maxB && String(maxA).toLowerCase() === String(maxB).toLowerCase());
+  }
+  const titleA = getShowLabel(a);
+  const titleB = getShowLabel(b);
+  return !!(titleA && titleB && titleA === titleB);
+}
+
+function countPlaylistsContainingLibraryShow(show) {
+  let count = 0;
+  for (const playlist of playlists || []) {
+    if ((playlist?.shows || []).some(entry => libraryShowsMatchForDelete(entry, show))) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function removeLibraryShowFromAllPlaylists(show) {
+  for (const playlist of playlists || []) {
+    if (!Array.isArray(playlist?.shows) || !playlist.shows.length) continue;
+    playlist.shows = playlist.shows.filter(entry => !libraryShowsMatchForDelete(entry, show));
+  }
 }
 
 async function openYourShowDetailPage(pi,si){
