@@ -808,6 +808,7 @@ let nowPlayingShuffleShow=null;
 let nowPlayingShufflePickedAt=0;
 let nowPlayingShufflePlaylistIndex=null;
 let nowPlayingShuffleShowIndex=null;
+let nowPlayingShufflePickedShow=null;
 let nowPlayingStaticAnimId=null;
 let homeEmptyStaticAnimId=null;
 let nowPlayingPosterGlitchTimer=null;
@@ -975,7 +976,7 @@ function ensureNowPlayingShuffleControls(host){
     hint.id='now-playing-shuffle-hint';
     hint.className='now-playing-shuffle-hint';
     hint.hidden=true;
-    hint.textContent='Add shows to playlists to use shuffle.';
+    hint.textContent='Shuffles across all of Your Shows.';
     container.appendChild(hint);
   }
   reorderNowPlayingHostChildren(container);
@@ -995,6 +996,7 @@ function clearExpiredNowPlayingShuffle(){
     nowPlayingShufflePickedAt=0;
     nowPlayingShufflePlaylistIndex=null;
     nowPlayingShuffleShowIndex=null;
+    nowPlayingShufflePickedShow=null;
   }
 }
 
@@ -1034,7 +1036,9 @@ function setNowPlayingCardSlotHtml(html){
 async function onNowPlayingShuffleClick(){
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(!loggedIn){showToast('You must sign in to use this feature.');return;}
-  const{items}=getActivePlaylistShowsForHome();
+  const filteredYourShows=getServiceFilteredYourShowsForDrawer();
+  const allPlaylists=homePlaylistsCache.length?homePlaylistsCache:playlists;
+  const{items}=getActivePlaylistShowsForHome(allPlaylists,filteredYourShows);
   const hint=document.getElementById('now-playing-shuffle-hint');
   if(!items.length){
     if(hint){
@@ -1051,11 +1055,16 @@ async function onNowPlayingShuffleClick(){
   nowPlayingShufflePickedAt=Date.now();
   nowPlayingShufflePlaylistIndex=playlistIndex;
   nowPlayingShuffleShowIndex=showIndex;
+  nowPlayingShufflePickedShow=show;
   renderNowPlayingCard();
 }
 
 function onNowPlayingShufflePosterClick(){
   if(!isNowPlayingShuffleActive())return;
+  if(nowPlayingShufflePlaylistIndex===-1){
+    launchStandaloneShowFromPowerPick(nowPlayingShufflePickedShow);
+    return;
+  }
   if(nowPlayingShufflePlaylistIndex==null||nowPlayingShuffleShowIndex==null)return;
   launchShowStandaloneFromNowPlaying(nowPlayingShufflePlaylistIndex,nowPlayingShuffleShowIndex);
 }
@@ -2759,6 +2768,23 @@ function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const launchUrl = getShowMaxUrlFromPlaylistShow(show);
   if (!launchUrl) return;
   setStandaloneLaunchViaBridge(launchUrl);
+  window.open(launchUrl, '_blank');
+}
+
+function launchStandaloneShowFromPowerPick(show) {
+  if (!show) return;
+  if (show.tubiId) {
+    const tubiUrl = show.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(show.name || show.title || '')}`;
+    window.open(tubiUrl, '_blank');
+    return;
+  }
+  const maxId = getShowMaxId(show);
+  const launchUrl = getShowMaxUrlFromPlaylistShow(show) || (maxId ? `https://play.max.com/show/${String(maxId)}` : null);
+  if (!launchUrl) {
+    showToast('NO MAX URL');
+    return;
+  }
+  setStandaloneLaunchViaBridge(launchUrl, maxId, null);
   window.open(launchUrl, '_blank');
 }
 
