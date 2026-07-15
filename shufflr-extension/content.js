@@ -664,6 +664,7 @@ if (IS_SHUFFLR_WEB_APP) {
   installWebAppHandoffBridge();
 } else {
   installCmsRequestCapture();
+  installCmsPageCaptureListener();
 }
 
 let shufflrActive = false;
@@ -5069,34 +5070,50 @@ function urlHasShowIdParam(url) {
   }
 }
 
+function saveCmsTemplateFromUrl(url, headers) {
+  const match = url.match(/^(https:\/\/default\.[^/]+\.api\.hbomax\.com)\/cms\/collections\/(\d+)\?(.+)/);
+  if (!match) return;
+
+  const params = new URLSearchParams(match[3]);
+  params.delete('pf[show.id]');
+  params.delete('pf[seasonNumber]');
+
+  const captured = {
+    apiOrigin: match[1],
+    collectionId: match[2],
+    baseQuery: params.toString(),
+    showId: new URL(url).searchParams.get('pf[show.id]') || undefined,
+  };
+
+  if (headers) {
+    captured.headers = normalizeCapturedHeaders(headers);
+  } else {
+    const existing = getCmsConfig();
+    if (existing?.headers) captured.headers = existing.headers;
+  }
+
+  sessionStorage.setItem(CMS_CAPTURE_KEY, JSON.stringify(captured));
+  console.log('[Shufflr] Captured CMS template:', captured.apiOrigin, captured.collectionId);
+}
+
+function installCmsPageCaptureListener() {
+  if (window.__shufflrCmsPageCaptureListener) return;
+  window.__shufflrCmsPageCaptureListener = true;
+
+  window.addEventListener('message', event => {
+    if (event.source !== window) return;
+    if (event.data?.source !== 'shufflr-cms-capture') return;
+    if (typeof event.data.url !== 'string') return;
+    saveCmsTemplateFromUrl(event.data.url, event.data.headers || null);
+  });
+}
+
 function installCmsRequestCapture() {
   if (window.__shufflrCmsCapture) return;
   window.__shufflrCmsCapture = true;
 
   const saveFromUrl = (url, headers) => {
-    const match = url.match(/^(https:\/\/default\.[^/]+\.api\.hbomax\.com)\/cms\/collections\/(\d+)\?(.+)/);
-    if (!match) return;
-
-    const params = new URLSearchParams(match[3]);
-    params.delete('pf[show.id]');
-    params.delete('pf[seasonNumber]');
-
-    const captured = {
-      apiOrigin: match[1],
-      collectionId: match[2],
-      baseQuery: params.toString(),
-      showId: new URL(url).searchParams.get('pf[show.id]') || undefined,
-    };
-
-    if (headers) {
-      captured.headers = normalizeCapturedHeaders(headers);
-    } else {
-      const existing = getCmsConfig();
-      if (existing?.headers) captured.headers = existing.headers;
-    }
-
-    sessionStorage.setItem(CMS_CAPTURE_KEY, JSON.stringify(captured));
-    console.log('[Shufflr] Captured CMS template:', captured.apiOrigin, captured.collectionId);
+    saveCmsTemplateFromUrl(url, headers);
   };
 
   const origFetch = window.fetch;

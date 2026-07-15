@@ -25,6 +25,17 @@
         "https://play.hbomax.com/*",
         "https://www.hbomax.com/*"
       ],
+      "js": ["page-capture.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://play.max.com/*",
+        "https://www.max.com/*",
+        "https://play.hbomax.com/*",
+        "https://www.hbomax.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     },
