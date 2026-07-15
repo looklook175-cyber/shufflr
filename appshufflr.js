@@ -3764,28 +3764,19 @@ function launchYourShowPopupShuffle(){
   window.open(launchUrl,'_blank');
 }
 
-async function removeYourShowFromPopup() {
-  if (!yourShowPopupContext) return;
-  const { pi, show } = yourShowPopupContext;
-  if (pi !== -1) {
-    showToast('Remove this show from its playlist instead.');
-    return;
-  }
+async function cascadeDeleteShowFromYourShowsLibrary(show) {
+  if (!show) return false;
 
   const playlistMatchCount = countPlaylistsContainingLibraryShow(show);
   if (playlistMatchCount > 0) {
     const confirmed = window.confirm(
       `Also removes this show from ${playlistMatchCount} playlist(s). Delete?`
     );
-    if (!confirmed) return;
+    if (!confirmed) return false;
   }
 
   const stored = readLocalYourShows();
-  const key = show.tubiId || show.maxId || show.maxShowId || show.max_id;
-  const filtered = stored.filter(s => {
-    const k = s.tubiId || s.maxId || s.maxShowId || s.max_id;
-    return k !== key;
-  });
+  const filtered = stored.filter(s => !libraryShowsMatchForDelete(s, show));
   localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(filtered));
   if (typeof window.shufflrSaveYourShowsToCloud === 'function') {
     await window.shufflrSaveYourShowsToCloud(filtered);
@@ -3796,6 +3787,17 @@ async function removeYourShowFromPopup() {
     homePlaylistsCache = playlists;
     savePlaylists();
   }
+
+  return true;
+}
+
+async function removeYourShowFromPopup() {
+  if (!yourShowPopupContext) return;
+  const { show } = yourShowPopupContext;
+  if (!show) return;
+
+  const deleted = await cascadeDeleteShowFromYourShowsLibrary(show);
+  if (!deleted) return;
 
   closeYourShowPopup();
   showToast('Show removed.');
