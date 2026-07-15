@@ -118,6 +118,8 @@ const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
 const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
+const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
+const CRUNCHYROLL_SHUFFLE_ACTIVE_KEY = 'shufflr_crunchyroll_shuffle_active';
 
 let extensionContextInvalidated = false;
 let extensionContextHealthCheckTimer = null;
@@ -655,6 +657,8 @@ function installWebAppHandoffBridge() {
 
   console.log('[Shufflr] Web app handoff bridge ready');
 }
+
+let shufflrOrigFetch = null;
 
 if (IS_SHUFFLR_WEB_APP) {
   installWebAppHandoffBridge();
@@ -2503,7 +2507,24 @@ function attachShuffleListenersIfVideoPage() {
 
 async function getActivePlaylistFromStorage() {
   if (!isChromeContextValid()) return;
-  return storageLocalGet(SHUFFLR_ACTIVE_PLAYLIST_KEY);
+  const active = await storageLocalGet(SHUFFLR_ACTIVE_PLAYLIST_KEY);
+  if (!active?.armed) return active;
+  if (active.playlistIndex === -1) return active; // synthetic "Your Shows" session, not list-backed
+
+  const playlists = await readPlaylistsFromStorage();
+  const index = active.playlistIndex;
+  const name = String(active.playlistName || '');
+  const byIndex = Number.isFinite(index) && index >= 0 ? playlists[index] : null;
+  const matchesByIndex = byIndex && (!name || (byIndex.name || '') === name);
+  const matchesByName = name && playlists.some(playlist => (playlist.name || '') === name);
+
+  if (!matchesByIndex && !matchesByName) {
+    console.log('[Shufflr] Armed playlist no longer exists — clearing stale session');
+    await clearActivePlaylist();
+    return undefined;
+  }
+
+  return active;
 }
 
 function updateShuffleUI(playlistName) {
@@ -3027,6 +3048,10 @@ function tryInjectButton() {
     if (video && IS_MAX) attachVideoListeners(video);
     if (isTubiEpisodePage()) installTubiEpisodeEndWatcher();
     syncTubiShuffleUiState();
+    if (isCrunchyrollWatchPage()) {
+      installCrunchyrollEpisodeEndWatcher();
+      restoreCrunchyrollShuffleSession();
+    }
     return IS_MAX ? fullyRestoreArmedShuffleSessionAfterInject() : Promise.resolve(true);
   }
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
@@ -3318,6 +3343,14 @@ function onShuffleBtnClick(event) {
       return;
     }
     void startTubiShuffle();
+    return;
+  }
+  if (isCrunchyroll && isCrunchyrollWatchPage()) {
+    if (shufflrActive) {
+      stopCrunchyrollShuffle();
+      return;
+    }
+    void startCrunchyrollShuffle();
     return;
   }
   toggleShuffle();
@@ -3993,6 +4026,7 @@ function injectShufflrButton(video) {
     if (video) attachVideoListeners(video);
     if (IS_MAX) void fullyRestoreArmedShuffleSessionAfterInject();
     else if (IS_TUBI) restoreTubiShuffleSession();
+    else if (isCrunchyroll) restoreCrunchyrollShuffleSession();
     return;
   }
 
@@ -4051,6 +4085,7 @@ function injectShufflrButton(video) {
 
   if (IS_MAX) void fullyRestoreArmedShuffleSessionAfterInject();
   else if (IS_TUBI) restoreTubiShuffleSession();
+  else if (isCrunchyroll) restoreCrunchyrollShuffleSession();
 }
 
 function attachVideoListeners(video) {
@@ -5019,11 +5054,20 @@ const CMS_HEADER_KEYS = [
   'x-device-info',
   'x-disco-client',
   'x-disco-params',
+  'x-wbd-ace',
   'x-wbd-device-consent',
   'x-wbd-preferred-language',
   'x-wbd-session-state',
   'x-wbd-time-zone',
 ];
+
+function urlHasShowIdParam(url) {
+  try {
+    return new URL(url, location.origin).searchParams.has('pf[show.id]');
+  } catch {
+    return false;
+  }
+}
 
 function installCmsRequestCapture() {
   if (window.__shufflrCmsCapture) return;
@@ -5056,9 +5100,10 @@ function installCmsRequestCapture() {
   };
 
   const origFetch = window.fetch;
+  shufflrOrigFetch = origFetch;
   window.fetch = function (input, init) {
     const url = typeof input === 'string' ? input : input?.url;
-    if (url?.includes('/cms/collections/') && url.includes('pf[show.id]')) {
+    if (url?.includes('/cms/collections/') && urlHasShowIdParam(url)) {
       const headers = init?.headers || (input instanceof Request ? input.headers : null);
       saveFromUrl(url, headers);
     }
@@ -5067,7 +5112,7 @@ function installCmsRequestCapture() {
 
   const origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    if (typeof url === 'string' && url.includes('/cms/collections/') && url.includes('pf[show.id]')) {
+    if (typeof url === 'string' && url.includes('/cms/collections/') && urlHasShowIdParam(url)) {
       saveFromUrl(url, null);
     }
     return origOpen.call(this, method, url, ...rest);
@@ -5158,7 +5203,7 @@ async function fetchExpressContent(showId, seasonNumber) {
   const url = buildSeasonCollectionUrl(showId, seasonNumber);
   console.log(`[Shufflr] CMS fetch S${seasonNumber}: ${url}`);
 
-  const response = await fetch(url, {
+  const response = await (shufflrOrigFetch || fetch)(url, {
     method: 'GET',
     credentials: 'include',
     headers: getCmsHeaders(),
@@ -5374,14 +5419,21 @@ async function discoverSeasonNumbers(showId, cachedPayloads) {
     return fromRoute;
   }
 
+  const probeResults = await Promise.all(
+    Array.from({ length: 40 }, (_, i) => i + 1).map(async season => {
+      const json = await fetchExpressContent(showId, season);
+      const episodes = parseEpisodesFromCmsResponse(json);
+      return episodes.length ? { season, json } : null;
+    })
+  );
+
   const found = [];
-  for (let season = 1; season <= 40; season++) {
-    const json = await fetchExpressContent(showId, season);
-    const episodes = parseEpisodesFromCmsResponse(json);
-    if (!episodes.length) break;
-    found.push(season);
-    cachedPayloads.set(season, json);
+  for (const result of probeResults) {
+    if (!result) continue;
+    found.push(result.season);
+    cachedPayloads.set(result.season, result.json);
   }
+  found.sort((a, b) => a - b);
 
   console.log(`[Shufflr] Probed ${found.length} season(s)`);
   return found.length ? found : [1];
@@ -7130,6 +7182,330 @@ if (IS_TUBI) {
   tubiCopObserver.observe(document.body, { childList: true, subtree: true });
 }
 
+// ── CRUNCHYROLL HELPERS ──────────────────────────────────────────────────
+let crunchyrollEpisodeEndTriggered = false;
+let crunchyrollTimeupdateVideo = null;
+let crunchyrollTimeupdateHandler = null;
+let crunchyrollButtonObserver = null;
+
+function isCrunchyrollWatchPage() {
+  return isCrunchyroll && location.pathname.includes('/watch/');
+}
+
+function getCrunchyrollShowIdFromUrl() {
+  const seriesLink = document.querySelector('a[href*="/series/"]');
+  const hrefMatch = seriesLink?.getAttribute('href')?.match(/\/series\/([^/]+)/);
+  if (hrefMatch) return hrefMatch[1];
+  const watchMatch = location.pathname.match(/\/watch\/([^/]+)/);
+  return watchMatch ? `ep-${watchMatch[1]}` : null;
+}
+
+function getCrunchyrollShowTitle() {
+  const seriesLink = document.querySelector('a[href*="/series/"]');
+  const text = seriesLink?.textContent?.replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+  return ogTitle?.trim() || 'Crunchyroll';
+}
+
+function crunchyrollEpisodeCacheKey(showId) {
+  return `${CRUNCHYROLL_EPISODE_CACHE_PREFIX}${showId}`;
+}
+
+async function getCachedCrunchyrollEpisodes(showId) {
+  if (!isChromeContextValid() || !showId) return null;
+  const entry = await storageLocalGet(crunchyrollEpisodeCacheKey(showId));
+  if (!entry?.cachedAt || !Array.isArray(entry.episodes) || !entry.episodes.length) return null;
+  if (Date.now() - entry.cachedAt > EPISODE_CACHE_TTL_MS) return null;
+  return entry.episodes;
+}
+
+async function setCachedCrunchyrollEpisodes(showId, episodes, showName) {
+  if (!isChromeContextValid() || !showId) return;
+  await storageLocalSet(crunchyrollEpisodeCacheKey(showId), {
+    showId,
+    showName: showName || null,
+    episodes,
+    cachedAt: Date.now(),
+  });
+}
+
+// Episode rows in Crunchyroll's expanded panel render as "E9 - Episode Title" link text.
+function parseCrunchyrollEpisodeLink(anchor) {
+  const href = anchor.getAttribute('href');
+  if (!href || !href.startsWith('/watch/')) return null;
+  const text = (anchor.textContent || '').replace(/\s+/g, ' ').trim();
+  const match = text.match(/^E(\d+)\s*[-–—]\s*(.+)$/i);
+  if (!match) return null;
+  return {
+    url: `https://www.crunchyroll.com${href.split('?')[0]}`,
+    title: match[2].trim(),
+    episode: Number(match[1]),
+  };
+}
+
+function collectCrunchyrollEpisodesFromCurrentDom() {
+  const episodes = [];
+  const seen = new Set();
+  for (const anchor of document.querySelectorAll('a[href*="/watch/"]')) {
+    const parsed = parseCrunchyrollEpisodeLink(anchor);
+    if (!parsed || seen.has(parsed.url)) continue;
+    seen.add(parsed.url);
+    episodes.push(parsed);
+  }
+  return episodes;
+}
+
+function mergeCrunchyrollEpisodes(existing, found) {
+  const seen = new Set(existing.map(ep => ep.url));
+  for (const ep of found) {
+    if (seen.has(ep.url)) continue;
+    seen.add(ep.url);
+    existing.push(ep);
+  }
+  return existing;
+}
+
+// Expands the episode panel and opens the "Seasons" dropdown so every season's
+// episodes are reachable, mirroring how a real user browses to other seasons.
+async function openCrunchyrollSeasonDropdown() {
+  const seeMoreBtn = document.querySelector('button[data-t="see-more-episodes-btn"]');
+  if (seeMoreBtn) {
+    seeMoreBtn.click();
+    await wait(1200);
+  }
+  const trigger = document.querySelector('[aria-label="Seasons"]');
+  if (!trigger) return false;
+  if (trigger.getAttribute('aria-expanded') !== 'true') {
+    trigger.click();
+    await wait(400);
+  }
+  return document.querySelectorAll('div[role="option"]').length > 0;
+}
+
+function findCrunchyrollSeasonOptions() {
+  return Array.from(document.querySelectorAll('div[role="option"]')).map(el => ({
+    el,
+    label: el.textContent.trim(),
+  }));
+}
+
+async function collectCrunchyrollEpisodesFromSeasonDropdown() {
+  let all = collectCrunchyrollEpisodesFromCurrentDom();
+
+  const dropdownReady = await openCrunchyrollSeasonDropdown();
+  if (!dropdownReady) return all;
+
+  const seasonOptions = findCrunchyrollSeasonOptions();
+  if (!seasonOptions.length) return all;
+
+  for (let i = 0; i < seasonOptions.length; i++) {
+    const { label } = seasonOptions[i];
+
+    if (i > 0) {
+      const trigger = document.querySelector('[aria-label="Seasons"]');
+      if (trigger && trigger.getAttribute('aria-expanded') !== 'true') {
+        trigger.click();
+        await wait(400);
+      }
+    }
+
+    const freshOptions = findCrunchyrollSeasonOptions();
+    const option = freshOptions.find(opt => opt.label === label);
+    if (!option) continue;
+
+    option.el.click();
+    await wait(1500);
+    all = mergeCrunchyrollEpisodes(all, collectCrunchyrollEpisodesFromCurrentDom());
+  }
+
+  return all;
+}
+
+async function collectCrunchyrollEpisodes() {
+  console.log('[Shufflr] Crunchyroll: collecting episodes via season dropdown');
+  const episodes = await collectCrunchyrollEpisodesFromSeasonDropdown();
+  console.log(`[Shufflr] Crunchyroll: collected ${episodes.length} episode(s)`);
+  return episodes;
+}
+
+function pickRandomCrunchyrollEpisode(episodes, currentUrl = null) {
+  if (!episodes?.length) return null;
+  const normalizedCurrent = currentUrl?.split('?')[0] || null;
+  const pool = normalizedCurrent
+    ? episodes.filter(ep => ep.url !== normalizedCurrent)
+    : episodes;
+  const pickFrom = pool.length ? pool : episodes;
+  return pickFrom[Math.floor(Math.random() * pickFrom.length)];
+}
+
+function isCrunchyrollShuffleActive() {
+  return !!sessionStorage.getItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY);
+}
+
+function isCrunchyrollShuffleActiveForShow(showId) {
+  const activeShowId = sessionStorage.getItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY);
+  if (!activeShowId) return false;
+  if (!showId) return true;
+  return String(activeShowId) === String(showId);
+}
+
+function restoreCrunchyrollShuffleSession() {
+  if (!isCrunchyroll || !isCrunchyrollShuffleActive()) return false;
+  shufflrActive = true;
+  if (hasShufflrButtonInDom()) {
+    updateShuffleUI(getCrunchyrollShowTitle());
+  }
+  if (isCrunchyrollWatchPage()) {
+    installCrunchyrollEpisodeEndWatcher();
+  }
+  return true;
+}
+
+function teardownCrunchyrollEpisodeEndWatcher() {
+  if (crunchyrollTimeupdateVideo && crunchyrollTimeupdateHandler) {
+    crunchyrollTimeupdateVideo.removeEventListener('timeupdate', crunchyrollTimeupdateHandler);
+  }
+  crunchyrollTimeupdateVideo = null;
+  crunchyrollTimeupdateHandler = null;
+  crunchyrollEpisodeEndTriggered = false;
+}
+
+function stopCrunchyrollShuffle() {
+  shufflrActive = false;
+  sessionStorage.removeItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY);
+  teardownCrunchyrollEpisodeEndWatcher();
+  updateShuffleUI('');
+  showToast('Shufflr OFF');
+  console.log('[Shufflr] Crunchyroll shuffle turned off');
+}
+
+async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
+  if (!isChromeContextValid()) return;
+  const showId = getCrunchyrollShowIdFromUrl();
+  if (!showId || !isCrunchyrollShuffleActiveForShow(showId)) return;
+
+  let episodes = await getCachedCrunchyrollEpisodes(showId);
+  if (!episodes?.length) {
+    episodes = await collectCrunchyrollEpisodes();
+    if (episodes.length) {
+      await setCachedCrunchyrollEpisodes(showId, episodes, getCrunchyrollShowTitle());
+    }
+  }
+  if (!episodes?.length) {
+    console.log(`[Shufflr] Crunchyroll: no cached episodes for shuffle (${source})`);
+    return;
+  }
+
+  const pick = pickRandomCrunchyrollEpisode(episodes, location.href);
+  if (!pick) return;
+
+  const showName = getCrunchyrollShowTitle() || 'Crunchyroll';
+  showToast(`Shuffling ${showName}...`);
+  console.log(`[Shufflr] Crunchyroll shuffle (${source}): → ${pick.url}`);
+  crunchyrollEpisodeEndTriggered = true;
+  captureFullscreenBeforeShufflrNavigation();
+  window.location.href = pick.url;
+  setTimeout(() => {
+    crunchyrollEpisodeEndTriggered = false;
+    installCrunchyrollEpisodeEndWatcher();
+  }, 3000);
+}
+
+async function startCrunchyrollShuffle() {
+  if (!isChromeContextValid()) return;
+  let showId = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    showId = getCrunchyrollShowIdFromUrl();
+    if (showId) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (!showId) {
+    showToast('Could not identify this show.');
+    return;
+  }
+  const showName = getCrunchyrollShowTitle() || 'this show';
+  showToast(`Shuffling ${showName}...`);
+
+  let episodes = (isCrunchyrollWatchPage() && shufflrActive) ? await getCachedCrunchyrollEpisodes(showId) : null;
+  if (!episodes?.length) {
+    episodes = await collectCrunchyrollEpisodes();
+  }
+  if (!episodes?.length) {
+    showToast('Could not find episodes.');
+    return;
+  }
+
+  await setCachedCrunchyrollEpisodes(showId, episodes, showName);
+  sessionStorage.setItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY, String(showId));
+  shufflrActive = true;
+  updateShuffleUI(showName);
+
+  const pick = pickRandomCrunchyrollEpisode(episodes, location.href);
+  if (!pick) {
+    showToast('Could not pick an episode.');
+    return;
+  }
+
+  console.log(`[Shufflr] Crunchyroll shuffle start: ${episodes.length} episodes → ${pick.url}`);
+  crunchyrollEpisodeEndTriggered = true;
+  window.location.href = pick.url;
+  setTimeout(() => {
+    crunchyrollEpisodeEndTriggered = false;
+    installCrunchyrollEpisodeEndWatcher();
+  }, 3000);
+}
+
+function installCrunchyrollEpisodeEndWatcher() {
+  if (!isChromeContextValid() || !isCrunchyrollWatchPage()) return;
+
+  const showId = getCrunchyrollShowIdFromUrl();
+  if (!isCrunchyrollShuffleActiveForShow(showId)) return;
+
+  const video = document.querySelector('video');
+  if (!video) {
+    setTimeout(installCrunchyrollEpisodeEndWatcher, 1000);
+    return;
+  }
+
+  if (crunchyrollTimeupdateVideo === video && crunchyrollTimeupdateHandler) return;
+
+  if (crunchyrollTimeupdateVideo && crunchyrollTimeupdateHandler) {
+    crunchyrollTimeupdateVideo.removeEventListener('timeupdate', crunchyrollTimeupdateHandler);
+  }
+
+  crunchyrollEpisodeEndTriggered = false;
+  crunchyrollTimeupdateVideo = video;
+  crunchyrollTimeupdateHandler = () => {
+    if (crunchyrollEpisodeEndTriggered) return;
+    if (!video.duration || !Number.isFinite(video.duration) || video.paused) return;
+    const remaining = video.duration - video.currentTime;
+    if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+    crunchyrollEpisodeEndTriggered = true;
+    void navigateToRandomCrunchyrollEpisode('timeupdate');
+  };
+
+  video.addEventListener('timeupdate', crunchyrollTimeupdateHandler);
+  video.addEventListener('playing', () => {
+    showFullscreenRestorePrompt();
+  }, { once: true });
+  console.log('[Shufflr] Crunchyroll: episode-end watcher installed');
+}
+
+function installCrunchyrollButtonPersistenceObserver() {
+  if (!isChromeContextValid()) return;
+  if (window.__shufflrCrunchyrollButtonObserver) return;
+  window.__shufflrCrunchyrollButtonObserver = true;
+
+  crunchyrollButtonObserver = new MutationObserver(() => {
+    if (!isCrunchyroll) return;
+    if (!isCrunchyrollWatchPage()) return;
+    if (document.getElementById('shufflr-wrap')) return;
+    void tryInjectButton();
+  });
+  crunchyrollButtonObserver.observe(document.body, { childList: true, subtree: true });
+}
+
 if (isCrunchyroll) {
   setTimeout(() => {
     if (!isCrunchyroll) return;
@@ -7137,8 +7513,38 @@ if (isCrunchyroll) {
       console.log('[Shufflr] Crunchyroll watch page — injecting Shufflr button');
       void tryInjectButton();
       installCrunchyrollUrlObserver();
+      installCrunchyrollButtonPersistenceObserver();
+      restoreCrunchyrollShuffleSession();
     }
   }, 2500);
+
+  // Crunchyroll shuffle cop — detects native "up next" autoplay navigation and corrects it
+  let crunchyrollLastUrl = location.href;
+  const crunchyrollCopObserver = new MutationObserver(() => {
+    if (!isChromeContextValid()) return;
+    if (location.href === crunchyrollLastUrl) return;
+    crunchyrollLastUrl = location.href;
+    if (!shufflrActive) return;
+    if (crunchyrollEpisodeEndTriggered) {
+      crunchyrollEpisodeEndTriggered = false;
+      return;
+    }
+    console.log('[Shufflr] Crunchyroll cop: native autoplay detected, correcting...');
+    showToast('Shufflr correcting...');
+    setTimeout(async () => {
+      crunchyrollEpisodeEndTriggered = false;
+      const showId = getCrunchyrollShowIdFromUrl();
+      if (!showId || !isCrunchyrollShuffleActiveForShow(showId)) return;
+      const episodes = await getCachedCrunchyrollEpisodes(showId);
+      if (!episodes?.length) return;
+      const pick = pickRandomCrunchyrollEpisode(episodes, location.href);
+      if (!pick) return;
+      console.log('[Shufflr] Crunchyroll cop: correcting to', pick.url);
+      showToast('Shufflr correcting...');
+      window.location.href = pick.url;
+    }, 500);
+  });
+  crunchyrollCopObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 if (IS_MAX) {
