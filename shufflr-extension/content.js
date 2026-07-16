@@ -124,6 +124,7 @@ const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
 const CRUNCHYROLL_PENDING_TTL_MS = 2 * 60 * 1000;
 const SHUFFLR_ARMED_SESSION_KEY = 'shufflr_armed_session';
 const ARMED_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const SHUFFLR_ORDERED_PROGRESS_KEY = 'shufflr_ordered_progress';
 
 let extensionContextInvalidated = false;
 let extensionContextHealthCheckTimer = null;
@@ -7779,6 +7780,35 @@ function crunchyrollEpisodePlayKey(ep) {
   return ep?.url || `${ep?.episode || ''}:${ep?.title || ''}`;
 }
 
+/** Stable watch-path ID from a Crunchyroll episode URL (survives cache re-collection). */
+function getCrunchyrollWatchEpisodeId(epOrUrl) {
+  const url = typeof epOrUrl === 'string' ? epOrUrl : epOrUrl?.url;
+  if (!url) return null;
+  try {
+    const path = new URL(url, 'https://www.crunchyroll.com').pathname;
+    const match = path.match(/\/watch\/([^/]+)/i);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readCrunchyrollOrderedProgress() {
+  if (!isChromeContextValid()) return {};
+  const stored = await storageLocalGet(SHUFFLR_ORDERED_PROGRESS_KEY);
+  return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+}
+
+async function writeCrunchyrollOrderedProgressForShow(showId, lastPlayedEpisodeId) {
+  if (!isChromeContextValid() || !showId || !lastPlayedEpisodeId) return;
+  const all = await readCrunchyrollOrderedProgress();
+  all[String(showId)] = {
+    lastPlayedEpisodeId: String(lastPlayedEpisodeId),
+    updatedAt: Date.now(),
+  };
+  await chromeStorageLocalSet({ [SHUFFLR_ORDERED_PROGRESS_KEY]: all });
+}
+
 function getCrunchyrollPlaylistShows(active) {
   return (active?.shows || []).filter(show => show?.crunchyrollId);
 }
@@ -8053,16 +8083,44 @@ async function loadCrunchyrollPlaylistPlayState(active) {
   };
 }
 
-/** Sequential pick using season-walk cache order; advances nextEpisodeIndexByShow in place. */
-function pickOrderedCrunchyrollEpisode(episodes, showId, nextEpisodeIndexByShow) {
+/**
+ * Sequential pick using season-walk cache order.
+ * Persistent shufflr_ordered_progress (by watch-URL ID) is the source of truth;
+ * nextEpisodeIndexByShow is kept as a per-session mirror.
+ */
+async function pickOrderedCrunchyrollEpisode(episodes, showId, nextEpisodeIndexByShow) {
   if (!episodes?.length) return null;
   const sid = String(showId);
-  let idx = Number(nextEpisodeIndexByShow[sid]);
-  if (!Number.isFinite(idx) || idx < 0) idx = 0;
-  idx = idx % episodes.length;
+
+  const progress = await readCrunchyrollOrderedProgress();
+  const lastId = progress[sid]?.lastPlayedEpisodeId
+    ? String(progress[sid].lastPlayedEpisodeId)
+    : null;
+
+  let idx = 0;
+  if (lastId) {
+    const found = episodes.findIndex(ep => getCrunchyrollWatchEpisodeId(ep) === lastId);
+    if (found >= 0) {
+      idx = (found + 1) % episodes.length;
+    }
+    // Not found in current list → start at first episode.
+  } else {
+    const sessionIdx = Number(nextEpisodeIndexByShow[sid]);
+    if (Number.isFinite(sessionIdx) && sessionIdx >= 0) {
+      idx = sessionIdx % episodes.length;
+    }
+  }
+
   const pickEp = episodes[idx];
   if (!pickEp?.url) return null;
+
   nextEpisodeIndexByShow[sid] = (idx + 1) % episodes.length;
+
+  const episodeId = getCrunchyrollWatchEpisodeId(pickEp);
+  if (episodeId) {
+    await writeCrunchyrollOrderedProgressForShow(sid, episodeId);
+  }
+
   return pickEp;
 }
 
@@ -8188,7 +8246,7 @@ async function completeCrunchyrollSeriesCollectAndPlay(activePayload, targetCrun
   const settings = await readShuffleSettings();
   orderedEpisodesCached = !!settings.orderedEpisodes;
   const pickEp = settings.orderedEpisodes
-    ? pickOrderedCrunchyrollEpisode(episodes, showId, nextEpisodeIndexByShow)
+    ? await pickOrderedCrunchyrollEpisode(episodes, showId, nextEpisodeIndexByShow)
     : pickCrunchyrollEpisodeHonoringPlayed(episodes, playedByShow, showId, null);
   if (!pickEp?.url) {
     console.log(`[Shufflr] Pending collect failed for ${showId}`);
@@ -8328,7 +8386,7 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
   // Cache hit — jump straight to an episode (Phase B path).
   if (cached?.length) {
     const pickEp = useOrdered
-      ? pickOrderedCrunchyrollEpisode(cached, showId, nextEpisodeIndexByShow)
+      ? await pickOrderedCrunchyrollEpisode(cached, showId, nextEpisodeIndexByShow)
       : pickCrunchyrollEpisodeHonoringPlayed(
         cached,
         playedByShow,
