@@ -7664,14 +7664,81 @@ function isCrunchyrollShuffleActiveForShow(showId) {
   return String(activeShowId) === String(showId);
 }
 
-function restoreCrunchyrollShuffleSession() {
-  if (!isCrunchyroll || !isCrunchyrollShuffleActive()) return false;
+function crunchyrollEpisodePlayKey(ep) {
+  return ep?.url || `${ep?.episode || ''}:${ep?.title || ''}`;
+}
+
+function getCrunchyrollPlaylistShows(active) {
+  return (active?.shows || []).filter(show => show?.crunchyrollId);
+}
+
+async function isArmedCrunchyrollPlaylist(active = null) {
+  const payload = active || await getActivePlaylistFromStorage();
+  return !!(payload?.armed && payload.selectedService === 'crunchyroll');
+}
+
+async function saveCrunchyrollPlaylistShuffleState(
+  active,
+  pickShow,
+  pickEp,
+  playedByShow,
+  lastPlayedShow,
+  roundPlayedShows
+) {
+  if (!isChromeContextValid()) return;
+  const showId = String(pickShow.crunchyrollId);
+  const activePayload = {
+    ...active,
+    armed: true,
+    selectedService: 'crunchyroll',
+    shows: [...(active.shows || [])],
+    episodes: [...(active.episodes || [])],
+    playlistName: active.playlistName || '',
+    playlistIndex: active.playlistIndex ?? 0,
+    currentEpisode: {
+      showId,
+      showName: pickShow.title || pickShow.name || '',
+      name: pickEp.title || '',
+      episode_number: pickEp.episode || null,
+      id: crunchyrollEpisodePlayKey(pickEp),
+      url: pickEp.url,
+    },
+    currentEpisodeUrl: pickEp.url,
+    lastPlayedShow,
+    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
+    sessionStartedAt: Date.now(),
+  };
+  const episodeState = {
+    playedByShow: serializePlayedByShow(playedByShow),
+    lastPlayedShow,
+    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
+    nextEpisodeIndexByShow: {},
+    playlistName: active.playlistName || '',
+    playlistIndex: active.playlistIndex ?? 0,
+  };
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
+    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
+  });
+}
+
+async function restoreCrunchyrollShuffleSession() {
+  if (!isCrunchyroll) return false;
+  const active = await getActivePlaylistFromStorage();
+  const armedCr = await isArmedCrunchyrollPlaylist(active);
+  if (!isCrunchyrollShuffleActive() && !armedCr) return false;
+
   shufflrActive = true;
+  if (armedCr) armedPlaylistCached = true;
   if (hasShufflrButtonInDom()) {
-    updateShuffleUI(getCrunchyrollShowTitle());
+    updateShuffleUI(
+      armedCr
+        ? (active.playlistName || 'Playlist')
+        : getCrunchyrollShowTitle()
+    );
   }
   if (isCrunchyrollWatchPage()) {
-    installCrunchyrollEpisodeEndWatcher();
+    void installCrunchyrollEpisodeEndWatcher();
   }
   return true;
 }
@@ -7695,14 +7762,14 @@ function stopCrunchyrollShuffle() {
   console.log('[Shufflr] Crunchyroll shuffle turned off');
 }
 
-async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
-  if (!isChromeContextValid()) return;
+async function navigateToRandomCrunchyrollEpisodeForCurrentShow(source = 'episode-end', options = {}) {
+  const requireActiveSession = options.requireActiveSession !== false;
   const seriesId = getCurrentCrunchyrollSeriesId();
   if (!seriesId) {
     console.log(`[Shufflr] Crunchyroll: no series id — cannot shuffle (${source})`);
     return;
   }
-  if (!isCrunchyrollShuffleActiveForShow(seriesId)) return;
+  if (requireActiveSession && !isCrunchyrollShuffleActiveForShow(seriesId)) return;
 
   const episodes = await collectCrunchyrollEpisodes();
   if (!episodes?.length) {
@@ -7721,8 +7788,129 @@ async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
   window.location.href = pick.url;
   setTimeout(() => {
     crunchyrollEpisodeEndTriggered = false;
-    installCrunchyrollEpisodeEndWatcher();
+    void installCrunchyrollEpisodeEndWatcher();
   }, 3000);
+}
+
+async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'episode-end') {
+  if (!isChromeContextValid()) return;
+  const active = activePayload || await getActivePlaylistFromStorage();
+  if (!(await isArmedCrunchyrollPlaylist(active))) return;
+
+  const shows = getCrunchyrollPlaylistShows(active);
+  if (!shows.length) {
+    console.log('[Shufflr] Crunchyroll playlist has no shows with crunchyrollId');
+    return;
+  }
+
+  const playlistIndex = active.playlistIndex ?? 0;
+  let { playedByShow, lastPlayedShow, roundPlayedShows } = await loadEpisodeStateForPlaylist(
+    { name: active.playlistName || '' },
+    playlistIndex
+  );
+  if (!(roundPlayedShows instanceof Set)) {
+    roundPlayedShows = deserializeRoundPlayedShows(roundPlayedShows);
+  }
+  if (!lastPlayedShow && active.lastPlayedShow) {
+    lastPlayedShow = String(active.lastPlayedShow);
+  }
+  if ((!roundPlayedShows || roundPlayedShows.size === 0) && active.roundPlayedShows) {
+    roundPlayedShows = deserializeRoundPlayedShows(active.roundPlayedShows);
+  }
+
+  const entries = shows.map(show => ({
+    show,
+    id: String(show.crunchyrollId),
+    title: show.title || show.name || String(show.crunchyrollId),
+  }));
+
+  let roundPool = entries.filter(entry => !roundPlayedShows.has(entry.id));
+  if (!roundPool.length) {
+    roundPlayedShows.clear();
+    roundPool = entries.slice();
+  }
+  let pool = roundPool;
+  if (lastPlayedShow && pool.length > 1) {
+    const withoutLast = pool.filter(entry => entry.id !== String(lastPlayedShow));
+    if (withoutLast.length) pool = withoutLast;
+  }
+
+  // Prefer cache hits; log and skip cold shows (Phase C will collect them).
+  const cachedCandidates = [];
+  for (const entry of pool) {
+    const cached = await getCachedEpisodes(entry.id);
+    if (cached?.length) {
+      cachedCandidates.push({ entry, episodes: cached });
+    } else {
+      console.log(`[Shufflr] Playlist pick ${entry.title} not cached — falling back`);
+    }
+  }
+
+  if (!cachedCandidates.length) {
+    console.log('[Shufflr] No cached playlist shows — falling back to current-show shuffle');
+    await navigateToRandomCrunchyrollEpisodeForCurrentShow(source, { requireActiveSession: false });
+    return;
+  }
+
+  const chosen = cachedCandidates[Math.floor(Math.random() * cachedCandidates.length)];
+  const showId = chosen.entry.id;
+  if (!playedByShow[showId]) playedByShow[showId] = new Set();
+
+  let unplayed = chosen.episodes.filter(
+    ep => !playedByShow[showId].has(crunchyrollEpisodePlayKey(ep))
+  );
+  if (!unplayed.length) {
+    playedByShow[showId].clear();
+    unplayed = chosen.episodes.slice();
+  }
+
+  const normalizedCurrent = location.href.split('?')[0];
+  let episodePool = unplayed.filter(ep => ep.url && ep.url !== normalizedCurrent);
+  if (!episodePool.length) episodePool = unplayed.filter(ep => ep.url);
+  if (!episodePool.length) {
+    console.log(`[Shufflr] Playlist pick ${chosen.entry.title} has no usable episode URLs`);
+    await navigateToRandomCrunchyrollEpisodeForCurrentShow(source, { requireActiveSession: false });
+    return;
+  }
+
+  const pickEp = episodePool[Math.floor(Math.random() * episodePool.length)];
+  playedByShow[showId].add(crunchyrollEpisodePlayKey(pickEp));
+  roundPlayedShows.add(showId);
+
+  await saveCrunchyrollPlaylistShuffleState(
+    active,
+    chosen.entry.show,
+    pickEp,
+    playedByShow,
+    showId,
+    roundPlayedShows
+  );
+
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  showToast(`Playing: ${chosen.entry.title}`);
+  console.log(
+    `[Shufflr] Crunchyroll playlist shuffle (${source}): ${chosen.entry.title} → ${pickEp.url}`
+  );
+  crunchyrollEpisodeEndTriggered = true;
+  captureFullscreenBeforeShufflrNavigation();
+  window.location.href = pickEp.url;
+  setTimeout(() => {
+    crunchyrollEpisodeEndTriggered = false;
+    void installCrunchyrollEpisodeEndWatcher();
+  }, 3000);
+}
+
+async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
+  if (!isChromeContextValid()) return;
+
+  const active = await getActivePlaylistFromStorage();
+  if (await isArmedCrunchyrollPlaylist(active)) {
+    await shuffleFromActiveCrunchyrollPlaylist(active, source);
+    return;
+  }
+
+  await navigateToRandomCrunchyrollEpisodeForCurrentShow(source);
 }
 
 async function startCrunchyrollShuffle() {
@@ -7761,19 +7949,21 @@ async function startCrunchyrollShuffle() {
   window.location.href = pick.url;
   setTimeout(() => {
     crunchyrollEpisodeEndTriggered = false;
-    installCrunchyrollEpisodeEndWatcher();
+    void installCrunchyrollEpisodeEndWatcher();
   }, 3000);
 }
 
-function installCrunchyrollEpisodeEndWatcher() {
+async function installCrunchyrollEpisodeEndWatcher() {
   if (!isChromeContextValid() || !isCrunchyrollWatchPage()) return;
 
   const seriesId = getCurrentCrunchyrollSeriesId();
-  if (!isCrunchyrollShuffleActiveForShow(seriesId)) return;
+  const singleShowActive = isCrunchyrollShuffleActiveForShow(seriesId);
+  const armedCr = await isArmedCrunchyrollPlaylist();
+  if (!singleShowActive && !armedCr) return;
 
   const video = document.querySelector('video');
   if (!video) {
-    setTimeout(installCrunchyrollEpisodeEndWatcher, 1000);
+    setTimeout(() => { void installCrunchyrollEpisodeEndWatcher(); }, 1000);
     return;
   }
 
@@ -7855,14 +8045,9 @@ if (isCrunchyroll) {
     setTimeout(async () => {
       crunchyrollEpisodeEndTriggered = false;
       const seriesId = getCurrentCrunchyrollSeriesId();
-      if (!seriesId || !isCrunchyrollShuffleActiveForShow(seriesId)) return;
-      const episodes = await getCachedEpisodes(seriesId);
-      if (!episodes?.length) return;
-      const pick = pickRandomCrunchyrollEpisode(episodes, location.href);
-      if (!pick) return;
-      console.log('[Shufflr] Crunchyroll cop: correcting to', pick.url);
-      showToast('Shufflr correcting...');
-      window.location.href = pick.url;
+      const armedCr = await isArmedCrunchyrollPlaylist();
+      if (!armedCr && (!seriesId || !isCrunchyrollShuffleActiveForShow(seriesId))) return;
+      await navigateToRandomCrunchyrollEpisode('cop');
     }, 500);
   });
   crunchyrollCopObserver.observe(document.body, { childList: true, subtree: true });
