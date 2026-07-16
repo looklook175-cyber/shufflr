@@ -7786,10 +7786,12 @@ async function saveCrunchyrollPlaylistShuffleState(
   pickEp,
   playedByShow,
   lastPlayedShow,
-  roundPlayedShows
+  roundPlayedShows,
+  nextEpisodeIndexByShow = {}
 ) {
   if (!isChromeContextValid()) return;
   const showId = String(pickShow.crunchyrollId);
+  const indexes = { ...(nextEpisodeIndexByShow || {}) };
   const activePayload = {
     ...active,
     armed: true,
@@ -7809,13 +7811,14 @@ async function saveCrunchyrollPlaylistShuffleState(
     currentEpisodeUrl: pickEp?.url || active.currentEpisodeUrl || null,
     lastPlayedShow,
     roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
+    nextEpisodeIndexByShow: indexes,
     sessionStartedAt: Date.now(),
   };
   const episodeState = {
     playedByShow: serializePlayedByShow(playedByShow),
     lastPlayedShow,
     roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
-    nextEpisodeIndexByShow: {},
+    nextEpisodeIndexByShow: indexes,
     playlistName: active.playlistName || '',
     playlistIndex: active.playlistIndex ?? 0,
   };
@@ -7894,10 +7897,11 @@ function getCrunchyrollSeriesUrlFromPlaylistShow(show) {
 
 async function loadCrunchyrollPlaylistPlayState(active) {
   const playlistIndex = active.playlistIndex ?? 0;
-  let { playedByShow, lastPlayedShow, roundPlayedShows } = await loadEpisodeStateForPlaylist(
-    { name: active.playlistName || '' },
-    playlistIndex
-  );
+  let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
+    await loadEpisodeStateForPlaylist(
+      { name: active.playlistName || '' },
+      playlistIndex
+    );
   if (!(roundPlayedShows instanceof Set)) {
     roundPlayedShows = deserializeRoundPlayedShows(roundPlayedShows);
   }
@@ -7907,7 +7911,31 @@ async function loadCrunchyrollPlaylistPlayState(active) {
   if ((!roundPlayedShows || roundPlayedShows.size === 0) && active.roundPlayedShows) {
     roundPlayedShows = deserializeRoundPlayedShows(active.roundPlayedShows);
   }
-  return { playedByShow, lastPlayedShow, roundPlayedShows };
+  if (
+    (!nextEpisodeIndexByShow || !Object.keys(nextEpisodeIndexByShow).length)
+    && active.nextEpisodeIndexByShow
+  ) {
+    nextEpisodeIndexByShow = { ...active.nextEpisodeIndexByShow };
+  }
+  return {
+    playedByShow,
+    lastPlayedShow,
+    roundPlayedShows,
+    nextEpisodeIndexByShow: { ...(nextEpisodeIndexByShow || {}) },
+  };
+}
+
+/** Sequential pick using season-walk cache order; advances nextEpisodeIndexByShow in place. */
+function pickOrderedCrunchyrollEpisode(episodes, showId, nextEpisodeIndexByShow) {
+  if (!episodes?.length) return null;
+  const sid = String(showId);
+  let idx = Number(nextEpisodeIndexByShow[sid]);
+  if (!Number.isFinite(idx) || idx < 0) idx = 0;
+  idx = idx % episodes.length;
+  const pickEp = episodes[idx];
+  if (!pickEp?.url) return null;
+  nextEpisodeIndexByShow[sid] = (idx + 1) % episodes.length;
+  return pickEp;
 }
 
 async function restoreCrunchyrollShuffleSession() {
@@ -8023,8 +8051,13 @@ async function completeCrunchyrollSeriesCollectAndPlay(activePayload, targetCrun
     return true;
   }
 
-  let { playedByShow, roundPlayedShows } = await loadCrunchyrollPlaylistPlayState(active);
-  const pickEp = pickCrunchyrollEpisodeHonoringPlayed(episodes, playedByShow, showId, null);
+  let { playedByShow, roundPlayedShows, nextEpisodeIndexByShow } =
+    await loadCrunchyrollPlaylistPlayState(active);
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  const pickEp = settings.orderedEpisodes
+    ? pickOrderedCrunchyrollEpisode(episodes, showId, nextEpisodeIndexByShow)
+    : pickCrunchyrollEpisodeHonoringPlayed(episodes, playedByShow, showId, null);
   if (!pickEp?.url) {
     console.log(`[Shufflr] Pending collect failed for ${showId}`);
     await shuffleFromActiveCrunchyrollPlaylist(active, `${source}-failed`, {
@@ -8040,7 +8073,8 @@ async function completeCrunchyrollSeriesCollectAndPlay(activePayload, targetCrun
     pickEp,
     playedByShow,
     showId,
-    roundPlayedShows
+    roundPlayedShows,
+    nextEpisodeIndexByShow
   );
 
   shufflrActive = true;
@@ -8120,7 +8154,13 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
     return;
   }
 
-  let { playedByShow, lastPlayedShow, roundPlayedShows } = await loadCrunchyrollPlaylistPlayState(active);
+  let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
+    await loadCrunchyrollPlaylistPlayState(active);
+
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  // ALL mode forces unordered picks — Max treats ordered as playlist-only.
+  const useOrdered = !options.forceUnordered && !!settings.orderedEpisodes;
 
   const entries = shows.map(show => ({
     show,
@@ -8150,16 +8190,19 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
 
   // Cache hit — jump straight to an episode (Phase B path).
   if (cached?.length) {
-    const pickEp = pickCrunchyrollEpisodeHonoringPlayed(
-      cached,
-      playedByShow,
-      showId,
-      location.href
-    );
+    const pickEp = useOrdered
+      ? pickOrderedCrunchyrollEpisode(cached, showId, nextEpisodeIndexByShow)
+      : pickCrunchyrollEpisodeHonoringPlayed(
+        cached,
+        playedByShow,
+        showId,
+        location.href
+      );
     if (!pickEp?.url) {
       console.log(`[Shufflr] Playlist pick ${chosenEntry.title} has no usable episode URLs`);
       await shuffleFromActiveCrunchyrollPlaylist(active, source, {
         excludeShowIds: new Set([...excludeShowIds, showId]),
+        forceUnordered: options.forceUnordered,
       });
       return;
     }
@@ -8171,14 +8214,16 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
       pickEp,
       playedByShow,
       showId,
-      roundPlayedShows
+      roundPlayedShows,
+      nextEpisodeIndexByShow
     );
 
     shufflrActive = true;
     armedPlaylistCached = true;
     showToast(`Playing: ${chosenEntry.title}`);
     console.log(
-      `[Shufflr] Crunchyroll playlist shuffle (${source}): ${chosenEntry.title} → ${pickEp.url}`
+      `[Shufflr] Crunchyroll playlist ${useOrdered ? 'ordered' : 'shuffle'} (${source}): ` +
+      `${chosenEntry.title} → ${pickEp.url}`
     );
     crunchyrollEpisodeEndTriggered = true;
     captureFullscreenBeforeShufflrNavigation();
@@ -8196,6 +8241,7 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
     console.log(`[Shufflr] Playlist pick ${chosenEntry.title} has no series URL — excluding`);
     await shuffleFromActiveCrunchyrollPlaylist(active, source, {
       excludeShowIds: new Set([...excludeShowIds, showId]),
+      forceUnordered: options.forceUnordered,
     });
     return;
   }
@@ -8208,7 +8254,8 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
     null,
     playedByShow,
     showId,
-    roundPlayedShows
+    roundPlayedShows,
+    nextEpisodeIndexByShow
   );
   writeCrunchyrollPending(showId, seriesUrl);
   shufflrActive = true;
@@ -8231,15 +8278,16 @@ async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
     armedCr
     && (active?.playlistIndex === -1 || active?.playlistName === YOUR_SHOWS_ALL_MODE_NAME)
   );
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  shuffleModeCached = settings.shuffleMode;
 
-  // Real armed playlists take priority over ALL mode (Max ordering for named playlists).
-  if (armedCr && !isSyntheticYourShowsAll) {
+  // Real armed playlists take priority. Ordered also wins over ALL when armed (Max).
+  if (armedCr && (!isSyntheticYourShowsAll || settings.orderedEpisodes)) {
     await shuffleFromActiveCrunchyrollPlaylist(active, source);
     return;
   }
 
-  const settings = await readShuffleSettings();
-  shuffleModeCached = settings.shuffleMode;
   if (settings.shuffleMode === 'all') {
     await shuffleFromCrunchyrollYourShowsAllMode(source);
     return;
@@ -8288,7 +8336,10 @@ async function shuffleFromCrunchyrollYourShowsAllMode(source = 'episode-end') {
   const excludeShowIds = (currentId && yourShows.length > 1)
     ? new Set([String(currentId)])
     : new Set();
-  await shuffleFromActiveCrunchyrollPlaylist(syntheticPayload, source, { excludeShowIds });
+  await shuffleFromActiveCrunchyrollPlaylist(syntheticPayload, source, {
+    excludeShowIds,
+    forceUnordered: true,
+  });
 }
 
 async function startCrunchyrollShuffle() {
