@@ -3117,6 +3117,101 @@ async function armPlaylistFromDropdown(playlistIndex) {
   showToast(`Playlist: ${playlistName} — will shuffle when episode ends`);
 }
 
+async function playCrunchyrollPlaylistFromDropdown(playlistIndex) {
+  if (!isChromeContextValid()) return;
+
+  const playlists = await readPlaylistsFromStorage();
+  dropdownPlaylists = playlists;
+  const playlist = playlists[playlistIndex];
+  if (!playlist) {
+    showToast('Playlist not found');
+    return;
+  }
+
+  const crunchyShows = (playlist.shows || []).filter(s => s.crunchyrollId);
+  if (!crunchyShows.length) {
+    showToast('No Crunchyroll shows in this playlist — add shows using +');
+    return;
+  }
+
+  const pickShow = crunchyShows[Math.floor(Math.random() * crunchyShows.length)];
+  const showId = String(pickShow.crunchyrollId);
+  const seriesUrl = getCrunchyrollSeriesUrlFromPlaylistShow(pickShow);
+  if (!seriesUrl) {
+    showToast('No Crunchyroll shows in this playlist — add shows using +');
+    return;
+  }
+
+  closePlaylistDropdown();
+
+  // Same handoff shape as web-app playPlaylist for Crunchyroll (pending first-show auto-start).
+  const enriched = crunchyShows.map(s => ({
+    id: String(s.crunchyrollId),
+    name: s.title || s.name || '',
+    type: 'tv',
+    episodes: [],
+  }));
+  const playedByShow = {};
+  const roundPlayedShows = serializeRoundPlayedShows(new Set([showId]));
+  const handoff = {
+    armed: true,
+    playlist: enriched,
+    playlistName: playlist.name || '',
+    playlistIndex,
+    shows: [...(playlist.shows || [])],
+    episodes: [...(playlist.episodes || [])],
+    selectedService: 'crunchyroll',
+    currentEpisode: {
+      showId,
+      showName: pickShow.title || pickShow.name || '',
+      seasonNum: 0,
+      episode_number: 0,
+      name: pickShow.title || pickShow.name || '',
+      isMovie: false,
+      id: showId,
+      alternateId: null,
+    },
+    currentEpisodeUrl: seriesUrl,
+    playedByShow,
+    lastPlayedShow: showId,
+    roundPlayedShows,
+    nextEpisodeIndexByShow: {},
+    sessionStartedAt: Date.now(),
+    pendingFirstShow: true,
+    pendingFirstShowId: showId,
+  };
+
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: handoff,
+    [SHUFFLR_EPISODE_STATE_KEY]: {
+      playedByShow,
+      lastPlayedShow: showId,
+      roundPlayedShows,
+      nextEpisodeIndexByShow: {},
+      playlistName: playlist.name || '',
+      playlistIndex,
+    },
+  });
+  console.log('[Shufflr] Crunchyroll dropdown handoff written:', handoff.playlistName);
+
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  if (!isChromeContextValid()) return;
+  updateShuffleUI(playlist.name || 'Playlist');
+
+  const currentId = getCurrentCrunchyrollSeriesId();
+  if (currentId && String(currentId) === showId) {
+    await completeCrunchyrollSeriesCollectAndPlay(handoff, showId, 'dropdown-play-first');
+    return;
+  }
+
+  writeCrunchyrollPending(showId, seriesUrl);
+  showToast(`Opening: ${(pickShow.title || pickShow.name || '').slice(0, 24)}`);
+  console.log(`[Shufflr] Dropdown CR play → ${seriesUrl}`);
+  captureFullscreenBeforeShufflrNavigation();
+  window.location.href = seriesUrl;
+}
+
 async function playPlaylistFromDropdown(playlistIndex) {
   if (!isChromeContextValid()) return;
 
@@ -3138,6 +3233,12 @@ async function playPlaylistFromDropdown(playlistIndex) {
     showToast('You must sign in to use this feature.');
     return;
   }
+
+  if (isCrunchyroll) {
+    await playCrunchyrollPlaylistFromDropdown(playlistIndex);
+    return;
+  }
+
   await armPlaylistFromDropdown(playlistIndex);
 }
 
