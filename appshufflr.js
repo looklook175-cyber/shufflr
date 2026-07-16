@@ -3572,6 +3572,9 @@ async function playPlaylist(pi){
       pi,
       { roundPlayedShows, nextEpisodeIndexByShow }
     );
+    // Series page auto-starts the first episode via the extension's pending-collect path.
+    handoff.pendingFirstShow = true;
+    handoff.pendingFirstShowId = showId;
     // Overwrite stale Max handoff synchronously, then mirror to chrome.storage via the standard handoff.
     localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY, JSON.stringify(handoff));
     await handoffActivePlaylistToExtension(handoff);

@@ -7883,21 +7883,83 @@ async function navigateToRandomCrunchyrollEpisodeForCurrentShow(source = 'episod
   }, 3000);
 }
 
+async function clearCrunchyrollPendingFirstShowFlag(active) {
+  if (!isChromeContextValid() || !active) return active;
+  if (!active.pendingFirstShow && !active.pendingFirstShowId) return active;
+  const updated = { ...active };
+  delete updated.pendingFirstShow;
+  delete updated.pendingFirstShowId;
+  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
+  return updated;
+}
+
+async function completeCrunchyrollSeriesCollectAndPlay(activePayload, targetCrunchyrollId, source = 'pending-collect') {
+  if (!isChromeContextValid()) return false;
+  let active = activePayload || await getActivePlaylistFromStorage();
+  if (!(await isArmedCrunchyrollPlaylist(active))) return false;
+
+  const showId = String(targetCrunchyrollId);
+  const showEntry = getCrunchyrollPlaylistShows(active).find(
+    s => String(s.crunchyrollId) === showId
+  );
+  const title = showEntry?.title || showEntry?.name || showId;
+
+  // Clear first-play flag immediately so a series-page refresh does not restart playback.
+  active = await clearCrunchyrollPendingFirstShowFlag(active);
+  clearCrunchyrollPending();
+
+  showToast(`Loading ${title}...`);
+  console.log(`[Shufflr] Pending collect starting for ${showId} (${source})`);
+
+  const episodes = await collectCrunchyrollEpisodes();
+  if (!episodes?.length) {
+    console.log(`[Shufflr] Pending collect failed for ${showId}`);
+    await shuffleFromActiveCrunchyrollPlaylist(active, `${source}-failed`, {
+      excludeShowIds: new Set([showId]),
+    });
+    return true;
+  }
+
+  let { playedByShow, roundPlayedShows } = await loadCrunchyrollPlaylistPlayState(active);
+  const pickEp = pickCrunchyrollEpisodeHonoringPlayed(episodes, playedByShow, showId, null);
+  if (!pickEp?.url) {
+    console.log(`[Shufflr] Pending collect failed for ${showId}`);
+    await shuffleFromActiveCrunchyrollPlaylist(active, `${source}-failed`, {
+      excludeShowIds: new Set([showId]),
+    });
+    return true;
+  }
+
+  roundPlayedShows.add(showId);
+  await saveCrunchyrollPlaylistShuffleState(
+    active,
+    showEntry || { crunchyrollId: showId, title },
+    pickEp,
+    playedByShow,
+    showId,
+    roundPlayedShows
+  );
+
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  showToast(`Playing: ${title}`);
+  console.log(`[Shufflr] Pending collect complete: ${title} → ${pickEp.url}`);
+  crunchyrollEpisodeEndTriggered = true;
+  captureFullscreenBeforeShufflrNavigation();
+  window.location.href = pickEp.url;
+  setTimeout(() => {
+    crunchyrollEpisodeEndTriggered = false;
+    void installCrunchyrollEpisodeEndWatcher();
+  }, 3000);
+  return true;
+}
+
 async function maybeResumeCrunchyrollPendingCollect() {
   if (!isChromeContextValid() || !isCrunchyrollSeriesPage()) return false;
   if (window.__shufflrCrunchyrollPendingResume) return false;
 
-  const pending = readCrunchyrollPending();
-  if (!pending) return false;
-
   const currentId = getCurrentCrunchyrollSeriesId();
-  if (!currentId || String(currentId) !== String(pending.targetCrunchyrollId)) {
-    console.log(
-      `[Shufflr] Pending collect waiting for series ${pending.targetCrunchyrollId} ` +
-      `(on ${currentId || 'unknown'})`
-    );
-    return false;
-  }
+  if (!currentId) return false;
 
   const active = await getActivePlaylistFromStorage();
   if (!(await isArmedCrunchyrollPlaylist(active))) {
@@ -7905,60 +7967,33 @@ async function maybeResumeCrunchyrollPendingCollect() {
     return false;
   }
 
+  const pending = readCrunchyrollPending();
+  let targetId = null;
+  let source = 'pending-collect';
+
+  if (pending && String(pending.targetCrunchyrollId) === String(currentId)) {
+    targetId = String(pending.targetCrunchyrollId);
+    source = 'pending-collect';
+  } else if (
+    active.pendingFirstShow
+    && active.pendingFirstShowId
+    && String(active.pendingFirstShowId) === String(currentId)
+  ) {
+    targetId = String(active.pendingFirstShowId);
+    source = 'play-first-show';
+  } else if (pending) {
+    console.log(
+      `[Shufflr] Pending collect waiting for series ${pending.targetCrunchyrollId} ` +
+      `(on ${currentId})`
+    );
+    return false;
+  } else {
+    return false;
+  }
+
   window.__shufflrCrunchyrollPendingResume = true;
   try {
-    const showEntry = getCrunchyrollPlaylistShows(active).find(
-      s => String(s.crunchyrollId) === String(pending.targetCrunchyrollId)
-    );
-    const title = showEntry?.title || showEntry?.name || pending.targetCrunchyrollId;
-    showToast(`Loading ${title}...`);
-    console.log(`[Shufflr] Pending collect starting for ${pending.targetCrunchyrollId}`);
-
-    const episodes = await collectCrunchyrollEpisodes();
-    if (!episodes?.length) {
-      console.log(`[Shufflr] Pending collect failed for ${pending.targetCrunchyrollId}`);
-      clearCrunchyrollPending();
-      await shuffleFromActiveCrunchyrollPlaylist(active, 'pending-collect-failed', {
-        excludeShowIds: new Set([String(pending.targetCrunchyrollId)]),
-      });
-      return true;
-    }
-
-    let { playedByShow, roundPlayedShows } = await loadCrunchyrollPlaylistPlayState(active);
-    const showId = String(pending.targetCrunchyrollId);
-    const pickEp = pickCrunchyrollEpisodeHonoringPlayed(episodes, playedByShow, showId, null);
-    if (!pickEp?.url) {
-      console.log(`[Shufflr] Pending collect failed for ${pending.targetCrunchyrollId}`);
-      clearCrunchyrollPending();
-      await shuffleFromActiveCrunchyrollPlaylist(active, 'pending-collect-failed', {
-        excludeShowIds: new Set([showId]),
-      });
-      return true;
-    }
-
-    roundPlayedShows.add(showId);
-    await saveCrunchyrollPlaylistShuffleState(
-      active,
-      showEntry || { crunchyrollId: showId, title },
-      pickEp,
-      playedByShow,
-      showId,
-      roundPlayedShows
-    );
-    clearCrunchyrollPending();
-
-    shufflrActive = true;
-    armedPlaylistCached = true;
-    showToast(`Playing: ${title}`);
-    console.log(`[Shufflr] Pending collect complete: ${title} → ${pickEp.url}`);
-    crunchyrollEpisodeEndTriggered = true;
-    captureFullscreenBeforeShufflrNavigation();
-    window.location.href = pickEp.url;
-    setTimeout(() => {
-      crunchyrollEpisodeEndTriggered = false;
-      void installCrunchyrollEpisodeEndWatcher();
-    }, 3000);
-    return true;
+    return await completeCrunchyrollSeriesCollectAndPlay(active, targetId, source);
   } finally {
     window.__shufflrCrunchyrollPendingResume = false;
   }
