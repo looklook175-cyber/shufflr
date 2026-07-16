@@ -7559,9 +7559,21 @@ async function collectCrunchyrollEpisodesFromSeasonDropdown() {
 }
 
 async function collectCrunchyrollEpisodes() {
+  const seriesId = getCurrentCrunchyrollSeriesId();
+  if (!seriesId) {
+    console.log('[Shufflr] Crunchyroll: no series id — cannot collect or cache episodes');
+    return [];
+  }
+
+  const cached = await getCachedEpisodes(seriesId);
+  if (cached?.length) return cached;
+
   console.log('[Shufflr] Crunchyroll: collecting episodes via season dropdown');
   const episodes = await collectCrunchyrollEpisodesFromSeasonDropdown();
   console.log(`[Shufflr] Crunchyroll: collected ${episodes.length} episode(s)`);
+  if (episodes.length) {
+    await setCachedEpisodes(seriesId, episodes, [], getCrunchyrollShowTitle() || null, null);
+  }
   return episodes;
 }
 
@@ -7619,16 +7631,14 @@ function stopCrunchyrollShuffle() {
 
 async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
   if (!isChromeContextValid()) return;
-  const showId = getCrunchyrollShowIdFromUrl();
-  if (!showId || !isCrunchyrollShuffleActiveForShow(showId)) return;
-
-  let episodes = await getCachedCrunchyrollEpisodes(showId);
-  if (!episodes?.length) {
-    episodes = await collectCrunchyrollEpisodes();
-    if (episodes.length) {
-      await setCachedCrunchyrollEpisodes(showId, episodes, getCrunchyrollShowTitle());
-    }
+  const seriesId = getCurrentCrunchyrollSeriesId();
+  if (!seriesId) {
+    console.log(`[Shufflr] Crunchyroll: no series id — cannot shuffle (${source})`);
+    return;
   }
+  if (!isCrunchyrollShuffleActiveForShow(seriesId)) return;
+
+  const episodes = await collectCrunchyrollEpisodes();
   if (!episodes?.length) {
     console.log(`[Shufflr] Crunchyroll: no cached episodes for shuffle (${source})`);
     return;
@@ -7651,30 +7661,26 @@ async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
 
 async function startCrunchyrollShuffle() {
   if (!isChromeContextValid()) return;
-  let showId = null;
+  let seriesId = null;
   for (let attempt = 0; attempt < 5; attempt++) {
-    showId = getCrunchyrollShowIdFromUrl();
-    if (showId) break;
+    seriesId = getCurrentCrunchyrollSeriesId();
+    if (seriesId) break;
     await new Promise(r => setTimeout(r, 500));
   }
-  if (!showId) {
+  if (!seriesId) {
     showToast('Could not identify this show.');
     return;
   }
   const showName = getCrunchyrollShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
 
-  let episodes = (isCrunchyrollWatchPage() && shufflrActive) ? await getCachedCrunchyrollEpisodes(showId) : null;
-  if (!episodes?.length) {
-    episodes = await collectCrunchyrollEpisodes();
-  }
+  const episodes = await collectCrunchyrollEpisodes();
   if (!episodes?.length) {
     showToast('Could not find episodes.');
     return;
   }
 
-  await setCachedCrunchyrollEpisodes(showId, episodes, showName);
-  sessionStorage.setItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY, String(showId));
+  sessionStorage.setItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY, String(seriesId));
   shufflrActive = true;
   updateShuffleUI(showName);
 
@@ -7696,8 +7702,8 @@ async function startCrunchyrollShuffle() {
 function installCrunchyrollEpisodeEndWatcher() {
   if (!isChromeContextValid() || !isCrunchyrollWatchPage()) return;
 
-  const showId = getCrunchyrollShowIdFromUrl();
-  if (!isCrunchyrollShuffleActiveForShow(showId)) return;
+  const seriesId = getCurrentCrunchyrollSeriesId();
+  if (!isCrunchyrollShuffleActiveForShow(seriesId)) return;
 
   const video = document.querySelector('video');
   if (!video) {
@@ -7782,9 +7788,9 @@ if (isCrunchyroll) {
     showToast('Shufflr correcting...');
     setTimeout(async () => {
       crunchyrollEpisodeEndTriggered = false;
-      const showId = getCrunchyrollShowIdFromUrl();
-      if (!showId || !isCrunchyrollShuffleActiveForShow(showId)) return;
-      const episodes = await getCachedCrunchyrollEpisodes(showId);
+      const seriesId = getCurrentCrunchyrollSeriesId();
+      if (!seriesId || !isCrunchyrollShuffleActiveForShow(seriesId)) return;
+      const episodes = await getCachedEpisodes(seriesId);
       if (!episodes?.length) return;
       const pick = pickRandomCrunchyrollEpisode(episodes, location.href);
       if (!pick) return;
