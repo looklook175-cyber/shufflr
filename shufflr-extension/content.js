@@ -1447,6 +1447,21 @@ async function submitCreatePlaylistForm() {
     const tubiSeriesUrl = `https://tubitv.com/series/${tubiId}/${tubiSlug}`;
     showEntry = { title, tubiId, tubiSeriesUrl };
     serviceTag = 'tubi';
+  } else if (isCrunchyroll) {
+    const crunchyrollId = getCurrentCrunchyrollSeriesId();
+    if (!crunchyrollId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getCrunchyrollShowTitle() || 'Unknown Show';
+    const crunchyrollSeriesUrl = getCurrentCrunchyrollSeriesUrl(crunchyrollId, title);
+    showEntry = {
+      title,
+      crunchyrollId,
+      crunchyrollSeriesUrl,
+      service: 'crunchyroll',
+    };
+    serviceTag = 'crunchyroll';
   } else {
     const uuid = getCurrentMaxShowUuid();
     if (!uuid) {
@@ -1914,24 +1929,48 @@ async function addCurrentShowToYourShows() {
 async function addCurrentShowToPlaylist(playlistIndex) {
   if (!isChromeContextValid()) return;
 
-  let showId, title, serviceTag;
+  let showEntry, serviceTag, alreadyAddedCheck;
 
   if (IS_TUBI) {
-    showId = getTubiShowIdFromUrl();
-    if (!showId) {
+    const tubiId = getTubiShowIdFromUrl();
+    if (!tubiId) {
       showToast('Could not find show ID');
       return;
     }
-    title = getTubiShowTitle() || 'Unknown Show';
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const tubiSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const tubiSeriesUrl = `https://tubitv.com/series/${tubiId}/${tubiSlug}`;
+    showEntry = { title, tubiId, tubiSeriesUrl };
     serviceTag = 'tubi';
+    alreadyAddedCheck = show => show.tubiId === tubiId;
+  } else if (isCrunchyroll) {
+    const crunchyrollId = getCurrentCrunchyrollSeriesId();
+    if (!crunchyrollId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getCrunchyrollShowTitle() || 'Unknown Show';
+    const crunchyrollSeriesUrl = getCurrentCrunchyrollSeriesUrl(crunchyrollId, title);
+    showEntry = {
+      title,
+      crunchyrollId,
+      crunchyrollSeriesUrl,
+      service: 'crunchyroll',
+    };
+    serviceTag = 'crunchyroll';
+    alreadyAddedCheck = show => show.crunchyrollId === crunchyrollId;
   } else {
-    showId = getCurrentMaxShowUuid();
+    const showId = getCurrentMaxShowUuid();
     if (!showId) {
       showToast('Could not find show ID');
       return;
     }
-    title = getCurrentShowTitle();
+    const title = getCurrentShowTitle();
+    showEntry = { title, maxId: showId };
     serviceTag = 'max';
+    alreadyAddedCheck = show => (
+      show.maxId === showId || show.maxShowId === showId || show.max_id === showId
+    );
   }
 
   const playlists = await readPlaylistsFromStorage();
@@ -1942,26 +1981,16 @@ async function addCurrentShowToPlaylist(playlistIndex) {
   }
   if (!playlist.shows) playlist.shows = [];
 
-  const alreadyAdded = IS_TUBI
-    ? playlist.shows.some(show => show.tubiId === showId)
-    : playlist.shows.some(show => show.maxId === showId || show.maxShowId === showId || show.max_id === showId);
-
-  if (alreadyAdded) {
+  if (playlist.shows.some(alreadyAddedCheck)) {
     showToast(`Already in ${playlist.name || 'playlist'}`);
     return;
   }
-
-  const tubiSlug = IS_TUBI ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null;
-  const tubiSeriesUrl = IS_TUBI ? `https://tubitv.com/series/${showId}/${tubiSlug}` : null;
-  const showEntry = IS_TUBI
-    ? { title, tubiId: showId, tubiSeriesUrl }
-    : { title, maxId: showId };
 
   playlist.shows.push(showEntry);
   if (!playlist.service) playlist.service = serviceTag;
 
   await writePlaylistsToStorage(playlists);
-  showToast(`Added ${title} to ${playlist.name || 'playlist'}`);
+  showToast(`Added ${showEntry.title} to ${playlist.name || 'playlist'}`);
 
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (dropdown?.classList.contains('open')) {
