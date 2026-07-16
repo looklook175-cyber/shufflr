@@ -1865,6 +1865,31 @@ async function addCurrentShowToYourShows() {
     return;
   }
 
+  if (isCrunchyroll) {
+    const crunchyrollId = getCurrentCrunchyrollSeriesId();
+    if (!crunchyrollId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getCrunchyrollShowTitle() || 'Unknown Show';
+    const shows = await readYourShowsPreferCloud();
+    const alreadyAdded = shows.some(show => show.crunchyrollId === crunchyrollId);
+    if (alreadyAdded) {
+      showToast('Already in Your Shows');
+      return;
+    }
+    const crunchyrollSeriesUrl = getCurrentCrunchyrollSeriesUrl(crunchyrollId, title);
+    shows.push({
+      title,
+      crunchyrollId,
+      crunchyrollSeriesUrl,
+      service: 'crunchyroll',
+    });
+    await writeYourShowsToStorage(shows);
+    showToast(`Added ${title} to Your Shows`);
+    return;
+  }
+
   const uuid = getCurrentMaxShowUuid();
   if (!uuid) {
     showToast('Could not find show ID');
@@ -7344,6 +7369,35 @@ let crunchyrollButtonObserver = null;
 
 function isCrunchyrollWatchPage() {
   return isCrunchyroll && location.pathname.includes('/watch/');
+}
+
+/** Series ID only (never the /watch/ episode id). */
+function getCurrentCrunchyrollSeriesId() {
+  const fromPath = location.pathname.match(/\/series\/([^/]+)/);
+  if (fromPath) return fromPath[1];
+
+  for (const anchor of document.querySelectorAll('a[href*="/series/"]')) {
+    const href = anchor.getAttribute('href') || '';
+    const match = href.match(/\/series\/([^/?#]+)/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function getCurrentCrunchyrollSeriesUrl(seriesId, title) {
+  if (location.pathname.includes('/series/')) {
+    const pathMatch = location.pathname.match(/\/series\/[^/]+(?:\/[^/]*)?/);
+    if (pathMatch) return `https://www.crunchyroll.com${pathMatch[0]}`;
+  }
+  for (const anchor of document.querySelectorAll('a[href*="/series/"]')) {
+    const href = anchor.getAttribute('href') || '';
+    const match = href.match(/\/series\/([^/?#]+)(?:\/([^/?#]*))?/);
+    if (!match || match[1] !== seriesId) continue;
+    if (href.startsWith('http')) return href.split(/[?#]/)[0];
+    return `https://www.crunchyroll.com${href.split(/[?#]/)[0]}`;
+  }
+  const slug = String(title || 'show').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `https://www.crunchyroll.com/series/${seriesId}/${slug}`;
 }
 
 function getCrunchyrollShowIdFromUrl() {
