@@ -632,6 +632,7 @@ function buildPosterUrl(posterPath,size='w185'){
 
 function getHomeShowDedupeKey(show){
   if(show?.id!=null&&show.id!=='')return`id:${show.id}`;
+  if(show?.crunchyrollId)return`crunchyroll:${String(show.crunchyrollId)}`;
   const maxId=getShowMaxId(show);
   if(maxId)return`max:${maxId}`;
   const nameKey=normalizePlShowName(getShowLabel(show));
@@ -2633,7 +2634,7 @@ function renderPlaylistPage(){
       if (!serviceGroups[svc]) serviceGroups[svc] = [];
       serviceGroups[svc].push({ p, pi });
     });
-    const serviceLabels = { max: 'HBO Max', tubi: 'Tubi', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
+    const serviceLabels = { max: 'HBO Max', tubi: 'Tubi', crunchyroll: 'Crunchyroll', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
     html += Object.entries(serviceGroups).map(([svc, entries]) => {
       const label = serviceLabels[svc] || svc.toUpperCase();
       const groupId = `pl-group-${svc}`;
@@ -2783,9 +2784,47 @@ function setStandaloneLaunchViaBridge(launchUrl, maxId = null, blockedSeasons = 
   }, '*');
 }
 
+function showBelongsToConnectedService(show, connectedService = null) {
+  const service = connectedService || localStorage.getItem('shufflr_service') || 'max';
+  if (service === 'tubi') return !!show?.tubiId;
+  if (service === 'crunchyroll') {
+    return !!show?.crunchyrollId || show?.service === 'crunchyroll';
+  }
+  return !!show?.maxId || !!show?.maxShowId || !!show?.max_id;
+}
+
+function getCrunchyrollSeriesUrlFromShow(show) {
+  if (!show) return null;
+  if (show.crunchyrollSeriesUrl) return show.crunchyrollSeriesUrl;
+  if (show.crunchyrollId) {
+    const slug = String(show.title || show.name || 'show')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    return `https://www.crunchyroll.com/series/${show.crunchyrollId}/${slug}`;
+  }
+  return null;
+}
+
+function launchCrunchyrollShowFromWeb(show) {
+  const launchUrl = getCrunchyrollSeriesUrlFromShow(show);
+  if (!launchUrl) {
+    showToast('NO CRUNCHYROLL URL');
+    return false;
+  }
+  showToast('OPENING: ' + (show.title || show.name || '').toUpperCase().slice(0, 18));
+  setStandaloneLaunchViaBridge(launchUrl);
+  window.open(launchUrl, '_blank');
+  return true;
+}
+
 function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const show = playlists[playlistIndex]?.shows?.[showIndex];
   if (!show) return;
+  if (show.crunchyrollId || show.service === 'crunchyroll') {
+    launchCrunchyrollShowFromWeb(show);
+    return;
+  }
   const launchUrl = getShowMaxUrlFromPlaylistShow(show);
   if (!launchUrl) return;
   setStandaloneLaunchViaBridge(launchUrl);
@@ -2884,6 +2923,10 @@ async function launchShowFromDrawer(playlistIndex, showIndex) {
     closePlaylistDrawer();
     return;
   }
+  if (show.crunchyrollId || show.service === 'crunchyroll') {
+    if (launchCrunchyrollShowFromWeb(show)) closePlaylistDrawer();
+    return;
+  }
   const launchUrl = getShowMaxUrlFromPlaylistShow(show);
   if (!launchUrl) return;
   setActivePlaylistViaBridge(playlist, launchUrl);
@@ -2903,6 +2946,7 @@ function openDrawerAddShowMode(playlistIndex) {
 }
 
 function getDrawerAddShowDedupeKey(show) {
+  if (show?.crunchyrollId) return `crunchyroll:${String(show.crunchyrollId)}`;
   if (show?.tubiId) return `tubi:${String(show.tubiId)}`;
   const maxId = getShowMaxId(show);
   if (maxId) return `max:${String(maxId).toLowerCase()}`;
@@ -2913,10 +2957,7 @@ function getDrawerAddShowDedupeKey(show) {
 
 function getServiceFilteredYourShowsForDrawer() {
   const connectedService = localStorage.getItem('shufflr_service') || 'max';
-  return readLocalYourShows().filter(show => {
-    if (connectedService === 'tubi') return !!show.tubiId;
-    return !!show.maxId || !!show.maxShowId || !!show.max_id;
-  });
+  return readLocalYourShows().filter(show => showBelongsToConnectedService(show, connectedService));
 }
 
 function getPlaylistsForAddShowPicker() {
@@ -3480,6 +3521,13 @@ async function playPlaylist(pi){
     window.open(url, '_blank');
     return;
   }
+  if ((p.service || 'max') === 'crunchyroll') {
+    const crunchyShows = (p.shows || []).filter(s => s.crunchyrollId || s.service === 'crunchyroll');
+    if (!crunchyShows.length) { showToast('NO CRUNCHYROLL SHOWS IN PLAYLIST'); return; }
+    const pick = crunchyShows[Math.floor(Math.random() * crunchyShows.length)];
+    launchCrunchyrollShowFromWeb(pick);
+    return;
+  }
   const selectedService=localStorage.getItem('shufflr_service')||'netflix';
   showToast('SMART SHUFFLE...');
   const playedByShow={};
@@ -3818,6 +3866,11 @@ function launchYourShowPopupShuffle(){
     window.open(tubiUrl, '_blank');
     return;
   }
+  if (show?.crunchyrollId || show?.service === 'crunchyroll') {
+    closeYourShowPopup();
+    launchCrunchyrollShowFromWeb(show);
+    return;
+  }
   if(!yourShowPopupContext)return;
   const{maxId}=yourShowPopupContext;
   const launchUrl=getShowMaxUrlFromPlaylistShow(show)||(maxId?`https://play.max.com/show/${String(maxId)}`:null);
@@ -3958,6 +4011,7 @@ function showsMatchForMaxIdLookup(targetShow,entry){
 function isShowInPlaylist(playlist,show){
   return (playlist?.shows||[]).some(s=>{
     if(show?.id!=null&&s?.id!=null&&s.id===show.id)return true;
+    if(show?.crunchyrollId&&s?.crunchyrollId&&String(s.crunchyrollId)===String(show.crunchyrollId))return true;
     const maxId=getShowMaxId(s);
     if(maxId&&show?.maxId&&String(maxId)===String(show.maxId))return true;
     const nameA=normalizePlShowName(show?.name||show?.title);
@@ -4554,10 +4608,7 @@ async function renderHomeScreen(navType){
       localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(mergedYourShows));
     } catch {}
     const connectedService = localStorage.getItem('shufflr_service') || 'max';
-    filteredYourShows = mergedYourShows.filter(show => {
-      if (connectedService === 'tubi') return !!show.tubiId;
-      return !!show.maxId || !!show.maxShowId || !!show.max_id;
-    });
+    filteredYourShows = mergedYourShows.filter(show => showBelongsToConnectedService(show, connectedService));
   }
 
   const yourShowsSection = getActivePlaylistShowsForHome(allPlaylists, filteredYourShows);
