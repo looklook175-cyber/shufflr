@@ -7492,6 +7492,26 @@ function collectCrunchyrollEpisodesFromCurrentDom() {
   return episodes;
 }
 
+function crunchyrollEpisodeUrlSetKey(episodes) {
+  return (episodes || []).map(ep => ep.url).slice().sort().join('\n');
+}
+
+async function waitForCrunchyrollSeasonEpisodes(previousEpisodes, { isFirstSeason, timeoutMs = 3000 } = {}) {
+  const previousKey = crunchyrollEpisodeUrlSetKey(previousEpisodes || []);
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    if (!isChromeContextValid()) break;
+    const episodes = collectCrunchyrollEpisodesFromCurrentDom();
+    const nonEmpty = episodes.length > 0;
+    const changed = crunchyrollEpisodeUrlSetKey(episodes) !== previousKey;
+    if (nonEmpty && (isFirstSeason || changed)) return episodes;
+    await wait(100);
+  }
+
+  return collectCrunchyrollEpisodesFromCurrentDom();
+}
+
 function mergeCrunchyrollEpisodes(existing, found) {
   const seen = new Set(existing.map(ep => ep.url));
   for (const ep of found) {
@@ -7507,14 +7527,25 @@ function mergeCrunchyrollEpisodes(existing, found) {
 async function openCrunchyrollSeasonDropdown() {
   const seeMoreBtn = document.querySelector('button[data-t="see-more-episodes-btn"]');
   if (seeMoreBtn) {
+    const beforeKey = crunchyrollEpisodeUrlSetKey(collectCrunchyrollEpisodesFromCurrentDom());
     seeMoreBtn.click();
-    await wait(1200);
+    await waitForPollCondition(
+      () => {
+        if (document.querySelector('[aria-label="Seasons"]')) return true;
+        if (document.querySelectorAll('div[role="option"]').length > 0) return true;
+        return crunchyrollEpisodeUrlSetKey(collectCrunchyrollEpisodesFromCurrentDom()) !== beforeKey;
+      },
+      3000
+    );
   }
   const trigger = document.querySelector('[aria-label="Seasons"]');
   if (!trigger) return false;
   if (trigger.getAttribute('aria-expanded') !== 'true') {
     trigger.click();
-    await wait(400);
+    await waitForPollCondition(
+      () => document.querySelectorAll('div[role="option"]').length > 0,
+      3000
+    );
   }
   return document.querySelectorAll('div[role="option"]').length > 0;
 }
@@ -7528,6 +7559,7 @@ function findCrunchyrollSeasonOptions() {
 
 async function collectCrunchyrollEpisodesFromSeasonDropdown() {
   let all = collectCrunchyrollEpisodesFromCurrentDom();
+  let lastSeasonEpisodes = all.slice();
 
   const dropdownReady = await openCrunchyrollSeasonDropdown();
   if (!dropdownReady) return all;
@@ -7542,7 +7574,10 @@ async function collectCrunchyrollEpisodesFromSeasonDropdown() {
       const trigger = document.querySelector('[aria-label="Seasons"]');
       if (trigger && trigger.getAttribute('aria-expanded') !== 'true') {
         trigger.click();
-        await wait(400);
+        await waitForPollCondition(
+          () => document.querySelectorAll('div[role="option"]').length > 0,
+          3000
+        );
       }
     }
 
@@ -7551,8 +7586,10 @@ async function collectCrunchyrollEpisodesFromSeasonDropdown() {
     if (!option) continue;
 
     option.el.click();
-    await wait(1500);
-    all = mergeCrunchyrollEpisodes(all, collectCrunchyrollEpisodesFromCurrentDom());
+    lastSeasonEpisodes = await waitForCrunchyrollSeasonEpisodes(lastSeasonEpisodes, {
+      isFirstSeason: i === 0,
+    });
+    all = mergeCrunchyrollEpisodes(all, lastSeasonEpisodes);
   }
 
   return all;
