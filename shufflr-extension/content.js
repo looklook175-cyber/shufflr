@@ -8226,12 +8226,69 @@ async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
   if (!isChromeContextValid()) return;
 
   const active = await getActivePlaylistFromStorage();
-  if (await isArmedCrunchyrollPlaylist(active)) {
+  const armedCr = await isArmedCrunchyrollPlaylist(active);
+  const isSyntheticYourShowsAll = !!(
+    armedCr
+    && (active?.playlistIndex === -1 || active?.playlistName === YOUR_SHOWS_ALL_MODE_NAME)
+  );
+
+  // Real armed playlists take priority over ALL mode (Max ordering for named playlists).
+  if (armedCr && !isSyntheticYourShowsAll) {
+    await shuffleFromActiveCrunchyrollPlaylist(active, source);
+    return;
+  }
+
+  const settings = await readShuffleSettings();
+  shuffleModeCached = settings.shuffleMode;
+  if (settings.shuffleMode === 'all') {
+    await shuffleFromCrunchyrollYourShowsAllMode(source);
+    return;
+  }
+
+  if (armedCr) {
     await shuffleFromActiveCrunchyrollPlaylist(active, source);
     return;
   }
 
   await navigateToRandomCrunchyrollEpisodeForCurrentShow(source);
+}
+
+async function shuffleFromCrunchyrollYourShowsAllMode(source = 'episode-end') {
+  if (!isChromeContextValid()) return;
+
+  const yourShows = (await readYourShowsPreferCloud()).filter(show => show?.crunchyrollId);
+  if (!yourShows.length) {
+    showToast('No Crunchyroll shows in Your Shows — add shows using +');
+    await navigateToRandomCrunchyrollEpisodeForCurrentShow(source);
+    return;
+  }
+
+  // Mirror Max: synthetic Your Shows session so playlist/pending helpers handle cache hit+miss.
+  const prior = await getActivePlaylistFromStorage();
+  const currentId = getCurrentCrunchyrollSeriesId();
+  const syntheticPayload = {
+    ...(prior && (await isArmedCrunchyrollPlaylist(prior)) ? prior : {}),
+    armed: true,
+    selectedService: 'crunchyroll',
+    playlistName: YOUR_SHOWS_ALL_MODE_NAME,
+    playlistIndex: -1,
+    shows: yourShows,
+    episodes: [],
+    sessionStartedAt: Date.now(),
+  };
+  if (currentId) syntheticPayload.lastPlayedShow = String(currentId);
+
+  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: syntheticPayload });
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  console.log(
+    `[Shufflr] Crunchyroll ALL mode: ${yourShows.length} Your Shows — shuffling (${source})`
+  );
+
+  const excludeShowIds = (currentId && yourShows.length > 1)
+    ? new Set([String(currentId)])
+    : new Set();
+  await shuffleFromActiveCrunchyrollPlaylist(syntheticPayload, source, { excludeShowIds });
 }
 
 async function startCrunchyrollShuffle() {
