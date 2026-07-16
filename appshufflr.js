@@ -2968,11 +2968,15 @@ function getPlaylistsForAddShowPicker() {
 function getCrossPlaylistShowsForAdd(playlistIndex) {
   const source = getPlaylistsForAddShowPicker();
   const currentPlaylist = source[playlistIndex];
+  const targetService = currentPlaylist?.service
+    || localStorage.getItem('shufflr_service')
+    || 'max';
   const seen = new Set();
   const candidates = [];
 
   const addCandidate = (show) => {
     if (!show || show.release_date) return;
+    if (!showBelongsToConnectedService(show, targetService)) return;
     if (isShowInPlaylist(currentPlaylist, show)) return;
     const key = getDrawerAddShowDedupeKey(show);
     if (!key || seen.has(key)) return;
@@ -2985,7 +2989,7 @@ function getCrossPlaylistShowsForAdd(playlistIndex) {
     for (const show of playlist.shows || []) addCandidate(show);
   });
 
-  for (const show of getServiceFilteredYourShowsForDrawer()) {
+  for (const show of readLocalYourShows()) {
     addCandidate(show);
   }
 
