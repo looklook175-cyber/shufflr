@@ -3451,7 +3451,7 @@ function onShuffleBtnClick(event) {
   }
   if (isCrunchyroll && (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage())) {
     if (shufflrActive) {
-      stopCrunchyrollShuffle();
+      void stopCrunchyrollShuffle();
       return;
     }
     void startCrunchyrollShuffle();
@@ -7842,11 +7842,13 @@ function teardownCrunchyrollEpisodeEndWatcher() {
   crunchyrollEpisodeEndTriggered = false;
 }
 
-function stopCrunchyrollShuffle() {
+async function stopCrunchyrollShuffle() {
   shufflrActive = false;
   sessionStorage.removeItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY);
   clearCrunchyrollPending();
   teardownCrunchyrollEpisodeEndWatcher();
+  await clearActivePlaylist();
+  armedPlaylistCached = false;
   void resetShuffleModeToSingle();
   updateShuffleUI('');
   showToast('Shufflr OFF');
