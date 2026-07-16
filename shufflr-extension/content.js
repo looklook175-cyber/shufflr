@@ -7238,23 +7238,44 @@ function installCrunchyrollUrlObserver() {
   window.__shufflrCrunchyrollUrlObserver = true;
 
   let lastCrunchyrollUrl = location.href;
+  let reinjectTimer = null;
 
-  const observer = new MutationObserver(() => {
-    if (!isCrunchyroll) return;
+  function routeCrunchyrollPageAfterUrlChange() {
+    if (!isCrunchyroll || !isChromeContextValid()) return;
     if (location.href === lastCrunchyrollUrl) return;
     lastCrunchyrollUrl = location.href;
 
     removeShufflrUI();
-    if (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage()) {
-      setTimeout(() => {
-        if (!isChromeContextValid()) return;
-        console.log('[Shufflr] Crunchyroll URL changed — re-injecting');
-        void tryInjectButton();
-      }, 2500);
+    teardownCrunchyrollEpisodeEndWatcher();
+    if (reinjectTimer) {
+      clearTimeout(reinjectTimer);
+      reinjectTimer = null;
     }
-  });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+    if (!isCrunchyrollWatchPage() && !isCrunchyrollSeriesPage()) return;
+
+    reinjectTimer = setTimeout(() => {
+      reinjectTimer = null;
+      if (!isChromeContextValid()) return;
+      if (!isCrunchyrollWatchPage() && !isCrunchyrollSeriesPage()) return;
+      console.log('[Shufflr] Crunchyroll URL changed — re-injecting');
+      void tryInjectButton();
+      restoreCrunchyrollShuffleSession();
+    }, 2500);
+  }
+
+  const observer = new MutationObserver(routeCrunchyrollPageAfterUrlChange);
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    }, { once: true });
+  }
+
+  window.addEventListener('popstate', routeCrunchyrollPageAfterUrlChange);
+  // Poll location — Crunchyroll SPA pushState runs in the page world and won't hit our history hooks.
+  setInterval(routeCrunchyrollPageAfterUrlChange, 500);
 }
 
 function installTubiEpisodeEndWatcher() {
@@ -7723,9 +7744,11 @@ function installCrunchyrollButtonPersistenceObserver() {
 }
 
 if (isCrunchyroll) {
+  // Install immediately so SPA series↔watch navigation is tracked from any landing page.
+  installCrunchyrollUrlObserver();
+
   setTimeout(() => {
     if (!isCrunchyroll) return;
-    installCrunchyrollUrlObserver();
     installCrunchyrollButtonPersistenceObserver();
     if (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage()) {
       console.log('[Shufflr] Crunchyroll page — injecting Shufflr button');
@@ -7734,15 +7757,23 @@ if (isCrunchyroll) {
     }
   }, 2500);
 
-  // Crunchyroll shuffle cop — detects native "up next" autoplay navigation and corrects it
+  // Crunchyroll shuffle cop — corrects native "up next" autoplay (watch→watch only).
   let crunchyrollLastUrl = location.href;
   const crunchyrollCopObserver = new MutationObserver(() => {
     if (!isChromeContextValid()) return;
     if (location.href === crunchyrollLastUrl) return;
+    const previousUrl = crunchyrollLastUrl;
     crunchyrollLastUrl = location.href;
     if (!shufflrActive) return;
-    // Autoplay correction only applies on watch pages (no video on series pages).
+    // Video autoplay correction only applies on watch pages, and only for watch→watch jumps.
     if (!isCrunchyrollWatchPage()) return;
+    let previousWasWatch = false;
+    try {
+      previousWasWatch = new URL(previousUrl).pathname.includes('/watch/');
+    } catch {
+      previousWasWatch = false;
+    }
+    if (!previousWasWatch) return;
     if (crunchyrollEpisodeEndTriggered) {
       crunchyrollEpisodeEndTriggered = false;
       return;
