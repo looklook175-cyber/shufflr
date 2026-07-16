@@ -2905,9 +2905,17 @@ function closePlaylistDrawer() {
 }
 
 function playRandomShowFromDrawer(playlistIndex) {
-  const shows = homePlaylistsCache[playlistIndex]?.shows || [];
-  if (!shows.length) return;
-  launchShowFromDrawer(playlistIndex, Math.floor(Math.random() * shows.length));
+  const playlist = homePlaylistsCache[playlistIndex];
+  if (!playlist?.shows?.length) return;
+  // Crunchyroll Play must go through playPlaylist so the armed handoff is written.
+  if (
+    (playlist.service || '') === 'crunchyroll'
+    || (playlist.shows || []).some(s => s.crunchyrollId || s.service === 'crunchyroll')
+  ) {
+    void playPlaylist(playlistIndex);
+    return;
+  }
+  launchShowFromDrawer(playlistIndex, Math.floor(Math.random() * playlist.shows.length));
 }
 
 async function launchShowFromDrawer(playlistIndex, showIndex) {
@@ -3525,13 +3533,13 @@ async function playPlaylist(pi){
     window.open(url, '_blank');
     return;
   }
-  if ((p.service || 'max') === 'crunchyroll') {
+  if ((p.service || 'max') === 'crunchyroll' || (p.shows || []).some(s => s.crunchyrollId)) {
     const crunchyShows = (p.shows || []).filter(s => s.crunchyrollId || s.service === 'crunchyroll');
     if (!crunchyShows.length) { showToast('NO CRUNCHYROLL SHOWS IN PLAYLIST'); return; }
     const pickShow = crunchyShows[Math.floor(Math.random() * crunchyShows.length)];
     const showId = String(pickShow.crunchyrollId);
     const seriesUrl = getCrunchyrollSeriesUrlFromShow(pickShow);
-    if (!seriesUrl) { showToast('NO CRUNCHYROLL URL'); return; }
+    if (!seriesUrl || !pickShow.crunchyrollId) { showToast('NO CRUNCHYROLL URL'); return; }
 
     // No web-side episode enrichment for Crunchyroll — hand off shows only; extension resolves episodes later.
     const enriched = crunchyShows.map(s => ({
@@ -3564,7 +3572,10 @@ async function playPlaylist(pi){
       pi,
       { roundPlayedShows, nextEpisodeIndexByShow }
     );
+    // Overwrite stale Max handoff synchronously, then mirror to chrome.storage via the standard handoff.
+    localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY, JSON.stringify(handoff));
     await handoffActivePlaylistToExtension(handoff);
+    console.log('[Shufflr] Crunchyroll handoff written:', handoff.playlistName);
     launchCrunchyrollShowFromWeb(pickShow);
     return;
   }
