@@ -3528,8 +3528,44 @@ async function playPlaylist(pi){
   if ((p.service || 'max') === 'crunchyroll') {
     const crunchyShows = (p.shows || []).filter(s => s.crunchyrollId || s.service === 'crunchyroll');
     if (!crunchyShows.length) { showToast('NO CRUNCHYROLL SHOWS IN PLAYLIST'); return; }
-    const pick = crunchyShows[Math.floor(Math.random() * crunchyShows.length)];
-    launchCrunchyrollShowFromWeb(pick);
+    const pickShow = crunchyShows[Math.floor(Math.random() * crunchyShows.length)];
+    const showId = String(pickShow.crunchyrollId);
+    const seriesUrl = getCrunchyrollSeriesUrlFromShow(pickShow);
+    if (!seriesUrl) { showToast('NO CRUNCHYROLL URL'); return; }
+
+    // No web-side episode enrichment for Crunchyroll — hand off shows only; extension resolves episodes later.
+    const enriched = crunchyShows.map(s => ({
+      id: String(s.crunchyrollId),
+      name: s.title || s.name || '',
+      type: 'tv',
+      episodes: [],
+    }));
+    const playedByShow = {};
+    const roundPlayedShows = new Set([showId]);
+    const nextEpisodeIndexByShow = {};
+    const pick = {
+      showId,
+      showName: pickShow.title || pickShow.name || '',
+      seasonNum: 0,
+      episode_number: 0,
+      name: pickShow.title || pickShow.name || '',
+      isMovie: false,
+      id: showId,
+      alternateId: null,
+      watchUrl: seriesUrl,
+    };
+    const handoff = buildActivePlaylistHandoff(
+      p,
+      enriched,
+      'crunchyroll',
+      pick,
+      playedByShow,
+      showId,
+      pi,
+      { roundPlayedShows, nextEpisodeIndexByShow }
+    );
+    await handoffActivePlaylistToExtension(handoff);
+    launchCrunchyrollShowFromWeb(pickShow);
     return;
   }
   const selectedService=localStorage.getItem('shufflr_service')||'netflix';
