@@ -129,6 +129,7 @@ const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
 const CRUNCHYROLL_PENDING_TTL_MS = 2 * 60 * 1000;
 const SHUFFLR_TAB_ID_KEY = 'shufflr_tab_id';
 const ARMED_HANDOFF_CLAIM_MAX_AGE_MS = 2 * 60 * 1000;
+/** Per-show Ordered Episodes resume: crunchyrollId | maxShowId → { lastPlayedEpisodeId, updatedAt }. */
 const SHUFFLR_ORDERED_PROGRESS_KEY = 'shufflr_ordered_progress';
 
 let extensionContextInvalidated = false;
@@ -2211,9 +2212,20 @@ function pickNextShowRoundRobin(playlistShows, lastPlayedShow, roundPlayedShows)
   return pool[0]?.show || null;
 }
 
-async function saveOrderedShowRotationState(playlist, show, showId, playlistIndex, roundPlayedShows) {
+async function saveOrderedShowRotationState(
+  playlist,
+  show,
+  showId,
+  playlistIndex,
+  roundPlayedShows,
+  options = {}
+) {
   if (!isChromeContextValid()) return;
   const showTitle = getPlaylistShowTitle(show);
+  const pick = options.episode || null;
+  const watchUrl = pick?.alternateId
+    ? (pick.watchUrl || buildMaxEpisodeWatchUrl(pick.alternateId, showId))
+    : null;
   const activePayload = {
     armed: true,
     playlistName: playlist.name || '',
@@ -2222,8 +2234,18 @@ async function saveOrderedShowRotationState(playlist, show, showId, playlistInde
     episodes: [...(playlist.episodes || [])],
     selectedService: 'max',
     currentShow: { showId, showName: showTitle },
-    currentEpisode: null,
-    currentEpisodeUrl: null,
+    currentEpisode: pick?.alternateId
+      ? {
+        showId,
+        showName: showTitle,
+        posterPath: getPlaylistShowPosterPath(show),
+        seasonNum: pick.seasonNum,
+        episode_number: pick.episode_number,
+        name: pick.name || '',
+        alternateId: String(pick.alternateId),
+      }
+      : null,
+    currentEpisodeUrl: watchUrl,
     createdAt: Date.now(),
     sessionStartedAt: Date.now(),
     ownerTabId: getShufflrTabId(),
@@ -2233,6 +2255,7 @@ async function saveOrderedShowRotationState(playlist, show, showId, playlistInde
     ...(stored && typeof stored === 'object' ? stored : {}),
     lastPlayedShow: showId,
     roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
+    nextEpisodeIndexByShow: { ...(options.nextEpisodeIndexByShow || {}) },
     playlistName: playlist.name || '',
     playlistIndex,
   };
@@ -2250,6 +2273,9 @@ async function updateOrderedCurrentEpisodeFromUrl(active, url) {
   if (!episodeId) return;
 
   const showId = resolveShowIdForCop(url, active);
+  if (showId) {
+    await writeOrderedProgressForShow(showId, episodeId);
+  }
   const updated = {
     ...active,
     currentEpisode: {
@@ -2267,22 +2293,111 @@ async function updateOrderedCurrentEpisodeFromUrl(active, url) {
   await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
 }
 
-// Ordered Episodes: round-robin across show pages only — Max handles episode order and resume.
+/** Sort Max CMS episode details by season then episode number (true airing order). */
+function sortMaxEpisodesForOrderedMode(details) {
+  return [...(details || [])]
+    .filter(ep => ep?.alternateId)
+    .sort((a, b) => {
+      const sa = Number(a.seasonNum);
+      const sb = Number(b.seasonNum);
+      const ea = Number(a.episode_number);
+      const eb = Number(b.episode_number);
+      const aHas = Number.isFinite(sa) && Number.isFinite(ea);
+      const bHas = Number.isFinite(sb) && Number.isFinite(eb);
+      if (aHas && bHas) {
+        if (sa !== sb) return sa - sb;
+        return ea - eb;
+      }
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return 0;
+    });
+}
+
+/**
+ * Sequential Max pick using season/episode order.
+ * Persistent shufflr_ordered_progress (by maxShowId) is the source of truth;
+ * nextEpisodeIndexByShow is kept as a per-session mirror.
+ */
+async function pickOrderedMaxEpisode(details, showMaxId, nextEpisodeIndexByShow = {}) {
+  const ordered = sortMaxEpisodesForOrderedMode(details);
+  if (!ordered.length) return null;
+
+  const sid = normalizeMaxId(showMaxId);
+  if (!sid) return null;
+
+  const progress = await readOrderedProgress();
+  const lastId = progress[sid]?.lastPlayedEpisodeId
+    ? normalizeMaxId(progress[sid].lastPlayedEpisodeId)
+    : null;
+
+  let idx = 0;
+  if (lastId) {
+    const found = ordered.findIndex(ep => normalizeMaxId(ep.alternateId) === lastId);
+    if (found >= 0) {
+      idx = (found + 1) % ordered.length;
+    }
+  } else {
+    const sessionIdx = Number(nextEpisodeIndexByShow[sid]);
+    if (Number.isFinite(sessionIdx) && sessionIdx >= 0) {
+      idx = sessionIdx % ordered.length;
+    }
+  }
+
+  const pick = ordered[idx];
+  if (!pick?.alternateId) return null;
+
+  nextEpisodeIndexByShow[sid] = (idx + 1) % ordered.length;
+  await writeOrderedProgressForShow(sid, pick.alternateId);
+  return pick;
+}
+
+async function navigateToOrderedShowPageFallback(
+  preparedPlaylist,
+  nextShow,
+  showMaxId,
+  showId,
+  playlistIndex,
+  roundPlayedShows,
+  nextEpisodeIndexByShow,
+  showTitle
+) {
+  const status = document.getElementById('shufflr-status');
+  await saveOrderedShowRotationState(
+    preparedPlaylist,
+    nextShow,
+    showId,
+    playlistIndex,
+    roundPlayedShows,
+    { nextEpisodeIndexByShow }
+  );
+  showToast(`Next show: ${showTitle}`);
+  if (status) status.textContent = showTitle.toUpperCase().slice(0, 24);
+  shufflrTargetWatchUrl = null;
+  shufflrTargetEpisodeId = null;
+  sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
+  location.href = buildMaxShowPageUrl(showMaxId);
+}
+
+// Ordered Episodes: round-robin shows, then Shufflr picks the exact next episode in sequence.
 async function navigateToNextOrderedShow(source) {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
-  if (shufflrEpisodeTransitionLock) {
-    console.log(`[Shufflr] Show transition already in progress (${source})`);
-    return;
+
+  // handleShufflrNextEpisode may already hold the lock — proceed without re-acquiring.
+  const ownsLock = !shufflrEpisodeTransitionLock;
+  if (ownsLock) {
+    shufflrEpisodeTransitionLock = true;
   }
 
   const active = await getActivePlaylistFromStorage();
-  if (!isArmedPlaylistOwnedByThisTab(active)) return;
+  if (!isArmedPlaylistOwnedByThisTab(active)) {
+    if (ownsLock) shufflrEpisodeTransitionLock = false;
+    return;
+  }
 
-  shufflrEpisodeTransitionLock = true;
   shufflrActive = true;
   armedPlaylistCached = true;
-  console.log(`[Shufflr] Ordered mode — next show via ${source}`);
+  console.log(`[Shufflr] Ordered mode — next episode via ${source}`);
 
   try {
     const sourcePlaylist = await resolvePlaylistForShuffle(active);
@@ -2293,11 +2408,12 @@ async function navigateToNextOrderedShow(source) {
       return;
     }
 
-    let { lastPlayedShow, roundPlayedShows } =
+    let { lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
       await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
     if (!(roundPlayedShows instanceof Set)) {
       roundPlayedShows = deserializeRoundPlayedShows(roundPlayedShows);
     }
+    nextEpisodeIndexByShow = { ...(nextEpisodeIndexByShow || {}) };
 
     const nextShow = pickNextShowRoundRobin(preparedPlaylist.shows, lastPlayedShow, roundPlayedShows);
     if (!nextShow) {
@@ -2311,28 +2427,47 @@ async function navigateToNextOrderedShow(source) {
     const showId = normalizeMaxId(showMaxId);
     roundPlayedShows.add(showId);
 
-    const showUrl = buildMaxShowPageUrl(showMaxId);
     const showTitle = getPlaylistShowTitle(nextShow);
     const status = document.getElementById('shufflr-status');
+    const details = await ensureShowEpisodesFetched(nextShow);
+    const pick = details?.length
+      ? await pickOrderedMaxEpisode(details, showId, nextEpisodeIndexByShow)
+      : null;
 
+    if (!pick?.alternateId) {
+      console.log(`[Shufflr] Ordered mode — no episode list for ${showTitle}, falling back to show page`);
+      await navigateToOrderedShowPageFallback(
+        preparedPlaylist,
+        nextShow,
+        showMaxId,
+        showId,
+        playlistIndex,
+        roundPlayedShows,
+        nextEpisodeIndexByShow,
+        showTitle
+      );
+      return;
+    }
+
+    const watchUrl = pick.watchUrl || buildMaxEpisodeWatchUrl(pick.alternateId, showMaxId);
     await saveOrderedShowRotationState(
       preparedPlaylist,
       nextShow,
       showId,
       playlistIndex,
-      roundPlayedShows
+      roundPlayedShows,
+      { episode: pick, nextEpisodeIndexByShow }
     );
 
-    showToast(`Next show: ${showTitle}`);
+    showToast(`Playing: ${showTitle}`);
     if (status) status.textContent = showTitle.toUpperCase().slice(0, 24);
 
-    shufflrTargetWatchUrl = null;
-    shufflrTargetEpisodeId = null;
-    sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
-    location.href = showUrl;
+    beginShufflrNavigation(pick.alternateId);
+    location.href = watchUrl;
   } catch (err) {
     console.error('[Shufflr] navigateToNextOrderedShow error:', err);
   } finally {
+    if (!ownsLock) return;
     setTimeout(() => {
       if (!isChromeContextValid()) return;
       shufflrEpisodeTransitionLock = false;
@@ -8153,20 +8288,28 @@ function getCrunchyrollWatchEpisodeId(epOrUrl) {
   }
 }
 
-async function readCrunchyrollOrderedProgress() {
+async function readOrderedProgress() {
   if (!isChromeContextValid()) return {};
   const stored = await storageLocalGet(SHUFFLR_ORDERED_PROGRESS_KEY);
   return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
 }
 
-async function writeCrunchyrollOrderedProgressForShow(showId, lastPlayedEpisodeId) {
+async function writeOrderedProgressForShow(showId, lastPlayedEpisodeId) {
   if (!isChromeContextValid() || !showId || !lastPlayedEpisodeId) return;
-  const all = await readCrunchyrollOrderedProgress();
+  const all = await readOrderedProgress();
   all[String(showId)] = {
     lastPlayedEpisodeId: String(lastPlayedEpisodeId),
     updatedAt: Date.now(),
   };
   await chromeStorageLocalSet({ [SHUFFLR_ORDERED_PROGRESS_KEY]: all });
+}
+
+async function readCrunchyrollOrderedProgress() {
+  return readOrderedProgress();
+}
+
+async function writeCrunchyrollOrderedProgressForShow(showId, lastPlayedEpisodeId) {
+  return writeOrderedProgressForShow(showId, lastPlayedEpisodeId);
 }
 
 function getCrunchyrollPlaylistShows(active) {
