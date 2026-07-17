@@ -5355,7 +5355,37 @@ async function toggleShuffle() {
         attachShuffleListenersIfVideoPage();
         if (!isChromeContextValid()) return;
         updateShuffleUI('');
-        showToast('Shufflr ON — will shuffle when episode ends');
+
+        const onWatchPage = location.href.includes('/video/') || location.href.includes('/play/');
+        // Show pages keep wait-for-end / pending DOM-fallback behavior — do not auto-jump here.
+        if (!onWatchPage || !IS_MAX) {
+          showToast('Shufflr ON — will shuffle when episode ends');
+          return;
+        }
+
+        // Watch page: toggle-ON means shuffle now (same picks as episode-end standalone).
+        showToast('Shufflr ON — shuffling...');
+        const showId = getCurrentMaxShowUuid() || resolveMaxWatchIds(location.href)?.showId;
+        if (showId && !(knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY))) {
+          saveShowPageUrl(buildMaxShowPageUrl(showId));
+        }
+
+        const settings = await readShuffleSettings();
+        shuffleModeCached = settings.shuffleMode;
+        orderedEpisodesCached = !!settings.orderedEpisodes;
+
+        try {
+          if (isMaxSessionPinnedToCurrentShow()) {
+            await shuffleToRandomEpisode();
+          } else if (settings.shuffleMode === 'all') {
+            await shuffleFromYourShowsAllMode(null);
+          } else {
+            await shuffleToRandomEpisode();
+          }
+        } catch (err) {
+          console.error('[Shufflr] toggle-ON immediate shuffle error:', err);
+          showToast('Shufflr ON — will shuffle when episode ends');
+        }
       }
     } else {
       await setStandaloneShuffleEnabled(false);
