@@ -14,6 +14,7 @@ const SHUFFLR_LAUNCH_STANDALONE_KEY = 'shufflr_launch_standalone';
 const SHUFFLR_LAUNCH_STANDALONE_AT_KEY = 'shufflr_launch_standalone_at';
 const SHUFFLR_LAUNCH_INTENT_KEY = 'shufflr_launch_intent';
 const STANDALONE_LAUNCH_MAX_AGE_MS = 2 * 60 * 1000;
+const SHUFFLR_MAX_SHOW_AUTOSTART_KEY = 'shufflr_max_show_autostart';
 const SHUFFLR_SESSION_PIN_KEY = 'shufflr_session_pin';
 const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
@@ -2605,7 +2606,7 @@ async function prefetchMissingPlaylistShows(shows) {
   };
 }
 
-async function saveArmedActivePlaylist(playlist, playlistIndex) {
+async function saveArmedActivePlaylist(playlist, playlistIndex, extra = {}) {
   if (!isChromeContextValid()) return;
   const payload = {
     armed: true,
@@ -2618,12 +2619,17 @@ async function saveArmedActivePlaylist(playlist, playlistIndex) {
     sessionStartedAt: Date.now(),
     ownerTabId: getShufflrTabId(),
   };
+  if (extra.pendingFirstShow) {
+    payload.pendingFirstShow = true;
+    if (extra.pendingFirstShowId) payload.pendingFirstShowId = String(extra.pendingFirstShowId);
+  }
 
   const ok = await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload });
   if (ok) {
     console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
     console.log('[Shufflr] armed playlist owned by this tab');
   }
+  return payload;
 }
 
 async function clearActivePlaylist() {
@@ -2757,6 +2763,10 @@ async function fullyRestoreArmedShuffleSessionAfterInject() {
     `[Shufflr] Restored armed playlist "${active.playlistName || 'Untitled'}" ` +
     '(UI + episode listeners)'
   );
+
+  if (location.href.includes('/show/')) {
+    void maybeAutoStartMaxArmedPlaylistOnShowPage(active);
+  }
   return true;
 }
 
@@ -6806,10 +6816,18 @@ async function checkForLaunchPlaylist() {
   const prepared = preparePlaylistForShuffle(storedPlaylist);
   if (!prepared.shows.length) return;
 
-  await saveArmedActivePlaylist(prepared, playlistIndex);
-  await setStandaloneShuffleEnabled(true);
+  const pendingFirstShowId = extractMaxShowUuidFromUrl(location.href)
+    || extractShowId(location.href)
+    || null;
+  const armed = await saveArmedActivePlaylist(prepared, playlistIndex, {
+    pendingFirstShow: true,
+    pendingFirstShowId,
+  });
+  await setStandaloneShuffleEnabled(false);
   shufflrActive = true;
   armedPlaylistCached = true;
+
+  void maybeAutoStartMaxArmedPlaylistOnShowPage(armed);
 
   setTimeout(() => {
     if (!isChromeContextValid()) return;
@@ -8005,6 +8023,108 @@ async function maybeClaimUnownedMaxArmedHandoff(active) {
 
   const claimed = await claimUnownedArmedPlaylist(active);
   return claimed || active;
+}
+
+function isMaxShowPage() {
+  return IS_MAX && location.href.includes('/show/');
+}
+
+function maxArmedHandoffTargetsCurrentShowPage(active) {
+  if (!active?.armed || !isMaxShowPage()) return false;
+  const pageShowId = extractMaxShowUuidFromUrl(location.href) || extractShowId(location.href);
+  if (!pageShowId) return false;
+  const pageNorm = normalizeMaxId(pageShowId);
+
+  if (active.pendingFirstShowId && normalizeMaxId(active.pendingFirstShowId) === pageNorm) {
+    return true;
+  }
+  if (active.currentEpisode?.showId && normalizeMaxId(active.currentEpisode.showId) === pageNorm) {
+    return true;
+  }
+  if (active.currentShow?.showId && normalizeMaxId(active.currentShow.showId) === pageNorm) {
+    return true;
+  }
+  if (active.currentEpisodeUrl && String(active.currentEpisodeUrl).includes('/show/')) {
+    const handoffShow = extractMaxShowUuidFromUrl(active.currentEpisodeUrl);
+    if (handoffShow && normalizeMaxId(handoffShow) === pageNorm) return true;
+  }
+  return (active.shows || []).some(
+    show => normalizeMaxId(getPlaylistShowMaxId(show)) === pageNorm
+  );
+}
+
+async function clearMaxPendingFirstShowFlag(active) {
+  if (!isChromeContextValid() || !active) return active;
+  if (!active.pendingFirstShow && !active.pendingFirstShowId) return active;
+  const updated = { ...active };
+  delete updated.pendingFirstShow;
+  delete updated.pendingFirstShowId;
+  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
+  return updated;
+}
+
+function hasConsumedMaxShowPageAutoStart(active) {
+  const createdAt = getArmedSessionCreatedAt(active);
+  if (!createdAt) return false;
+  try {
+    return sessionStorage.getItem(SHUFFLR_MAX_SHOW_AUTOSTART_KEY) === String(createdAt);
+  } catch {
+    return false;
+  }
+}
+
+function markMaxShowPageAutoStartConsumed(active) {
+  const createdAt = getArmedSessionCreatedAt(active);
+  if (!createdAt) return;
+  try {
+    sessionStorage.setItem(SHUFFLR_MAX_SHOW_AUTOSTART_KEY, String(createdAt));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Plan-B for Max playlist Play: show-page landing with a fresh armed handoff
+ * auto-continues into an episode (same role as Crunchyroll pending collect).
+ * Ordered mode keeps show-page + Max resume — skipped here.
+ */
+async function maybeAutoStartMaxArmedPlaylistOnShowPage(activeOverride = null) {
+  if (!isChromeContextValid() || !isMaxShowPage()) return false;
+  if (window.__shufflrMaxShowAutoStartInFlight) return false;
+
+  let active = activeOverride || await getActivePlaylistFromStorage();
+  if (!active?.armed || isCrunchyrollArmedPayload(active)) return false;
+
+  active = await maybeClaimUnownedMaxArmedHandoff(active);
+  if (!isArmedPlaylistOwnedByThisTab(active)) return false;
+  if (!maxArmedHandoffTargetsCurrentShowPage(active)) return false;
+
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  if (settings.orderedEpisodes) return false;
+
+  const pending = !!active.pendingFirstShow;
+  const hasWatchTarget = !!(
+    active.currentEpisode?.alternateId
+    || (active.currentEpisodeUrl && String(active.currentEpisodeUrl).includes('/video/'))
+  );
+  // Auto-start only for show-page waits (pending launch / no watch URL yet), not mid-browse.
+  if (!pending && hasWatchTarget) return false;
+  if (!isArmedHandoffFreshForClaim(active)) return false;
+  if (hasConsumedMaxShowPageAutoStart(active)) return false;
+
+  window.__shufflrMaxShowAutoStartInFlight = true;
+  markMaxShowPageAutoStartConsumed(active);
+  try {
+    active = await clearMaxPendingFirstShowFlag(active);
+    showToast('Starting playlist...');
+    console.log('[Shufflr] Max show-page auto-start — collecting episodes and playing');
+    await shuffleFromActivePlaylist(active);
+    return true;
+  } catch (err) {
+    console.error('[Shufflr] Max show-page auto-start error:', err);
+    return false;
+  } finally {
+    window.__shufflrMaxShowAutoStartInFlight = false;
+  }
 }
 
 function getArmedSessionCreatedAt(active) {

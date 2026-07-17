@@ -3611,6 +3611,18 @@ async function playPlaylist(pi){
     });
     handoff.ownerTabId=null; // Consuming Max tab claims ownership on launch/restore.
     handoff.createdAt=Date.now();
+    // Plan-B: no direct Max watch link from cache — open the show page; extension auto-starts.
+    const hasWatchLink=!!(pick.alternateId||(pick.watchUrl&&String(pick.watchUrl).includes('/video/')));
+    if(!hasWatchLink){
+      const showEntry=(p.shows||[]).find(s=>String(s.id)===String(pick.showId));
+      const showUrl=showEntry?getShowMaxUrlFromPlaylistShow(showEntry):null;
+      const maxId=showEntry?getShowMaxId(showEntry):null;
+      if(showUrl&&String(showUrl).includes('/show/')){
+        handoff.currentEpisodeUrl=showUrl;
+        handoff.pendingFirstShow=true;
+        handoff.pendingFirstShowId=maxId?String(maxId):String(pick.showId);
+      }
+    }
     await handoffActivePlaylistToExtension(handoff);
     if(!pick.isMovie){
       markWatched(`${pick.showId}-s${pick.seasonNum}e${pick.episode_number}`,pick.showName,pick.name,pick.seasonNum,pick.episode_number,'');
