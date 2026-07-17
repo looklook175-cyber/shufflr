@@ -3530,52 +3530,10 @@ async function playPlaylist(pi){
   if ((p.service || 'max') === 'tubi') {
     const tubiShows = (p.shows || []).filter(s => s.tubiId);
     if (!tubiShows.length) { showToast('NO TUBI SHOWS IN PLAYLIST'); return; }
-    const pickShow = tubiShows[Math.floor(Math.random() * tubiShows.length)];
-    const showId = String(pickShow.tubiId);
-    const seriesUrl = pickShow.tubiSeriesUrl
-      || `https://tubitv.com/search/${encodeURIComponent(pickShow.title || '')}`;
-    if (!seriesUrl || !pickShow.tubiId) { showToast('NO TUBI URL'); return; }
-
-    // Hand off shows only — extension collects episodes on the series page (CR pattern).
-    const enriched = tubiShows.map(s => ({
-      id: String(s.tubiId),
-      name: s.title || s.name || '',
-      type: 'tv',
-      episodes: [],
-    }));
-    const playedByShow = {};
-    const roundPlayedShows = new Set([showId]);
-    const nextEpisodeIndexByShow = {};
-    const pick = {
-      showId,
-      showName: pickShow.title || pickShow.name || '',
-      seasonNum: 0,
-      episode_number: 0,
-      name: pickShow.title || pickShow.name || '',
-      isMovie: false,
-      id: showId,
-      alternateId: null,
-      watchUrl: seriesUrl,
-    };
-    const handoff = buildActivePlaylistHandoff(
-      p,
-      enriched,
-      'tubi',
-      pick,
-      playedByShow,
-      showId,
-      pi,
-      { roundPlayedShows, nextEpisodeIndexByShow }
-    );
-    handoff.pendingFirstShow = true;
-    handoff.pendingFirstShowId = showId;
-    handoff.ownerTabId = null; // Consuming Tubi tab claims ownership on auto-start.
-    handoff.createdAt = Date.now();
-    localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY, JSON.stringify(handoff));
-    await handoffActivePlaylistToExtension(handoff);
-    console.log('[Shufflr] Tubi handoff written:', handoff.playlistName);
-    showToast('OPENING: ' + (pickShow.title || '').toUpperCase().slice(0, 18));
-    window.open(seriesUrl, '_blank');
+    const pick = tubiShows[Math.floor(Math.random() * tubiShows.length)];
+    const url = pick.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(pick.title || '')}`;
+    showToast('OPENING: ' + (pick.title || '').toUpperCase().slice(0, 18));
+    window.open(url, '_blank');
     return;
   }
   if ((p.service || 'max') === 'crunchyroll' || (p.shows || []).some(s => s.crunchyrollId)) {
