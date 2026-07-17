@@ -3609,6 +3609,8 @@ async function playPlaylist(pi){
       roundPlayedShows:newRound,
       nextEpisodeIndexByShow:newIndexes,
     });
+    handoff.ownerTabId=null; // Consuming Max tab claims ownership on launch/restore.
+    handoff.createdAt=Date.now();
     await handoffActivePlaylistToExtension(handoff);
     if(!pick.isMovie){
       markWatched(`${pick.showId}-s${pick.seasonNum}e${pick.episode_number}`,pick.showName,pick.name,pick.seasonNum,pick.episode_number,'');

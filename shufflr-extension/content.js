@@ -127,6 +127,7 @@ const CRUNCHYROLL_SHUFFLE_ACTIVE_KEY = 'shufflr_crunchyroll_shuffle_active';
 const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
 const CRUNCHYROLL_PENDING_TTL_MS = 2 * 60 * 1000;
 const SHUFFLR_TAB_ID_KEY = 'shufflr_tab_id';
+const ARMED_HANDOFF_CLAIM_MAX_AGE_MS = 2 * 60 * 1000;
 const SHUFFLR_ORDERED_PROGRESS_KEY = 'shufflr_ordered_progress';
 
 let extensionContextInvalidated = false;
@@ -1062,8 +1063,9 @@ async function runShuffleCopCheck(prevUrl) {
   const active = await getActivePlaylistFromStorage();
   const settings = await readShuffleSettings();
   orderedEpisodesCached = !!settings.orderedEpisodes;
+  const owned = isArmedPlaylistOwnedByThisTab(active);
 
-  if (!active?.armed) {
+  if (!owned) {
     const standaloneOn = shufflrActive || await isStandaloneShuffleEnabled();
     if (!standaloneOn || settings.orderedEpisodes) return;
     if (!isVideoWatchUrl(prevUrl) || !isVideoWatchUrl(location.href)) return;
@@ -1207,7 +1209,7 @@ async function navigateToNextShow() {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
   const active = await getActivePlaylistFromStorage();
-  if (!active?.armed) return;
+  if (!isArmedPlaylistOwnedByThisTab(active)) return;
   shufflrActive = true;
   armedPlaylistCached = true;
   await handleShufflrNextEpisode('timeupdate-watcher');
@@ -1251,7 +1253,7 @@ function installTimeupdateWatcher() {
       if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
       return;
     }
-    if (!result[SHUFFLR_ACTIVE_PLAYLIST_KEY]?.armed) return;
+    if (!isArmedPlaylistOwnedByThisTab(result[SHUFFLR_ACTIVE_PLAYLIST_KEY])) return;
     if (orderedEpisodesCached) {
       setShufflrEpisodeEndedFlag();
       return;
@@ -2193,7 +2195,9 @@ async function saveOrderedShowRotationState(playlist, show, showId, playlistInde
     currentShow: { showId, showName: showTitle },
     currentEpisode: null,
     currentEpisodeUrl: null,
+    createdAt: Date.now(),
     sessionStartedAt: Date.now(),
+    ownerTabId: getShufflrTabId(),
   };
   const stored = await storageLocalGet(SHUFFLR_EPISODE_STATE_KEY);
   const episodeState = {
@@ -2211,7 +2215,7 @@ async function saveOrderedShowRotationState(playlist, show, showId, playlistInde
 }
 
 async function updateOrderedCurrentEpisodeFromUrl(active, url) {
-  if (!isChromeContextValid() || !active?.armed) return;
+  if (!isChromeContextValid() || !isArmedPlaylistOwnedByThisTab(active)) return;
   const hint = getShowMaxIdHintFromActive(active);
   const episodeId = getMaxEpisodeIdFromUrl(url, hint);
   if (!episodeId) return;
@@ -2244,7 +2248,7 @@ async function navigateToNextOrderedShow(source) {
   }
 
   const active = await getActivePlaylistFromStorage();
-  if (!active?.armed) return;
+  if (!isArmedPlaylistOwnedByThisTab(active)) return;
 
   shufflrEpisodeTransitionLock = true;
   shufflrActive = true;
@@ -2585,12 +2589,15 @@ async function saveArmedActivePlaylist(playlist, playlistIndex) {
     shows: [...(playlist.shows || [])],
     episodes: [...(playlist.episodes || [])],
     selectedService: 'max',
+    createdAt: Date.now(),
     sessionStartedAt: Date.now(),
+    ownerTabId: getShufflrTabId(),
   };
 
   const ok = await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload });
   if (ok) {
     console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
+    console.log('[Shufflr] armed playlist owned by this tab');
   }
 }
 
@@ -2672,10 +2679,22 @@ function updateShuffleUI(playlistName) {
 async function fullyRestoreArmedShuffleSessionAfterInject() {
   if (!IS_MAX) return false;
   if (!isChromeContextValid()) return false;
-  const active = await getActivePlaylistFromStorage();
-  armedPlaylistCached = !!active?.armed;
+  // Ensure tab ID exists early; web-Play claim may run below.
+  getShufflrTabId();
 
-  if (!active?.armed) {
+  let active = await getActivePlaylistFromStorage();
+  active = await maybeClaimUnownedMaxArmedHandoff(active);
+
+  const owned = isArmedPlaylistOwnedByThisTab(active);
+  if (owned) {
+    console.log('[Shufflr] armed playlist owned by this tab');
+  } else if (active?.armed && !isCrunchyrollArmedPayload(active)) {
+    console.log('[Shufflr] armed playlist ignored — owned by another tab (or unclaimed)');
+  }
+
+  armedPlaylistCached = owned;
+
+  if (!owned) {
     const standaloneShuffle = await isStandaloneShuffleEnabled();
     if (!standaloneShuffle) {
       shufflrActive = false;
@@ -2790,7 +2809,8 @@ function scheduleUiRecoveryAfterGrace(reason) {
 async function runUiRecoveryAfterGrace(reason) {
   if (!isChromeContextValid()) return;
   const active = await getActivePlaylistFromStorage();
-  const maintainSession = shufflrActive || active?.armed;
+  const participates = isArmedPlaylistOwnedByThisTab(active);
+  const maintainSession = shufflrActive || participates;
   if (!maintainSession) {
     cancelUiRecoveryGraceTimer();
     return;
@@ -2819,7 +2839,7 @@ async function handleShufflrNextEpisode(source) {
   }
 
   const active = await getActivePlaylistFromStorage();
-  if (!active?.armed) return;
+  if (!isArmedPlaylistOwnedByThisTab(active)) return;
 
   shufflrEpisodeTransitionLock = true;
   shufflrActive = true;
@@ -2873,7 +2893,7 @@ async function handlePossibleMaxAutoAdvance(prevUrl) {
   }
 
   if (shufflrEpisodeTransitionLock) return;
-  if (!active?.armed) return;
+  if (!isArmedPlaylistOwnedByThisTab(active)) return;
 
   shufflrActive = true;
   armedPlaylistCached = true;
@@ -2927,7 +2947,9 @@ async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayed
       alternateId: pick.alternateId,
     },
     currentEpisodeUrl: watchUrl,
+    createdAt: Date.now(),
     sessionStartedAt: Date.now(),
+    ownerTabId: getShufflrTabId(),
   };
   const episodeState = {
     playedByShow: serializePlayedByShow(playedByShow),
@@ -3438,14 +3460,16 @@ async function runShuffleWatchdogAsync() {
       return;
     }
 
-    armedPlaylistCached = !!active?.armed;
-    const maintainSession = shufflrActive || active?.armed;
+    // Max: only the owning tab treats storage as armed (standalone uses shufflrActive).
+    const participates = isArmedPlaylistOwnedByThisTab(active);
+    armedPlaylistCached = participates;
+    const maintainSession = shufflrActive || participates;
     if (!maintainSession) {
       cancelUiRecoveryGraceTimer();
       return;
     }
 
-    if (active?.armed && !shufflrActive) {
+    if (participates && !shufflrActive) {
       shufflrActive = true;
     }
 
@@ -3460,7 +3484,7 @@ async function runShuffleWatchdogAsync() {
         if (video) attachVideoListeners(video);
       }
 
-      if (IS_MAX && shufflrActive && active?.armed) {
+      if (IS_MAX && shufflrActive && participates) {
         await restoreArmedShuffleSession();
       }
       return;
@@ -4362,7 +4386,7 @@ const MAX_AUTO_NEXT_OVERLAY_SELECTORS = [
 ].join(', ');
 
 function getShufflrTargetFromActive(active) {
-  if (!active?.armed) {
+  if (!isArmedPlaylistOwnedByThisTab(active)) {
     return { watchUrl: null, episodeId: null, showHint: null };
   }
 
@@ -4429,8 +4453,8 @@ function refreshMaxAutoNextArmedCache() {
     return Promise.resolve(false);
   }
   return getActivePlaylistFromStorage().then(active => {
-    maxAutoNextArmedCache = !!active?.armed;
-    if (active?.armed) {
+    maxAutoNextArmedCache = isArmedPlaylistOwnedByThisTab(active);
+    if (maxAutoNextArmedCache) {
       const target = getShufflrTargetFromActive(active);
       shufflrTargetWatchUrl = target.watchUrl;
       shufflrTargetEpisodeId = target.episodeId;
@@ -4492,15 +4516,13 @@ function suppressMaxAutoNextOverlay(element) {
   if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
 
   getActivePlaylistFromStorage().then(active => {
-    maxAutoNextArmedCache = !!active?.armed;
-    if (!active?.armed) return;
+    maxAutoNextArmedCache = isArmedPlaylistOwnedByThisTab(active);
+    if (!maxAutoNextArmedCache) return;
 
-    if (active?.armed) {
-      const target = getShufflrTargetFromActive(active);
-      shufflrTargetWatchUrl = target.watchUrl;
-      shufflrTargetEpisodeId = target.episodeId;
-      shufflrTargetShowHint = target.showHint;
-    }
+    const target = getShufflrTargetFromActive(active);
+    shufflrTargetWatchUrl = target.watchUrl;
+    shufflrTargetEpisodeId = target.episodeId;
+    shufflrTargetShowHint = target.showHint;
 
     suppressMaxAutoNextOverlayAggressive(element);
   }).catch(err => {
@@ -5016,7 +5038,7 @@ async function ensureCurrentEpisodeForWatchHistory() {
   );
   lastWatchHistoryCurrentEpisode = currentEpisode;
 
-  if (active) {
+  if (active && isArmedPlaylistOwnedByThisTab(active)) {
     await chromeStorageLocalSet({
       [SHUFFLR_ACTIVE_PLAYLIST_KEY]: {
         ...active,
@@ -5192,7 +5214,7 @@ async function toggleShuffle() {
   const label = document.getElementById('shufflr-label');
   if (!btn || !label) {
     const active = await getActivePlaylistFromStorage();
-    if (active?.armed || await isStandaloneShuffleEnabled()) {
+    if (isArmedPlaylistOwnedByThisTab(active) || await isStandaloneShuffleEnabled()) {
       await recoverShufflrUI('toggle click with missing UI');
       return;
     }
@@ -5210,7 +5232,7 @@ async function toggleShuffle() {
       btn.classList.add('active');
       label.textContent = 'ON';
       const active = await getActivePlaylistFromStorage();
-      if (active?.armed && active.playlistName) {
+      if (isArmedPlaylistOwnedByThisTab(active) && active.playlistName) {
         await setStandaloneShuffleEnabled(false);
         if (!isChromeContextValid()) return;
         updateShuffleUI(active.playlistName);
@@ -5277,14 +5299,15 @@ async function onEpisodeEnded() {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
   const active = await getActivePlaylistFromStorage();
-  if (active?.armed) {
+  const owned = isArmedPlaylistOwnedByThisTab(active);
+  if (owned) {
     shufflrActive = true;
     armedPlaylistCached = true;
   } else if (!shufflrActive && await isStandaloneShuffleEnabled()) {
     shufflrActive = true;
   }
-  if (!shufflrActive && !active?.armed) return;
-  if (active?.armed) {
+  if (!shufflrActive && !owned) return;
+  if (owned) {
     if (orderedEpisodesCached) return;
     if (shufflrEpisodeTransitionLock) return;
     await handleShufflrNextEpisode('video-ended');
@@ -6520,7 +6543,7 @@ async function prefetchShowPageEpisodeCacheIfStandalone() {
   if (!shufflrActive || armedPlaylistCached || orderedEpisodesCached) return;
 
   const active = await getActivePlaylistFromStorage();
-  if (active?.armed) return;
+  if (isArmedPlaylistOwnedByThisTab(active)) return;
 
   const showId = extractShowId(location.href) || extractMaxShowUuidFromUrl(location.href);
   if (!showId) return;
@@ -6556,7 +6579,7 @@ async function maybeAutoClickShowPageResume() {
   if (!settings.orderedEpisodes) return;
 
   const active = await getActivePlaylistFromStorage();
-  if (!active?.armed) return;
+  if (!isArmedPlaylistOwnedByThisTab(active)) return;
 
   sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
 
@@ -7867,9 +7890,9 @@ function getShufflrTabId() {
   }
 }
 
-/** True only when this tab owns the armed Crunchyroll handoff. */
+/** True only when this tab owns the armed handoff (Max or Crunchyroll). */
 function isArmedPlaylistOwnedByThisTab(active = null) {
-  if (!isCrunchyrollArmedPayload(active)) return false;
+  if (!active?.armed) return false;
   const myId = getShufflrTabId();
   if (!myId || active.ownerTabId == null || active.ownerTabId === '') return false;
   return String(active.ownerTabId) === String(myId);
@@ -7877,15 +7900,22 @@ function isArmedPlaylistOwnedByThisTab(active = null) {
 
 async function isArmedCrunchyrollPlaylist(active = null) {
   const payload = active || await getActivePlaylistFromStorage();
-  return isArmedPlaylistOwnedByThisTab(payload);
+  return isCrunchyrollArmedPayload(payload) && isArmedPlaylistOwnedByThisTab(payload);
+}
+
+/** Handoff must be seconds/minutes old to claim via web Play launch (reject stale storage). */
+function isArmedHandoffFreshForClaim(active) {
+  const createdAt = getArmedSessionCreatedAt(active);
+  if (!createdAt) return false;
+  return Date.now() - createdAt <= ARMED_HANDOFF_CLAIM_MAX_AGE_MS;
 }
 
 /**
- * Claim an unowned armed handoff for this tab (web Play auto-start).
+ * Claim an unowned armed handoff for this tab (web Play auto-start / Max launch).
  * Returns the owned payload, or null if another tab already owns it.
  */
-async function claimUnownedCrunchyrollArmedPlaylist(active) {
-  if (!isCrunchyrollArmedPayload(active) || !isChromeContextValid()) return null;
+async function claimUnownedArmedPlaylist(active) {
+  if (!active?.armed || !isChromeContextValid()) return null;
   const myId = getShufflrTabId();
   if (!myId) return null;
 
@@ -7900,6 +7930,42 @@ async function claimUnownedCrunchyrollArmedPlaylist(active) {
   const latest = await getActivePlaylistFromStorage();
   if (!isArmedPlaylistOwnedByThisTab(latest)) return null;
   return latest;
+}
+
+async function claimUnownedCrunchyrollArmedPlaylist(active) {
+  if (!isCrunchyrollArmedPayload(active)) return null;
+  return claimUnownedArmedPlaylist(active);
+}
+
+function maxHandoffTargetsThisTab(active) {
+  const targetUrl = active?.currentEpisodeUrl;
+  if (!targetUrl) return true; // no URL to match — allow claim when fresh (launch/arm paths stamp owner themselves)
+  const hint = getShowMaxIdHintFromActive(active);
+  if (maxWatchUrlsRepresentSameEpisode(location.href, targetUrl, hint)) return true;
+  try {
+    const launchPath = new URL(targetUrl, MAX_WATCH_ORIGIN).pathname;
+    return !!(launchPath && location.href.includes(launchPath));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Max web-Play claim: unclaimed + fresh (~2 min) + handoff URL targets this tab.
+ * Returns the (possibly claimed) payload.
+ */
+async function maybeClaimUnownedMaxArmedHandoff(active) {
+  if (!IS_MAX || !active?.armed || isCrunchyrollArmedPayload(active)) return active;
+  if (isArmedPlaylistOwnedByThisTab(active)) return active;
+
+  if (active.ownerTabId != null && active.ownerTabId !== '') {
+    return active;
+  }
+  if (!isArmedHandoffFreshForClaim(active)) return active;
+  if (!maxHandoffTargetsThisTab(active)) return active;
+
+  const claimed = await claimUnownedArmedPlaylist(active);
+  return claimed || active;
 }
 
 function getArmedSessionCreatedAt(active) {
