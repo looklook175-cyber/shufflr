@@ -3246,13 +3246,18 @@ async function armPlaylistFromDropdown(playlistIndex) {
 
   await prefetchMissingPlaylistShows(preparedPlaylist.shows);
   await saveArmedActivePlaylist(preparedPlaylist, playlistIndex);
+  await setStandaloneShuffleEnabled(false);
 
   shufflrActive = true;
   armedPlaylistCached = true;
   const playlistName = preparedPlaylist.name || 'Untitled';
   if (!isChromeContextValid()) return;
   updateShuffleUI(playlistName);
-  showToast(`Playlist: ${playlistName} — will shuffle when episode ends`);
+
+  // Start playback immediately (same path as armed episode-end).
+  // On failure, shuffleFromActivePlaylist keeps the armed state and toasts.
+  showToast(`Playlist: ${playlistName}`);
+  await handleShufflrNextEpisode('dropdown-play');
 }
 
 async function playCrunchyrollPlaylistFromDropdown(playlistIndex) {
