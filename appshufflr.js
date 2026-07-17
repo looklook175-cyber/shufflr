@@ -3575,6 +3575,8 @@ async function playPlaylist(pi){
     // Series page auto-starts the first episode via the extension's pending-collect path.
     handoff.pendingFirstShow = true;
     handoff.pendingFirstShowId = showId;
+    handoff.ownerTabId = null; // Consuming Crunchyroll tab claims ownership on auto-start.
+    handoff.createdAt = Date.now();
     // Overwrite stale Max handoff synchronously, then mirror to chrome.storage via the standard handoff.
     localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY, JSON.stringify(handoff));
     await handoffActivePlaylistToExtension(handoff);
