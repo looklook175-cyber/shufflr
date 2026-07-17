@@ -5492,9 +5492,43 @@ async function toggleShuffle() {
         updateShuffleUI('');
 
         const onWatchPage = location.href.includes('/video/') || location.href.includes('/play/');
-        // Show pages keep wait-for-end / pending DOM-fallback behavior — do not auto-jump here.
-        if (!onWatchPage || !IS_MAX) {
+        const onShowPage = IS_MAX && location.href.includes('/show/');
+
+        // Non-Max / neither watch nor show: arm only and wait for episode end.
+        if (!IS_MAX || (!onWatchPage && !onShowPage)) {
           showToast('Shufflr ON — will shuffle when episode ends');
+          return;
+        }
+
+        const settings = await readShuffleSettings();
+        shuffleModeCached = settings.shuffleMode;
+        orderedEpisodesCached = !!settings.orderedEpisodes;
+
+        if (onShowPage) {
+          // Show page: toggle-ON means shuffle this show now (cache → API → DOM fallback).
+          saveShowPageUrl(location.href.split('?')[0]);
+          const showId = extractShowId(location.href);
+          if (showId) saveShowPageUrl(buildMaxShowPageUrl(showId));
+
+          const showTitle = getCurrentShowTitle() || 'show';
+          showToast(`Shuffling ${showTitle}...`);
+
+          try {
+            if (isMaxSessionPinnedToCurrentShow()) {
+              await shuffleToRandomEpisode({ quiet: true });
+            } else if (settings.shuffleMode === 'all') {
+              await shuffleFromYourShowsAllMode(null);
+            } else {
+              await shuffleToRandomEpisode({ quiet: true });
+            }
+            // Still on the show page with no pending handoff → collection failed; stay armed.
+            if (location.href.includes('/show/') && !sessionStorage.getItem(SHUFFLR_PENDING_KEY)) {
+              showToast('Shufflr ON — will shuffle when episode ends');
+            }
+          } catch (err) {
+            console.error('[Shufflr] toggle-ON show-page shuffle error:', err);
+            showToast('Shufflr ON — will shuffle when episode ends');
+          }
           return;
         }
 
@@ -5504,10 +5538,6 @@ async function toggleShuffle() {
         if (showId && !(knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY))) {
           saveShowPageUrl(buildMaxShowPageUrl(showId));
         }
-
-        const settings = await readShuffleSettings();
-        shuffleModeCached = settings.shuffleMode;
-        orderedEpisodesCached = !!settings.orderedEpisodes;
 
         try {
           if (isMaxSessionPinnedToCurrentShow()) {
@@ -6252,22 +6282,23 @@ async function prefetchEpisodeList() {
 }
 
 // ── SHUFFLE LOGIC ───────────────────────────────────────────────────────────
-async function shuffleToRandomEpisode() {
-  if (isAdPlaying()) return;
+async function shuffleToRandomEpisode(options = {}) {
+  if (isAdPlaying()) return false;
+  const quiet = !!options.quiet;
   const status = document.getElementById('shufflr-status');
   const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
   const lastEpisodeUrl = location.href;
 
   if (!showPage) {
-    showToast('Visit the show page first so Shufflr can find all episodes.');
+    if (!quiet) showToast('Visit the show page first so Shufflr can find all episodes.');
     if (status) status.textContent = 'NO SHOW PAGE';
     console.log('[Shufflr] Aborting — no knownShowPageUrl');
-    return;
+    return false;
   }
 
   console.log(`[Shufflr] Shuffle triggered from: ${lastEpisodeUrl}`);
   if (status) status.textContent = 'FETCHING EPISODES...';
-  showToast('Fetching episode list via API...');
+  if (!quiet) showToast('Fetching episode list via API...');
 
   let episodes = null;
   try {
@@ -6280,21 +6311,37 @@ async function shuffleToRandomEpisode() {
     console.log('[Shufflr] API empty/failed — falling back to show-page DOM scrape');
     sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage }));
     if (status) status.textContent = 'LOADING SHOW PAGE...';
-    showToast('API unavailable — loading show page...');
+
+    // Already on this show page — same-URL assignment won't navigate; run DOM fallback now.
+    const currentShowId = extractShowId(location.href);
+    const targetShowId = extractShowId(showPage);
+    const alreadyOnShowPage = !!(
+      location.href.includes('/show/')
+      && currentShowId
+      && targetShowId
+      && normalizeMaxId(currentShowId) === normalizeMaxId(targetShowId)
+    );
+    if (alreadyOnShowPage) {
+      if (!quiet) showToast('API unavailable — scraping show page...');
+      return handleShowPageShuffle();
+    }
+
+    if (!quiet) showToast('API unavailable — loading show page...');
     shufflrAboutToNavigate = false;
     captureFullscreenBeforeShufflrNavigation();
     location.href = showPage;
-    return;
+    return true;
   }
 
   await navigateToRandomEpisode(episodes, lastEpisodeUrl, status);
+  return true;
 }
 
 async function handleShowPageShuffle() {
-  if (shuffleInProgress) return;
+  if (shuffleInProgress) return false;
 
   const raw = sessionStorage.getItem(SHUFFLR_PENDING_KEY);
-  if (!raw) return;
+  if (!raw) return false;
 
   shuffleInProgress = true;
   let pending;
@@ -6303,7 +6350,7 @@ async function handleShowPageShuffle() {
   } catch {
     sessionStorage.removeItem(SHUFFLR_PENDING_KEY);
     shuffleInProgress = false;
-    return;
+    return false;
   }
 
   sessionStorage.removeItem(SHUFFLR_PENDING_KEY);
@@ -6331,11 +6378,12 @@ async function handleShowPageShuffle() {
   if (!episodes?.length) {
     showToast('Could not find episodes on show page.');
     shuffleInProgress = false;
-    return;
+    return false;
   }
 
   await navigateToRandomEpisode(episodes, pending.lastEpisodeUrl, document.getElementById('shufflr-status'));
   shuffleInProgress = false;
+  return true;
 }
 
 async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
