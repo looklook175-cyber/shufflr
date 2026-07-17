@@ -5483,7 +5483,7 @@ async function toggleShuffle() {
         await setStandaloneShuffleEnabled(false);
         if (!isChromeContextValid()) return;
         updateShuffleUI(active.playlistName);
-        showToast(`Playlist: ${active.playlistName} — will shuffle when episode ends`);
+        showToast(`Playlist: ${active.playlistName} — shuffling...`);
       } else {
         await setStandaloneShuffleEnabled(true);
         startShuffleWatchdog();
@@ -5493,10 +5493,12 @@ async function toggleShuffle() {
 
         const onWatchPage = location.href.includes('/video/') || location.href.includes('/play/');
         const onShowPage = IS_MAX && location.href.includes('/show/');
+        const toggleOnFallbackToast =
+          "Shufflr ON — couldn't start yet, will shuffle when the episode ends";
 
-        // Non-Max / neither watch nor show: arm only and wait for episode end.
-        if (!IS_MAX || (!onWatchPage && !onShowPage)) {
-          showToast('Shufflr ON — will shuffle when episode ends');
+        // Neither watch nor show: arm only (no immediate shuffle target).
+        if (!onWatchPage && !onShowPage) {
+          showToast(toggleOnFallbackToast);
           return;
         }
 
@@ -5514,20 +5516,23 @@ async function toggleShuffle() {
           showToast(`Shuffling ${showTitle}...`);
 
           try {
+            let started = false;
             if (isMaxSessionPinnedToCurrentShow()) {
-              await shuffleToRandomEpisode({ quiet: true });
+              started = await shuffleToRandomEpisode({ quiet: true });
             } else if (settings.shuffleMode === 'all') {
               await shuffleFromYourShowsAllMode(null);
+              started = !location.href.includes('/show/')
+                || !!sessionStorage.getItem(SHUFFLR_PENDING_KEY);
             } else {
-              await shuffleToRandomEpisode({ quiet: true });
+              started = await shuffleToRandomEpisode({ quiet: true });
             }
-            // Still on the show page with no pending handoff → collection failed; stay armed.
-            if (location.href.includes('/show/') && !sessionStorage.getItem(SHUFFLR_PENDING_KEY)) {
-              showToast('Shufflr ON — will shuffle when episode ends');
+            // Collection failed → stay armed; replace the start toast with an accurate wait message.
+            if (!started) {
+              showToast(toggleOnFallbackToast);
             }
           } catch (err) {
             console.error('[Shufflr] toggle-ON show-page shuffle error:', err);
-            showToast('Shufflr ON — will shuffle when episode ends');
+            showToast(toggleOnFallbackToast);
           }
           return;
         }
@@ -5541,15 +5546,15 @@ async function toggleShuffle() {
 
         try {
           if (isMaxSessionPinnedToCurrentShow()) {
-            await shuffleToRandomEpisode();
+            await shuffleToRandomEpisode({ quiet: true });
           } else if (settings.shuffleMode === 'all') {
             await shuffleFromYourShowsAllMode(null);
           } else {
-            await shuffleToRandomEpisode();
+            await shuffleToRandomEpisode({ quiet: true });
           }
         } catch (err) {
           console.error('[Shufflr] toggle-ON immediate shuffle error:', err);
-          showToast('Shufflr ON — will shuffle when episode ends');
+          showToast(toggleOnFallbackToast);
         }
       }
     } else {
