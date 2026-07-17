@@ -7537,6 +7537,10 @@ function installTubiEpisodeEndWatcher() {
   tubiTimeupdateHandler = () => {
     if (tubiEpisodeEndTriggered) return;
     if (!video.duration || !Number.isFinite(video.duration) || video.paused) return;
+    if (isNonEpisodePlayback(video)) {
+      logNonEpisodePlaybackIgnored(video);
+      return;
+    }
     const remaining = video.duration - video.currentTime;
     if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
     tubiEpisodeEndTriggered = true;
@@ -8924,6 +8928,10 @@ async function installCrunchyrollEpisodeEndWatcher() {
   crunchyrollTimeupdateHandler = () => {
     if (crunchyrollEpisodeEndTriggered) return;
     if (!video.duration || !Number.isFinite(video.duration) || video.paused) return;
+    if (isNonEpisodePlayback(video)) {
+      logNonEpisodePlaybackIgnored(video);
+      return;
+    }
     const remaining = video.duration - video.currentTime;
     if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
     crunchyrollEpisodeEndTriggered = true;
