@@ -1096,7 +1096,10 @@ async function runShuffleCopCheck(prevUrl) {
 
     console.log('[Shufflr] Shuffle cop (standalone): Max hijacked navigation, correcting...');
     showToast('Shufflr correcting...');
-    if (settings.shuffleMode === 'all') {
+    // Pinned single-show stays on this show even when global mode is ALL.
+    if (isMaxSessionPinnedToCurrentShow()) {
+      await shuffleToRandomEpisode();
+    } else if (settings.shuffleMode === 'all') {
       await shuffleFromYourShowsAllMode(null);
     } else {
       await shuffleToRandomEpisode();
@@ -2624,6 +2627,8 @@ async function saveArmedActivePlaylist(playlist, playlistIndex, extra = {}) {
     if (extra.pendingFirstShowId) payload.pendingFirstShowId = String(extra.pendingFirstShowId);
   }
 
+  clearMaxSessionPin(); // playlist arming in this tab replaces any single-show pin
+
   const ok = await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload });
   if (ok) {
     console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
@@ -3436,6 +3441,7 @@ async function resetShuffleState(options = {}) {
   shufflrActive = false;
   armedPlaylistCached = false;
   toggleShuffleInProgress = false;
+  clearMaxSessionPin();
   cancelUiRecoveryGraceTimer();
   try {
     if (clearStorage) await clearActivePlaylist();
@@ -5284,6 +5290,7 @@ async function toggleShuffle() {
       await setStandaloneShuffleEnabled(false);
       await clearActivePlaylist();
       armedPlaylistCached = false;
+      clearMaxSessionPin();
       await resetShuffleModeToSingle();
       if (!isChromeContextValid()) return;
       updateShuffleUI('');
@@ -5360,6 +5367,11 @@ async function onEpisodeEnded() {
   }
   const settings = await readShuffleSettings();
   shuffleModeCached = settings.shuffleMode;
+  // Your Shows card Play pin: stay on that show even when global mode is ALL.
+  if (isMaxSessionPinnedToCurrentShow()) {
+    await shuffleToRandomEpisode();
+    return;
+  }
   if (settings.shuffleMode === 'all') {
     await shuffleFromYourShowsAllMode(null);
     return;
@@ -6743,6 +6755,8 @@ async function checkForLaunchStandaloneShow() {
   const result = await chrome.storage.local.get([
     SHUFFLR_LAUNCH_SHOW_URL_KEY,
     SHUFFLR_LAUNCH_STANDALONE_KEY,
+    SHUFFLR_LAUNCH_STANDALONE_AT_KEY,
+    SHUFFLR_LAUNCH_INTENT_KEY,
   ]);
   const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
   const isStandaloneLaunch = result[SHUFFLR_LAUNCH_STANDALONE_KEY];
@@ -6757,7 +6771,21 @@ async function checkForLaunchStandaloneShow() {
   }
   if (!launchPath || !currentUrl.includes(launchPath)) return;
 
-  const launchMaxId = extractMaxShowUuidFromUrl(launchUrl);
+  let launchedAt = Number(result[SHUFFLR_LAUNCH_STANDALONE_AT_KEY]);
+  if (!Number.isFinite(launchedAt) || launchedAt <= 0) {
+    launchedAt = Date.now();
+  } else if (Date.now() - launchedAt > STANDALONE_LAUNCH_MAX_AGE_MS) {
+    console.log('[Shufflr] Max standalone launch expired — clearing');
+    await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
+    await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
+    await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_AT_KEY);
+    await chromeStorageLocalRemove(SHUFFLR_LAUNCH_INTENT_KEY);
+    return;
+  }
+
+  const launchMaxId = extractMaxShowUuidFromUrl(launchUrl)
+    || extractMaxShowUuidFromUrl(location.href)
+    || extractShowId(location.href);
   if (launchMaxId) {
     const blockedKey = `shufflr_blocked_seasons_${launchMaxId}`;
     const blockedResult = await chrome.storage.local.get(blockedKey);
@@ -6770,14 +6798,32 @@ async function checkForLaunchStandaloneShow() {
     await chromeStorageLocalRemove(blockedKey);
   }
 
+  const launchIntent = result[SHUFFLR_LAUNCH_INTENT_KEY] === 'single' ? 'single' : 'mode';
+
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_AT_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_INTENT_KEY);
-  await clearActivePlaylist();
+
+  // Never clear another tab's owned armed playlist — only disarm if we own it.
+  const active = await getActivePlaylistFromStorage();
+  if (isArmedPlaylistOwnedByThisTab(active)) {
+    await clearActivePlaylist();
+  }
   armedPlaylistCached = false;
   await setStandaloneShuffleEnabled(true);
   shufflrActive = true;
+
+  if (location.href.includes('/show/')) {
+    saveShowPageUrl(location.href);
+  }
+
+  if (launchIntent === 'single' && launchMaxId) {
+    const title = getCurrentShowTitle() || launchMaxId;
+    setMaxSessionPin(launchMaxId, title);
+  } else {
+    clearMaxSessionPin();
+  }
 
   setTimeout(() => {
     if (!isChromeContextValid()) return;
@@ -6790,7 +6836,11 @@ async function checkForLaunchPlaylist() {
   const result = await chrome.storage.local.get([
     SHUFFLR_ACTIVE_PLAYLIST_KEY,
     SHUFFLR_LAUNCH_SHOW_URL_KEY,
+    SHUFFLR_LAUNCH_STANDALONE_KEY,
   ]);
+  // Standalone / Your Shows launches must never be treated as playlist Play.
+  if (result[SHUFFLR_LAUNCH_STANDALONE_KEY] === true) return;
+
   const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
   const storedPlaylist = result[SHUFFLR_ACTIVE_PLAYLIST_KEY];
   if (!storedPlaylist || !launchUrl) return;
@@ -6819,6 +6869,7 @@ async function checkForLaunchPlaylist() {
   const pendingFirstShowId = extractMaxShowUuidFromUrl(location.href)
     || extractShowId(location.href)
     || null;
+  clearMaxSessionPin(); // playlist arming in this tab replaces any single-show pin
   const armed = await saveArmedActivePlaylist(prepared, playlistIndex, {
     pendingFirstShow: true,
     pendingFirstShowId,
@@ -7996,7 +8047,15 @@ async function claimUnownedCrunchyrollArmedPlaylist(active) {
 
 function maxHandoffTargetsThisTab(active) {
   const targetUrl = active?.currentEpisodeUrl;
-  if (!targetUrl) return true; // no URL to match — allow claim when fresh (launch/arm paths stamp owner themselves)
+  if (!targetUrl) {
+    // Unclaimed handoffs without a URL may only be claimed when pendingFirstShow
+    // explicitly targets this show page — never "any Max tab".
+    if (active?.pendingFirstShow && active.pendingFirstShowId) {
+      const pageId = extractMaxShowUuidFromUrl(location.href) || extractShowId(location.href);
+      return !!(pageId && normalizeMaxId(pageId) === normalizeMaxId(active.pendingFirstShowId));
+    }
+    return false;
+  }
   const hint = getShowMaxIdHintFromActive(active);
   if (maxWatchUrlsRepresentSameEpisode(location.href, targetUrl, hint)) return true;
   try {
@@ -8007,8 +8066,31 @@ function maxHandoffTargetsThisTab(active) {
   }
 }
 
+async function isMaxStandaloneLaunchPendingForThisPage() {
+  if (!isChromeContextValid() || !IS_MAX) return false;
+  try {
+    const result = await chrome.storage.local.get([
+      SHUFFLR_LAUNCH_SHOW_URL_KEY,
+      SHUFFLR_LAUNCH_STANDALONE_KEY,
+    ]);
+    if (result[SHUFFLR_LAUNCH_STANDALONE_KEY] !== true) return false;
+    const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
+    if (!launchUrl) return false;
+    let launchPath = '';
+    try {
+      launchPath = new URL(launchUrl).pathname;
+    } catch {
+      return false;
+    }
+    return !!(launchPath && location.href.includes(launchPath));
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Max web-Play claim: unclaimed + fresh (~2 min) + handoff URL targets this tab.
+ * Max web-Play / playlist claim: unclaimed + fresh (~2 min) + handoff URL targets this tab.
+ * Standalone/single-show launches must never claim.
  * Returns the (possibly claimed) payload.
  */
 async function maybeClaimUnownedMaxArmedHandoff(active) {
@@ -8018,6 +8100,8 @@ async function maybeClaimUnownedMaxArmedHandoff(active) {
   if (active.ownerTabId != null && active.ownerTabId !== '') {
     return active;
   }
+  // Your Shows / standalone launches never adopt an unclaimed playlist handoff.
+  if (await isMaxStandaloneLaunchPendingForThisPage()) return active;
   if (!isArmedHandoffFreshForClaim(active)) return active;
   if (!maxHandoffTargetsThisTab(active)) return active;
 
@@ -8029,28 +8113,32 @@ function isMaxShowPage() {
   return IS_MAX && location.href.includes('/show/');
 }
 
+/**
+ * True only when the handoff's own launch target is this show page —
+ * not merely "this show appears somewhere in the playlist".
+ */
 function maxArmedHandoffTargetsCurrentShowPage(active) {
   if (!active?.armed || !isMaxShowPage()) return false;
   const pageShowId = extractMaxShowUuidFromUrl(location.href) || extractShowId(location.href);
   if (!pageShowId) return false;
   const pageNorm = normalizeMaxId(pageShowId);
 
-  if (active.pendingFirstShowId && normalizeMaxId(active.pendingFirstShowId) === pageNorm) {
-    return true;
-  }
-  if (active.currentEpisode?.showId && normalizeMaxId(active.currentEpisode.showId) === pageNorm) {
-    return true;
-  }
-  if (active.currentShow?.showId && normalizeMaxId(active.currentShow.showId) === pageNorm) {
+  if (active.pendingFirstShow && active.pendingFirstShowId
+    && normalizeMaxId(active.pendingFirstShowId) === pageNorm) {
     return true;
   }
   if (active.currentEpisodeUrl && String(active.currentEpisodeUrl).includes('/show/')) {
     const handoffShow = extractMaxShowUuidFromUrl(active.currentEpisodeUrl);
     if (handoffShow && normalizeMaxId(handoffShow) === pageNorm) return true;
   }
-  return (active.shows || []).some(
-    show => normalizeMaxId(getPlaylistShowMaxId(show)) === pageNorm
-  );
+  // Watch-URL handoffs that somehow landed on the matching show page.
+  if (active.currentEpisode?.showId && normalizeMaxId(active.currentEpisode.showId) === pageNorm) {
+    return true;
+  }
+  if (active.currentShow?.showId && normalizeMaxId(active.currentShow.showId) === pageNorm) {
+    return true;
+  }
+  return false;
 }
 
 async function clearMaxPendingFirstShowFlag(active) {
@@ -8106,8 +8194,9 @@ async function maybeAutoStartMaxArmedPlaylistOnShowPage(activeOverride = null) {
     active.currentEpisode?.alternateId
     || (active.currentEpisodeUrl && String(active.currentEpisodeUrl).includes('/video/'))
   );
-  // Auto-start only for show-page waits (pending launch / no watch URL yet), not mid-browse.
+  // Auto-start only for this handoff's own show-page launch target.
   if (!pending && hasWatchTarget) return false;
+  if (!pending && !maxArmedHandoffTargetsCurrentShowPage(active)) return false;
   if (!isArmedHandoffFreshForClaim(active)) return false;
   if (hasConsumedMaxShowPageAutoStart(active)) return false;
 
@@ -8861,6 +8950,45 @@ function isCrunchyrollSessionPinnedToCurrentShow() {
   if (!pin) return false;
   const currentId = getCurrentCrunchyrollSeriesId();
   return !!(currentId && String(currentId) === String(pin));
+}
+
+// ── Max single-show pin (Your Shows card Play) — same sessionStorage key, Max origin ──
+function setMaxSessionPin(maxId, title = null) {
+  if (!maxId) {
+    clearMaxSessionPin();
+    return;
+  }
+  try {
+    sessionStorage.setItem(SHUFFLR_SESSION_PIN_KEY, String(maxId));
+    const label = title || getCurrentShowTitle() || String(maxId);
+    console.log(`[Shufflr] single-intent launch — pinned to ${label}`);
+  } catch { /* ignore */ }
+}
+
+function clearMaxSessionPin() {
+  try {
+    sessionStorage.removeItem(SHUFFLR_SESSION_PIN_KEY);
+  } catch { /* ignore */ }
+}
+
+function getMaxSessionPin() {
+  try {
+    return sessionStorage.getItem(SHUFFLR_SESSION_PIN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when this Max tab is pinned to the current show (Your Shows card Play). */
+function isMaxSessionPinnedToCurrentShow() {
+  if (!IS_MAX) return false;
+  const pin = getMaxSessionPin();
+  if (!pin) return false;
+  const currentId = getCurrentMaxShowUuid()
+    || extractMaxShowUuidFromUrl(location.href)
+    || extractShowId(location.href)
+    || resolveMaxWatchIds(location.href)?.showId;
+  return !!(currentId && normalizeMaxId(currentId) === normalizeMaxId(pin));
 }
 
 function crunchyrollLaunchUrlMatchesCurrentSeries(launchUrl) {
