@@ -1073,7 +1073,8 @@ function onNowPlayingShufflePosterClick(){
       showName:getShowLabel(show)||show.name||show.title||'',
       maxId:getShowMaxId(show),
     };
-    launchYourShowPopupShuffle();
+    // Power-button pick — follow global mode (not card Play single-intent).
+    launchYourShowPopupShuffle('mode');
     return;
   }
   if(nowPlayingShufflePlaylistIndex==null||nowPlayingShuffleShowIndex==null)return;
@@ -2775,12 +2776,13 @@ function setActivePlaylistViaBridge(playlist, launchUrl) {
   }, '*');
 }
 
-function setStandaloneLaunchViaBridge(launchUrl, maxId = null, blockedSeasons = null) {
+function setStandaloneLaunchViaBridge(launchUrl, maxId = null, blockedSeasons = null, launchIntent = 'mode') {
   window.postMessage({
     type: 'SHUFFLR_LAUNCH_STANDALONE_SHOW',
     launchUrl,
     maxId: maxId || null,
     blockedSeasons: Array.isArray(blockedSeasons) ? blockedSeasons : null,
+    launchIntent: launchIntent === 'single' ? 'single' : 'mode',
   }, '*');
 }
 
@@ -2806,14 +2808,14 @@ function getCrunchyrollSeriesUrlFromShow(show) {
   return null;
 }
 
-function launchCrunchyrollShowFromWeb(show) {
+function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   const launchUrl = getCrunchyrollSeriesUrlFromShow(show);
   if (!launchUrl) {
     showToast('NO CRUNCHYROLL URL');
     return false;
   }
   showToast('OPENING: ' + (show.title || show.name || '').toUpperCase().slice(0, 18));
-  setStandaloneLaunchViaBridge(launchUrl);
+  setStandaloneLaunchViaBridge(launchUrl, null, null, launchIntent);
   window.open(launchUrl, '_blank');
   return true;
 }
@@ -2822,12 +2824,13 @@ function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const show = playlists[playlistIndex]?.shows?.[showIndex];
   if (!show) return;
   if (show.crunchyrollId || show.service === 'crunchyroll') {
-    launchCrunchyrollShowFromWeb(show);
+    // Power-button pick click-through — follow global SINGLE/ALL mode.
+    launchCrunchyrollShowFromWeb(show, 'mode');
     return;
   }
   const launchUrl = getShowMaxUrlFromPlaylistShow(show);
   if (!launchUrl) return;
-  setStandaloneLaunchViaBridge(launchUrl);
+  setStandaloneLaunchViaBridge(launchUrl, null, null, 'mode');
   window.open(launchUrl, '_blank');
 }
 
@@ -3830,7 +3833,7 @@ function renderYourShowPopup(showName,seasons,posterPath,overview){
     ${buildYourShowPopupTitleHtml(displayName,posterPath)}
     ${buildYourShowPopupDescriptionHtml(overview)}
     <div class="pl-drawer-actions">
-      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="event.stopPropagation(); launchYourShowPopupShuffle()">▶ Play</button>
+      <button type="button" class="pl-drawer-btn pl-drawer-btn-primary your-show-popup-shuffle" onclick="event.stopPropagation(); launchYourShowPopupShuffle('single')">▶ Play</button>
     </div>
     <div class="ysp-seasons-scroll">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;margin-bottom:8px;">
@@ -3915,7 +3918,7 @@ async function openYourShowPopup(pi,si,clickedCard){
   positionYourShowPopup(pi,si);
 }
 
-function launchYourShowPopupShuffle(){
+function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
   if (show?.tubiId) {
     const tubiUrl = show.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(show.name || show.title || '')}`;
@@ -3924,7 +3927,7 @@ function launchYourShowPopupShuffle(){
   }
   if (show?.crunchyrollId || show?.service === 'crunchyroll') {
     closeYourShowPopup();
-    launchCrunchyrollShowFromWeb(show);
+    launchCrunchyrollShowFromWeb(show, launchIntent);
     return;
   }
   if(!yourShowPopupContext)return;
@@ -3935,7 +3938,7 @@ function launchYourShowPopupShuffle(){
     return;
   }
   closeYourShowPopup();
-  setStandaloneLaunchViaBridge(launchUrl,maxId,null);
+  setStandaloneLaunchViaBridge(launchUrl,maxId,null,launchIntent);
   window.open(launchUrl,'_blank');
 }
 

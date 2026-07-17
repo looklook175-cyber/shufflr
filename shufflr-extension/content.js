@@ -12,7 +12,9 @@ const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_LAUNCH_SHOW_URL_KEY = 'shufflr_launch_show_url';
 const SHUFFLR_LAUNCH_STANDALONE_KEY = 'shufflr_launch_standalone';
 const SHUFFLR_LAUNCH_STANDALONE_AT_KEY = 'shufflr_launch_standalone_at';
+const SHUFFLR_LAUNCH_INTENT_KEY = 'shufflr_launch_intent';
 const STANDALONE_LAUNCH_MAX_AGE_MS = 2 * 60 * 1000;
+const SHUFFLR_SESSION_PIN_KEY = 'shufflr_session_pin';
 const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
@@ -3204,6 +3206,7 @@ async function playCrunchyrollPlaylistFromDropdown(playlistIndex) {
   });
   console.log('[Shufflr] Crunchyroll dropdown handoff written:', handoff.playlistName);
   console.log('[Shufflr] armed playlist owned by this tab');
+  clearCrunchyrollSessionPin();
 
   shufflrActive = true;
   armedPlaylistCached = true;
@@ -6701,6 +6704,8 @@ async function checkForLaunchStandaloneShow() {
 
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_AT_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_INTENT_KEY);
   await clearActivePlaylist();
   armedPlaylistCached = false;
   await setStandaloneShuffleEnabled(true);
@@ -8151,6 +8156,7 @@ function teardownCrunchyrollEpisodeEndWatcher() {
 async function stopCrunchyrollShuffle() {
   shufflrActive = false;
   sessionStorage.removeItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY);
+  clearCrunchyrollSessionPin();
   clearCrunchyrollPending();
   teardownCrunchyrollEpisodeEndWatcher();
   const active = await getActivePlaylistFromStorage();
@@ -8334,6 +8340,7 @@ async function maybeResumeCrunchyrollPendingCollect() {
   console.log('[Shufflr] armed playlist owned by this tab');
   // Playlist auto-start wins — drop any standalone launch keys so they cannot re-trigger.
   await clearCrunchyrollStandaloneLaunchKeys();
+  clearCrunchyrollSessionPin();
 
   window.__shufflrCrunchyrollPendingResume = true;
   try {
@@ -8501,6 +8508,12 @@ async function navigateToRandomCrunchyrollEpisode(source = 'episode-end') {
     return;
   }
 
+  // Your Shows card Play pin: stay on that show even when global mode is ALL.
+  if (isCrunchyrollSessionPinnedToCurrentShow()) {
+    await navigateToRandomCrunchyrollEpisodeForCurrentShow(source);
+    return;
+  }
+
   if (settings.shuffleMode === 'all') {
     await shuffleFromCrunchyrollYourShowsAllMode(source);
     return;
@@ -8576,6 +8589,8 @@ async function armCrunchyrollYourShowsAllModeSession(options = {}) {
   await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: syntheticPayload });
   shufflrActive = true;
   armedPlaylistCached = true;
+  // ALL-mode session replaces any single-show pin.
+  clearCrunchyrollSessionPin();
   if (hasShufflrButtonInDom()) {
     updateShuffleUI(YOUR_SHOWS_ALL_MODE_NAME);
   }
@@ -8588,6 +8603,39 @@ async function clearCrunchyrollStandaloneLaunchKeys() {
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
   await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_AT_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_INTENT_KEY);
+}
+
+function setCrunchyrollSessionPin(seriesId) {
+  if (!seriesId) {
+    clearCrunchyrollSessionPin();
+    return;
+  }
+  try {
+    sessionStorage.setItem(SHUFFLR_SESSION_PIN_KEY, String(seriesId));
+  } catch { /* ignore */ }
+}
+
+function clearCrunchyrollSessionPin() {
+  try {
+    sessionStorage.removeItem(SHUFFLR_SESSION_PIN_KEY);
+  } catch { /* ignore */ }
+}
+
+function getCrunchyrollSessionPin() {
+  try {
+    return sessionStorage.getItem(SHUFFLR_SESSION_PIN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when this tab is pinned to a specific show (Your Shows card Play). */
+function isCrunchyrollSessionPinnedToCurrentShow() {
+  const pin = getCrunchyrollSessionPin();
+  if (!pin) return false;
+  const currentId = getCurrentCrunchyrollSeriesId();
+  return !!(currentId && String(currentId) === String(pin));
 }
 
 function crunchyrollLaunchUrlMatchesCurrentSeries(launchUrl) {
@@ -8621,6 +8669,7 @@ async function consumeCrunchyrollStandaloneLaunchIfMatching() {
     SHUFFLR_LAUNCH_SHOW_URL_KEY,
     SHUFFLR_LAUNCH_STANDALONE_KEY,
     SHUFFLR_LAUNCH_STANDALONE_AT_KEY,
+    SHUFFLR_LAUNCH_INTENT_KEY,
   ]);
   const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
   const isStandalone = result[SHUFFLR_LAUNCH_STANDALONE_KEY] === true;
@@ -8629,7 +8678,7 @@ async function consumeCrunchyrollStandaloneLaunchIfMatching() {
 
   let launchedAt = Number(result[SHUFFLR_LAUNCH_STANDALONE_AT_KEY]);
   if (!Number.isFinite(launchedAt) || launchedAt <= 0) {
-    // Bridge does not stamp a time — treat first matching consume as now.
+    // Bridge may omit a time — treat first matching consume as now.
     launchedAt = Date.now();
   } else if (Date.now() - launchedAt > STANDALONE_LAUNCH_MAX_AGE_MS) {
     console.log('[Shufflr] Standalone launch expired — clearing');
@@ -8637,13 +8686,15 @@ async function consumeCrunchyrollStandaloneLaunchIfMatching() {
     return null;
   }
 
+  const launchIntent = result[SHUFFLR_LAUNCH_INTENT_KEY] === 'single' ? 'single' : 'mode';
+
   window.__shufflrCrStandaloneLaunchConsumed = true;
   await clearCrunchyrollStandaloneLaunchKeys();
 
   const seriesId = getCurrentCrunchyrollSeriesId();
   if (!seriesId) return null;
-  console.log('[Shufflr] Consumed standalone launch for series', seriesId);
-  return { seriesId, launchUrl };
+  console.log('[Shufflr] Consumed standalone launch for series', seriesId, `(intent=${launchIntent})`);
+  return { seriesId, launchUrl, launchIntent };
 }
 
 /**
@@ -8659,6 +8710,17 @@ async function maybeAutoStartCrunchyrollStandaloneLaunch() {
   const settings = await readShuffleSettings();
   shuffleModeCached = settings.shuffleMode;
   orderedEpisodesCached = !!settings.orderedEpisodes;
+
+  // Your Shows card Play → always pin to this show (ignore global ALL).
+  if (launch.launchIntent === 'single') {
+    setCrunchyrollSessionPin(launch.seriesId);
+    console.log('[Shufflr] Standalone launch → pinned single-show auto-start');
+    await startCrunchyrollShuffle();
+    return true;
+  }
+
+  // Power-button / mode-following launch — clear any prior pin and follow global mode.
+  clearCrunchyrollSessionPin();
 
   if (settings.shuffleMode === 'all') {
     let synthetic = await armCrunchyrollYourShowsAllModeSession({ seedLastPlayedShow: false });
@@ -8691,7 +8753,7 @@ async function maybeAutoStartCrunchyrollStandaloneLaunch() {
     return true;
   }
 
-  console.log('[Shufflr] Standalone launch → single-show auto-start');
+  console.log('[Shufflr] Standalone launch → single-show auto-start (mode)');
   await startCrunchyrollShuffle();
   return true;
 }

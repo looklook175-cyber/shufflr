@@ -140,6 +140,8 @@
       const payload = {
         shufflr_launch_show_url: event.data.launchUrl,
         shufflr_launch_standalone: true,
+        shufflr_launch_intent: event.data.launchIntent === 'single' ? 'single' : 'mode',
+        shufflr_launch_standalone_at: Date.now(),
       };
       const maxId = event.data.maxId;
       if (maxId && Array.isArray(event.data.blockedSeasons)) {
