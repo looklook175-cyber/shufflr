@@ -2696,12 +2696,16 @@ function updateShuffleUI(playlistName) {
     if (shufflrActive) {
       btn.classList.add('active');
       label.textContent = 'ON';
-      const statusName = playlistName && playlistName !== YOUR_SHOWS_ALL_MODE_NAME
-        ? playlistName
-        : (playlistName === YOUR_SHOWS_ALL_MODE_NAME ? 'Your Shows' : '');
-      status.textContent = statusName
-        ? statusName.toUpperCase().slice(0, 24)
-        : 'WAITING FOR EP END...';
+      let statusName = '';
+      if (playlistName === YOUR_SHOWS_ALL_MODE_NAME) {
+        statusName = 'Your Shows';
+      } else if (playlistName) {
+        statusName = playlistName;
+      } else {
+        // Single-show idle: show the current title; omit if not available yet.
+        statusName = (isCrunchyroll ? getCrunchyrollShowTitle() : getCurrentShowTitle()) || '';
+      }
+      status.textContent = statusName ? statusName.toUpperCase().slice(0, 24) : '';
     } else {
       btn.classList.remove('active');
       label.textContent = 'SHUFFLR';
@@ -3189,7 +3193,7 @@ async function shuffleFromActivePlaylist(activePayload) {
   if (!result?.pick?.alternateId) {
     showToast('No playable episodes — playlist still armed');
     if (status) {
-      status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || 'WAITING FOR EP END...';
+      status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || '';
     }
     return;
   }
@@ -7457,9 +7461,8 @@ function updateTubiShuffleUI(showName) {
   btn.classList.add('active');
   label.textContent = 'ON';
   if (status) {
-    status.textContent = showName
-      ? showName.toUpperCase().slice(0, 24)
-      : 'WAITING FOR EP END...';
+    const name = showName || getTubiShowTitle() || '';
+    status.textContent = name ? name.toUpperCase().slice(0, 24) : '';
   }
 }
 
