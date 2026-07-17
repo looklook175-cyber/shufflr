@@ -714,6 +714,10 @@ const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
 const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
 const SHUFFLE_COP_DELAY_MS = 400;
 const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
+const MIN_EPISODE_DURATION_SEC = 300;
+const NON_EPISODE_PLAYBACK_LOG_THROTTLE_MS = 5000;
+let lastNonEpisodePlaybackLogAt = 0;
+
 function isAdPlaying() {
   try {
     if (document.querySelector('[data-testid="player-ux-ad-skip-button"]')) {
@@ -722,6 +726,23 @@ function isAdPlaying() {
     }
   } catch {}
   return false;
+}
+
+/** True for missing/invalid video or clips shorter than a real episode (trailers/promos). */
+function isNonEpisodePlayback(video) {
+  if (!video) return true;
+  const duration = Number(video.duration);
+  if (!Number.isFinite(duration) || duration <= 0) return true;
+  return duration < MIN_EPISODE_DURATION_SEC;
+}
+
+function logNonEpisodePlaybackIgnored(video) {
+  const now = Date.now();
+  if (now - lastNonEpisodePlaybackLogAt < NON_EPISODE_PLAYBACK_LOG_THROTTLE_MS) return;
+  lastNonEpisodePlaybackLogAt = now;
+  const duration = Number(video?.duration);
+  const label = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : '?';
+  console.log(`[Shufflr] Ignoring non-episode playback (duration ${label}s)`);
 }
 
 function isSingleUuidWatchUrl(url) {
@@ -1244,6 +1265,10 @@ function installTimeupdateWatcher() {
     }
     if (isAdPlaying()) return;
     if (video.duration <= 0 || video.paused) return;
+    if (isNonEpisodePlayback(video)) {
+      logNonEpisodePlaybackIgnored(video);
+      return;
+    }
     updateShufflrAboutToNavigateFromVideo(video);
     if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
     let result;
@@ -5284,6 +5309,11 @@ function onTimeUpdate() {
   }
 
   if (!video || !video.duration || !Number.isFinite(video.duration)) return;
+  if (isNonEpisodePlayback(video)) {
+    logNonEpisodePlaybackIgnored(video);
+    shufflrAboutToNavigate = false;
+    return;
+  }
 
   updateShufflrAboutToNavigateFromVideo(video);
 
@@ -5298,6 +5328,11 @@ function onTimeUpdate() {
 async function onEpisodeEnded() {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
+  const video = window.__shufflrAttachedVideo || document.querySelector('video');
+  if (isNonEpisodePlayback(video)) {
+    logNonEpisodePlaybackIgnored(video);
+    return;
+  }
   const active = await getActivePlaylistFromStorage();
   const owned = isArmedPlaylistOwnedByThisTab(active);
   if (owned) {
