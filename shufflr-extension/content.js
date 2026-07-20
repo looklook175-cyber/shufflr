@@ -7286,9 +7286,24 @@ async function checkForLaunchPlaylist() {
 
 // ── TUBI HELPERS ───────────────────────────────────────────────────────────
 let tubiEpisodeEndTriggered = false;
+let tubiEpisodeEndContextUntil = 0;
 let tubiTimeupdateVideo = null;
 let tubiTimeupdateHandler = null;
 let tubiButtonObserver = null;
+
+const TUBI_EPISODE_END_CONTEXT_MS = 10000;
+
+function markTubiEpisodeEndContext() {
+  tubiEpisodeEndContextUntil = Date.now() + TUBI_EPISODE_END_CONTEXT_MS;
+}
+
+function isTubiEpisodeEndContextFresh() {
+  return Date.now() <= tubiEpisodeEndContextUntil;
+}
+
+function clearTubiEpisodeEndContext() {
+  tubiEpisodeEndContextUntil = 0;
+}
 
 function isTubiSeriesPage() {
   return IS_TUBI && location.pathname.includes('/series/');
@@ -7730,6 +7745,7 @@ function teardownTubiEpisodeEndWatcher() {
 function stopTubiShuffle() {
   shufflrActive = false;
   sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY);
+  clearTubiEpisodeEndContext();
   teardownTubiEpisodeEndWatcher();
   void resetShuffleModeToSingle();
   updateShuffleUI('');
@@ -8096,6 +8112,8 @@ function installTubiEpisodeEndWatcher() {
     }
     const remaining = video.duration - video.currentTime;
     if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+    // Fresh near-end window so the cop can correct Tubi autoplay if it races our navigation.
+    markTubiEpisodeEndContext();
     tubiEpisodeEndTriggered = true;
     void navigateToRandomTubiEpisode('timeupdate');
   };
@@ -8133,7 +8151,7 @@ if (IS_TUBI) {
     tryInjectShufflrButtonOnTubi();
   }
 
-  // Tubi shuffle cop — detects native autoplay navigation and corrects it
+  // Tubi shuffle cop — corrects Tubi autoplay near episode end only (never user browsing).
   let tubiLastUrl = location.href;
   const tubiCopObserver = new MutationObserver(() => {
     if (!isChromeContextValid()) return;
@@ -8141,15 +8159,46 @@ if (IS_TUBI) {
     const prevUrl = tubiLastUrl;
     tubiLastUrl = location.href;
     if (!shufflrActive) return;
+
+    // Shufflr's own navigation — allow it.
     if (tubiEpisodeEndTriggered) {
       tubiEpisodeEndTriggered = false;
       return;
     }
-    // URL changed while shuffle is ON but Shufflr didn't trigger it — Tubi autopilot
+
+    let previousWasWatch = false;
+    try {
+      previousWasWatch = new URL(prevUrl).pathname.includes('/tv-shows/');
+    } catch {
+      previousWasWatch = false;
+    }
+
+    // Only correct genuine watch→watch autoplay while a near-end context is fresh.
+    const isWatchDest = isTubiEpisodePage();
+    const endContextFresh = isTubiEpisodeEndContextFresh();
+    if (!isWatchDest || !previousWasWatch || !endContextFresh) {
+      // Deliberate browse / left the player — end single-show session if we left its show.
+      const activeId = getTubiActiveShuffleSeriesId();
+      if (!activeId) return;
+      const newSeriesId = getTubiShowIdFromUrl();
+      let stillOnActiveShow = !!(newSeriesId && String(newSeriesId) === String(activeId));
+      if (!stillOnActiveShow) {
+        try {
+          stillOnActiveShow = new URL(location.href).pathname.includes(`/series/${activeId}`);
+        } catch { /* ignore */ }
+      }
+      if (!stillOnActiveShow) {
+        console.log('[Shufflr] Tubi cop: deliberate navigation away from shuffle show — ending session');
+        stopTubiShuffle();
+      }
+      return;
+    }
+
     console.log('[Shufflr] Tubi cop: native autoplay detected, correcting...');
     showToast('Shufflr correcting...');
     setTimeout(async () => {
       tubiEpisodeEndTriggered = false;
+      clearTubiEpisodeEndContext();
       const activeId = getTubiActiveShuffleSeriesId();
       if (!activeId) {
         console.log('[Shufflr] Tubi cop: no active shuffle session, skipping');
@@ -8164,7 +8213,12 @@ if (IS_TUBI) {
       if (!pick) return;
       console.log('[Shufflr] Tubi cop: correcting to', pick.url);
       showToast('Shufflr correcting...');
+      tubiEpisodeEndTriggered = true;
       window.location.href = pick.url;
+      setTimeout(() => {
+        tubiEpisodeEndTriggered = false;
+        installTubiEpisodeEndWatcher();
+      }, 3000);
     }, 500);
   });
   tubiCopObserver.observe(document.body, { childList: true, subtree: true });
