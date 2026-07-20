@@ -131,6 +131,13 @@ const SHUFFLR_TAB_ID_KEY = 'shufflr_tab_id';
 const ARMED_HANDOFF_CLAIM_MAX_AGE_MS = 2 * 60 * 1000;
 /** Per-show Ordered Episodes resume: crunchyrollId | maxShowId → { lastPlayedEpisodeId, updatedAt }. */
 const SHUFFLR_ORDERED_PROGRESS_KEY = 'shufflr_ordered_progress';
+/** Timestamp of last Shufflr auto-navigation (sessionStorage — survives full page loads). */
+const SHUFFLR_LAST_AUTO_NAV_AT_KEY = 'shufflr_last_auto_nav_at';
+const SHUFFLR_AUTO_NAV_COOLDOWN_MS = 30000;
+/** Set after an auto-nav so the next page load can detect error landings. */
+const SHUFFLR_PENDING_ERROR_CHECK_KEY = 'shufflr_pending_error_check';
+/** Latch: block further auto-nav after an error page until a user-initiated start. */
+const SHUFFLR_AUTO_NAV_STOPPED_KEY = 'shufflr_auto_nav_stopped';
 
 let extensionContextInvalidated = false;
 let extensionContextHealthCheckTimer = null;
@@ -1020,6 +1027,242 @@ function beginShufflrNavigation(episodeId) {
   }, SHUFFLR_NAVIGATION_FLAG_MS);
 
   void setPendingEpisodeIdInStorage(normalized);
+}
+
+function isShufflrAutoNavStopped() {
+  try {
+    return sessionStorage.getItem(SHUFFLR_AUTO_NAV_STOPPED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function clearShufflrAutoNavStopped() {
+  try {
+    sessionStorage.removeItem(SHUFFLR_AUTO_NAV_STOPPED_KEY);
+  } catch { /* ignore */ }
+}
+
+function getShufflrLastAutoNavAt() {
+  try {
+    const n = Number(sessionStorage.getItem(SHUFFLR_LAST_AUTO_NAV_AT_KEY));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function recordShufflrAutoNavigation(url) {
+  try {
+    sessionStorage.setItem(SHUFFLR_LAST_AUTO_NAV_AT_KEY, String(Date.now()));
+    sessionStorage.setItem(SHUFFLR_PENDING_ERROR_CHECK_KEY, JSON.stringify({
+      at: Date.now(),
+      service: IS_TUBI ? 'tubi' : (isCrunchyroll ? 'crunchyroll' : 'max'),
+      targetUrl: String(url || '').split('?')[0],
+    }));
+  } catch { /* ignore */ }
+}
+
+/** Wait out the global auto-nav cooldown. Returns false if stopped-on-error. */
+async function waitForShufflrAutoNavCooldown(source = '') {
+  if (isShufflrAutoNavStopped()) {
+    console.log(`[Shufflr] auto-navigation blocked — stopped after error (${source || 'auto'})`);
+    return false;
+  }
+  const last = getShufflrLastAutoNavAt();
+  if (!last) return true;
+  const elapsed = Date.now() - last;
+  if (elapsed >= SHUFFLR_AUTO_NAV_COOLDOWN_MS) return true;
+  const waitMs = SHUFFLR_AUTO_NAV_COOLDOWN_MS - elapsed;
+  console.log(`[Shufflr] cooldown: delaying auto-navigation ${Math.ceil(waitMs / 1000)}s`);
+  await new Promise(resolve => setTimeout(resolve, waitMs));
+  if (isShufflrAutoNavStopped()) {
+    console.log(`[Shufflr] auto-navigation blocked — stopped after error (${source || 'auto'})`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Central navigation helper.
+ * mode 'auto' — episode-end / cop / pending hops: 30s cooldown + error-check latch.
+ * mode 'user' — toggle-ON / Play / dropdown: immediate; clears stop-on-error latch.
+ */
+async function shufflrNavigateTo(url, options = {}) {
+  if (!isChromeContextValid() || !url) return false;
+  const mode = options.mode === 'user' ? 'user' : 'auto';
+  const source = options.source || mode;
+
+  if (mode === 'auto') {
+    if (!options.bypassCooldown) {
+      const ok = await waitForShufflrAutoNavCooldown(source);
+      if (!ok) return false;
+    } else if (isShufflrAutoNavStopped()) {
+      console.log(`[Shufflr] auto-navigation blocked — stopped after error (${source})`);
+      return false;
+    }
+    if (typeof options.skipIfStale === 'function' && options.skipIfStale()) {
+      console.log(`[Shufflr] cooldown: skipping stale auto-navigation (${source})`);
+      return false;
+    }
+    recordShufflrAutoNavigation(url);
+  } else {
+    clearShufflrAutoNavStopped();
+  }
+
+  if (typeof options.beforeNavigate === 'function') {
+    try { options.beforeNavigate(); } catch { /* ignore */ }
+  }
+  window.location.href = url;
+  return true;
+}
+
+function detectStreamingErrorPage() {
+  const path = location.pathname || '';
+  const href = location.href || '';
+  const title = document.title || '';
+  const h1 = document.querySelector('h1')?.textContent || '';
+  const bodyText = `${title}\n${h1}`;
+
+  if (IS_TUBI) {
+    if (path.includes('/static/404') || href.includes('/static/404')) return 'Tubi';
+    if (/oh\s*snap/i.test(bodyText)) return 'Tubi';
+  }
+  if (isCrunchyroll) {
+    if (/\/(error|404|offline|access-denied|rate-limit)/i.test(path)) return 'Crunchyroll';
+    if (/too many requests|access denied|something went wrong|page not found/i.test(bodyText)
+      && !isCrunchyrollWatchPage()
+      && !isCrunchyrollSeriesPage()) {
+      return 'Crunchyroll';
+    }
+  }
+  if (IS_MAX) {
+    if (/\/(error|404|not-found)/i.test(path)) return 'Max';
+    if (/something went wrong|page not found|unavailable/i.test(bodyText)
+      && !location.href.includes('/video/')
+      && !location.href.includes('/play/')
+      && !location.href.includes('/show/')) {
+      return 'Max';
+    }
+  }
+  return null;
+}
+
+function isExpectedWatchLandingAfterAutoNav() {
+  if (IS_TUBI) return isTubiEpisodePage();
+  if (isCrunchyroll) return isCrunchyrollWatchPage();
+  if (IS_MAX) return location.href.includes('/video/') || location.href.includes('/play/');
+  return false;
+}
+
+async function disarmShufflrAfterErrorPage(serviceLabel) {
+  if (!isChromeContextValid()) return;
+  try {
+    sessionStorage.setItem(SHUFFLR_AUTO_NAV_STOPPED_KEY, '1');
+    sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY);
+  } catch { /* ignore */ }
+
+  console.log(`[Shufflr] stopped after error page (${serviceLabel})`);
+  showToast(`Shufflr paused — ${serviceLabel} returned an error page`);
+
+  shufflrActive = false;
+  armedPlaylistCached = false;
+
+  if (IS_TUBI) {
+    try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
+    clearTubiEpisodeEndContext();
+    teardownTubiEpisodeEndWatcher();
+    void resetShuffleModeToSingle();
+    updateShuffleUI('');
+    return;
+  }
+
+  if (isCrunchyroll) {
+    try { sessionStorage.removeItem(CRUNCHYROLL_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
+    clearCrunchyrollSessionPin();
+    clearCrunchyrollPending();
+    teardownCrunchyrollEpisodeEndWatcher();
+    const active = await getActivePlaylistFromStorage();
+    if (isArmedPlaylistOwnedByThisTab(active)) await clearActivePlaylist();
+    void resetShuffleModeToSingle();
+    updateShuffleUI('');
+    return;
+  }
+
+  if (IS_MAX) {
+    await setStandaloneShuffleEnabled(false);
+    const active = await getActivePlaylistFromStorage();
+    if (isArmedPlaylistOwnedByThisTab(active)) await clearActivePlaylist();
+    clearMaxSessionPin();
+    void resetShuffleModeToSingle();
+    updateShuffleUI('');
+  }
+}
+
+/**
+ * After a Shufflr auto-navigation, stop the session if we landed on an error page
+ * (or a watch URL with no player and clear error signals). One error must not cascade.
+ */
+async function checkShufflrAutoNavErrorLanding() {
+  if (!isChromeContextValid()) return;
+  if (window.__shufflrErrorCheckInFlight) return;
+
+  let pending = null;
+  try {
+    const raw = sessionStorage.getItem(SHUFFLR_PENDING_ERROR_CHECK_KEY);
+    if (!raw) return;
+    pending = JSON.parse(raw);
+  } catch {
+    try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
+    return;
+  }
+  if (!pending?.at || Date.now() - pending.at > 60000) {
+    try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
+    return;
+  }
+
+  window.__shufflrErrorCheckInFlight = true;
+  try {
+    const immediate = detectStreamingErrorPage();
+    if (immediate) {
+      await disarmShufflrAfterErrorPage(immediate);
+      return;
+    }
+
+    // Series-page hops are valid intermediate landings — clear the check.
+    if ((IS_TUBI && isTubiSeriesPage()) || (isCrunchyroll && isCrunchyrollSeriesPage())
+      || (IS_MAX && location.href.includes('/show/'))) {
+      try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
+      return;
+    }
+
+    if (!isExpectedWatchLandingAfterAutoNav()) return;
+
+    if (document.querySelector('video')) {
+      try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 4000));
+    if (!isChromeContextValid()) return;
+    try {
+      if (!sessionStorage.getItem(SHUFFLR_PENDING_ERROR_CHECK_KEY)) return;
+    } catch { return; }
+
+    if (document.querySelector('video')) {
+      try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
+      return;
+    }
+
+    const delayed = detectStreamingErrorPage();
+    const bodyHint = /oh\s*snap|too many requests|something went wrong|page not found|unavailable|access denied/i
+      .test(`${document.title || ''}\n${document.body?.innerText?.slice(0, 2000) || ''}`);
+    if (delayed || bodyHint) {
+      await disarmShufflrAfterErrorPage(delayed || (IS_TUBI ? 'Tubi' : isCrunchyroll ? 'Crunchyroll' : 'Max'));
+    }
+  } finally {
+    window.__shufflrErrorCheckInFlight = false;
+  }
 }
 
 function isVideoWatchUrl(url) {
@@ -2359,7 +2602,8 @@ async function navigateToOrderedShowPageFallback(
   playlistIndex,
   roundPlayedShows,
   nextEpisodeIndexByShow,
-  showTitle
+  showTitle,
+  navMode = 'auto'
 ) {
   const status = document.getElementById('shufflr-status');
   await saveOrderedShowRotationState(
@@ -2375,13 +2619,17 @@ async function navigateToOrderedShowPageFallback(
   shufflrTargetWatchUrl = null;
   shufflrTargetEpisodeId = null;
   sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
-  location.href = buildMaxShowPageUrl(showMaxId);
+  await shufflrNavigateTo(buildMaxShowPageUrl(showMaxId), {
+    mode: navMode === 'user' ? 'user' : 'auto',
+    source: 'ordered-show-fallback',
+  });
 }
 
 // Ordered Episodes: round-robin shows, then Shufflr picks the exact next episode in sequence.
-async function navigateToNextOrderedShow(source) {
+async function navigateToNextOrderedShow(source, options = {}) {
   if (!isChromeContextValid()) return;
   if (isAdPlaying()) return;
+  const navMode = options.mode === 'user' ? 'user' : 'auto';
 
   // handleShufflrNextEpisode may already hold the lock — proceed without re-acquiring.
   const ownsLock = !shufflrEpisodeTransitionLock;
@@ -2444,7 +2692,8 @@ async function navigateToNextOrderedShow(source) {
         playlistIndex,
         roundPlayedShows,
         nextEpisodeIndexByShow,
-        showTitle
+        showTitle,
+        navMode
       );
       return;
     }
@@ -2463,7 +2712,10 @@ async function navigateToNextOrderedShow(source) {
     if (status) status.textContent = showTitle.toUpperCase().slice(0, 24);
 
     beginShufflrNavigation(pick.alternateId);
-    location.href = watchUrl;
+    await shufflrNavigateTo(watchUrl, {
+      mode: navMode,
+      source: `ordered-${source}`,
+    });
   } catch (err) {
     console.error('[Shufflr] navigateToNextOrderedShow error:', err);
   } finally {
@@ -3027,6 +3279,12 @@ async function handleShufflrNextEpisode(source) {
   const active = await getActivePlaylistFromStorage();
   if (!isArmedPlaylistOwnedByThisTab(active)) return;
 
+  const navMode = source === 'dropdown-play' ? 'user' : 'auto';
+  if (navMode === 'auto' && isShufflrAutoNavStopped()) {
+    console.log('[Shufflr] auto-navigation blocked — stopped after error');
+    return;
+  }
+
   shufflrEpisodeTransitionLock = true;
   shufflrActive = true;
   armedPlaylistCached = true;
@@ -3037,11 +3295,11 @@ async function handleShufflrNextEpisode(source) {
     orderedEpisodesCached = !!settings.orderedEpisodes;
     shuffleModeCached = settings.shuffleMode;
     if (settings.orderedEpisodes) {
-      await navigateToNextOrderedShow(source);
+      await navigateToNextOrderedShow(source, { mode: navMode });
     } else if (settings.shuffleMode === 'all') {
-      await shuffleFromYourShowsAllMode(active);
+      await shuffleFromYourShowsAllMode(active, { mode: navMode });
     } else {
-      await shuffleFromActivePlaylist(active);
+      await shuffleFromActivePlaylist(active, { mode: navMode });
     }
   } catch (err) {
     console.error('[Shufflr] handleShufflrNextEpisode error:', err);
@@ -3245,7 +3503,7 @@ async function armMaxYourShowsAllModeSession(options = {}) {
   return syntheticPayload;
 }
 
-async function shuffleFromYourShowsAllMode(activePayload) {
+async function shuffleFromYourShowsAllMode(activePayload, options = {}) {
   if (!isChromeContextValid()) return;
   const syntheticPayload = await armMaxYourShowsAllModeSession({
     seedLastPlayedShow: true,
@@ -3260,11 +3518,13 @@ async function shuffleFromYourShowsAllMode(activePayload) {
     if (status) status.textContent = 'NO YOUR SHOWS';
     return;
   }
-  await shuffleFromActivePlaylist(syntheticPayload);
+  await shuffleFromActivePlaylist(syntheticPayload, options);
 }
 
-async function shuffleFromActivePlaylist(activePayload) {
+async function shuffleFromActivePlaylist(activePayload, options = {}) {
   if (!isChromeContextValid()) return;
+  const navMode = options.mode === 'user' ? 'user' : 'auto';
+  if (navMode === 'auto' && isShufflrAutoNavStopped()) return;
   const sourcePlaylist = await resolvePlaylistForShuffle(activePayload);
   const playlistIndex = activePayload.playlistIndex ?? 0;
   const status = document.getElementById('shufflr-status');
@@ -3355,7 +3615,7 @@ async function shuffleFromActivePlaylist(activePayload) {
   void refreshMaxAutoNextArmedCache();
   if (isAdPlaying()) return;
   beginShufflrNavigation(pick.alternateId);
-  location.href = watchUrl;
+  await shufflrNavigateTo(watchUrl, { mode: navMode, source: 'max-playlist-shuffle' });
 }
 
 async function armPlaylistFromDropdown(playlistIndex) {
@@ -5493,6 +5753,7 @@ async function toggleShuffle() {
     shufflrActive = turningOn;
 
     if (turningOn) {
+      clearShufflrAutoNavStopped();
       btn.classList.add('active');
       label.textContent = 'ON';
       const active = await getActivePlaylistFromStorage();
@@ -5535,13 +5796,13 @@ async function toggleShuffle() {
           try {
             let started = false;
             if (isMaxSessionPinnedToCurrentShow()) {
-              started = await shuffleToRandomEpisode({ quiet: true });
+              started = await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
             } else if (settings.shuffleMode === 'all') {
-              await shuffleFromYourShowsAllMode(null);
+              await shuffleFromYourShowsAllMode(null, { mode: 'user' });
               started = !location.href.includes('/show/')
                 || !!sessionStorage.getItem(SHUFFLR_PENDING_KEY);
             } else {
-              started = await shuffleToRandomEpisode({ quiet: true });
+              started = await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
             }
             // Collection failed → stay armed; replace the start toast with an accurate wait message.
             if (!started) {
@@ -5563,11 +5824,11 @@ async function toggleShuffle() {
 
         try {
           if (isMaxSessionPinnedToCurrentShow()) {
-            await shuffleToRandomEpisode({ quiet: true });
+            await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
           } else if (settings.shuffleMode === 'all') {
-            await shuffleFromYourShowsAllMode(null);
+            await shuffleFromYourShowsAllMode(null, { mode: 'user' });
           } else {
-            await shuffleToRandomEpisode({ quiet: true });
+            await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
           }
         } catch (err) {
           console.error('[Shufflr] toggle-ON immediate shuffle error:', err);
@@ -6307,6 +6568,8 @@ async function prefetchEpisodeList() {
 async function shuffleToRandomEpisode(options = {}) {
   if (isAdPlaying()) return false;
   const quiet = !!options.quiet;
+  const navMode = options.mode === 'user' ? 'user' : 'auto';
+  if (navMode === 'auto' && isShufflrAutoNavStopped()) return false;
   const status = document.getElementById('shufflr-status');
   const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
   const lastEpisodeUrl = location.href;
@@ -6331,7 +6594,7 @@ async function shuffleToRandomEpisode(options = {}) {
 
   if (!episodes?.length) {
     console.log('[Shufflr] API empty/failed — falling back to show-page DOM scrape');
-    sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage }));
+    sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage, navMode }));
     if (status) status.textContent = 'LOADING SHOW PAGE...';
 
     // Already on this show page — same-URL assignment won't navigate; run DOM fallback now.
@@ -6351,11 +6614,11 @@ async function shuffleToRandomEpisode(options = {}) {
     if (!quiet) showToast('API unavailable — loading show page...');
     shufflrAboutToNavigate = false;
     captureFullscreenBeforeShufflrNavigation();
-    location.href = showPage;
+    await shufflrNavigateTo(showPage, { mode: navMode, source: 'max-show-page-fallback' });
     return true;
   }
 
-  await navigateToRandomEpisode(episodes, lastEpisodeUrl, status);
+  await navigateToRandomEpisode(episodes, lastEpisodeUrl, status, { mode: navMode, source: 'max-random-episode' });
   return true;
 }
 
@@ -6403,13 +6666,20 @@ async function handleShowPageShuffle() {
     return false;
   }
 
-  await navigateToRandomEpisode(episodes, pending.lastEpisodeUrl, document.getElementById('shufflr-status'));
+  await navigateToRandomEpisode(
+    episodes,
+    pending.lastEpisodeUrl,
+    document.getElementById('shufflr-status'),
+    { mode: pending.navMode === 'user' ? 'user' : 'auto', source: 'max-show-page-scrape' }
+  );
   shuffleInProgress = false;
   return true;
 }
 
-async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
+async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status, options = {}) {
   if (isAdPlaying()) return;
+  const navMode = options.mode === 'user' ? 'user' : 'auto';
+  if (navMode === 'auto' && isShufflrAutoNavStopped()) return;
   const showHint = getCurrentMaxShowUuid();
   const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl, showHint);
   let pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
@@ -6430,7 +6700,7 @@ async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status) {
   shufflrAboutToNavigate = false;
   const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
   beginShufflrNavigation(episodeId);
-  location.href = pick;
+  await shufflrNavigateTo(pick, { mode: navMode, source: options.source || 'max-random-episode' });
 }
 
 function readBlockedSeasonsFromLocalStorage(maxId) {
@@ -7765,6 +8035,7 @@ function pickRandomTubiEpisode(episodes, currentUrl = null) {
 
 async function navigateToRandomTubiEpisode(source = 'episode-end') {
   if (!isChromeContextValid()) return;
+  if (isShufflrAutoNavStopped()) return;
   const showId = getTubiShowIdFromUrl();
   if (!showId || !isTubiShuffleActiveForShow(showId)) return;
 
@@ -7785,9 +8056,15 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   const showName = getTubiShowTitle() || 'Tubi';
   showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
-  tubiEpisodeEndTriggered = true;
-  captureFullscreenBeforeShufflrNavigation();
-  window.location.href = pick.url;
+  await shufflrNavigateTo(pick.url, {
+    mode: 'auto',
+    source: `tubi-${source}`,
+    skipIfStale: source === 'cop' ? () => !isTubiEpisodeEndContextFresh() : null,
+    beforeNavigate: () => {
+      tubiEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
   setTimeout(() => {
     tubiEpisodeEndTriggered = false;
     installTubiEpisodeEndWatcher();
@@ -7796,6 +8073,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
 
 async function autoStartTubiShuffleAfterReload() {
   if (!isChromeContextValid()) return;
+  clearShufflrAutoNavStopped();
   let showId = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     showId = getTubiShowIdFromUrl();
@@ -7814,11 +8092,12 @@ async function autoStartTubiShuffleAfterReload() {
   const pick = pickRandomTubiEpisode(episodes, location.href);
   if (!pick) { showToast('Could not pick an episode.'); return; }
   console.log(`[Shufflr] Tubi auto-start: ${episodes.length} episodes → ${pick.url}`);
-  window.location.href = pick.url;
+  await shufflrNavigateTo(pick.url, { mode: 'user', source: 'tubi-toggle-start' });
 }
 
 async function startTubiShuffle() {
   if (!isChromeContextValid()) return;
+  clearShufflrAutoNavStopped();
   let showId = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     showId = getTubiShowIdFromUrl();
@@ -7862,7 +8141,7 @@ async function startTubiShuffle() {
   }
 
   console.log(`[Shufflr] Tubi shuffle start: ${episodes.length} episodes → ${pick.url}`);
-  window.location.href = pick.url;
+  await shufflrNavigateTo(pick.url, { mode: 'user', source: 'tubi-toggle-start' });
 }
 
 function syncTubiShuffleUiState() {
@@ -8197,31 +8476,17 @@ if (IS_TUBI) {
     console.log('[Shufflr] Tubi cop: native autoplay detected, correcting...');
     showToast('Shufflr correcting...');
     setTimeout(async () => {
-      tubiEpisodeEndTriggered = false;
-      clearTubiEpisodeEndContext();
-      const activeId = getTubiActiveShuffleSeriesId();
-      if (!activeId) {
-        console.log('[Shufflr] Tubi cop: no active shuffle session, skipping');
+      if (isShufflrAutoNavStopped()) return;
+      if (!isTubiEpisodeEndContextFresh()) {
+        console.log('[Shufflr] cooldown: skipping stale auto-navigation (tubi-cop)');
         return;
       }
-      const episodes = await getCachedTubiEpisodes(activeId);
-      if (!episodes?.length) {
-        console.log('[Shufflr] Tubi cop: no cached episodes, skipping');
-        return;
-      }
-      const pick = pickRandomTubiEpisode(episodes, location.href);
-      if (!pick) return;
-      console.log('[Shufflr] Tubi cop: correcting to', pick.url);
-      showToast('Shufflr correcting...');
-      tubiEpisodeEndTriggered = true;
-      window.location.href = pick.url;
-      setTimeout(() => {
-        tubiEpisodeEndTriggered = false;
-        installTubiEpisodeEndWatcher();
-      }, 3000);
+      await navigateToRandomTubiEpisode('cop');
     }, 500);
   });
   tubiCopObserver.observe(document.body, { childList: true, subtree: true });
+
+  void checkShufflrAutoNavErrorLanding();
 }
 
 // ── CRUNCHYROLL HELPERS ──────────────────────────────────────────────────
@@ -8748,7 +9013,7 @@ async function maybeAutoStartMaxArmedPlaylistOnShowPage(activeOverride = null) {
     active = await clearMaxPendingFirstShowFlag(active);
     showToast('Starting playlist...');
     console.log('[Shufflr] Max show-page auto-start — collecting episodes and playing');
-    await shuffleFromActivePlaylist(active);
+    await shuffleFromActivePlaylist(active, { mode: 'user' });
     return true;
   } catch (err) {
     console.error('[Shufflr] Max show-page auto-start error:', err);
@@ -9029,6 +9294,8 @@ async function stopCrunchyrollShuffle() {
 
 async function navigateToRandomCrunchyrollEpisodeForCurrentShow(source = 'episode-end', options = {}) {
   const requireActiveSession = options.requireActiveSession !== false;
+  const navMode = options.mode === 'user' || source === 'toggle-start' ? 'user' : 'auto';
+  if (navMode === 'auto' && isShufflrAutoNavStopped()) return;
   const seriesId = getCurrentCrunchyrollSeriesId();
   if (!seriesId) {
     console.log(`[Shufflr] Crunchyroll: no series id — cannot shuffle (${source})`);
@@ -9048,9 +9315,17 @@ async function navigateToRandomCrunchyrollEpisodeForCurrentShow(source = 'episod
   const showName = getCrunchyrollShowTitle() || 'Crunchyroll';
   showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Crunchyroll shuffle (${source}): → ${pick.url}`);
-  crunchyrollEpisodeEndTriggered = true;
-  captureFullscreenBeforeShufflrNavigation();
-  window.location.href = pick.url;
+  await shufflrNavigateTo(pick.url, {
+    mode: navMode,
+    source: `crunchyroll-${source}`,
+    skipIfStale: source === 'cop'
+      ? () => !isCrunchyrollWatchPage() || !shufflrActive
+      : null,
+    beforeNavigate: () => {
+      crunchyrollEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
   setTimeout(() => {
     crunchyrollEpisodeEndTriggered = false;
     void installCrunchyrollEpisodeEndWatcher();
@@ -9124,9 +9399,16 @@ async function completeCrunchyrollSeriesCollectAndPlay(activePayload, targetCrun
   armedPlaylistCached = true;
   showToast(`Playing: ${title}`);
   console.log(`[Shufflr] Pending collect complete: ${title} → ${pickEp.url}`);
-  crunchyrollEpisodeEndTriggered = true;
-  captureFullscreenBeforeShufflrNavigation();
-  window.location.href = pickEp.url;
+  const isFirstPlay = String(source).includes('play-first') || String(source).includes('standalone-launch');
+  await shufflrNavigateTo(pickEp.url, {
+    mode: isFirstPlay ? 'user' : 'auto',
+    bypassCooldown: !isFirstPlay,
+    source: `crunchyroll-${source}`,
+    beforeNavigate: () => {
+      crunchyrollEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
   setTimeout(() => {
     crunchyrollEpisodeEndTriggered = false;
     void installCrunchyrollEpisodeEndWatcher();
@@ -9295,9 +9577,14 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
       `[Shufflr] Crunchyroll playlist ${useOrdered ? 'ordered' : 'shuffle'} (${source}): ` +
       `${chosenEntry.title} → ${pickEp.url}`
     );
-    crunchyrollEpisodeEndTriggered = true;
-    captureFullscreenBeforeShufflrNavigation();
-    window.location.href = pickEp.url;
+    await shufflrNavigateTo(pickEp.url, {
+      mode: 'auto',
+      source: `crunchyroll-playlist-${source}`,
+      beforeNavigate: () => {
+        crunchyrollEpisodeEndTriggered = true;
+        captureFullscreenBeforeShufflrNavigation();
+      },
+    });
     setTimeout(() => {
       crunchyrollEpisodeEndTriggered = false;
       void installCrunchyrollEpisodeEndWatcher();
@@ -9331,9 +9618,14 @@ async function shuffleFromActiveCrunchyrollPlaylist(activePayload, source = 'epi
   shufflrActive = true;
   armedPlaylistCached = true;
   showToast(`Loading ${chosenEntry.title}...`);
-  crunchyrollEpisodeEndTriggered = true;
-  captureFullscreenBeforeShufflrNavigation();
-  window.location.href = seriesUrl;
+  await shufflrNavigateTo(seriesUrl, {
+    mode: 'auto',
+    source: `crunchyroll-pending-hop-${source}`,
+    beforeNavigate: () => {
+      crunchyrollEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
   setTimeout(() => {
     crunchyrollEpisodeEndTriggered = false;
   }, 3000);
@@ -9655,6 +9947,7 @@ async function maybeAutoStartCrunchyrollStandaloneLaunch() {
 
 async function startCrunchyrollShuffle() {
   if (!isChromeContextValid()) return;
+  clearShufflrAutoNavStopped();
   let seriesId = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     seriesId = getCurrentCrunchyrollSeriesId();
@@ -9685,8 +9978,14 @@ async function startCrunchyrollShuffle() {
   }
 
   console.log(`[Shufflr] Crunchyroll shuffle start: ${episodes.length} episodes → ${pick.url}`);
-  crunchyrollEpisodeEndTriggered = true;
-  window.location.href = pick.url;
+  await shufflrNavigateTo(pick.url, {
+    mode: 'user',
+    source: 'crunchyroll-toggle-start',
+    beforeNavigate: () => {
+      crunchyrollEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
   setTimeout(() => {
     crunchyrollEpisodeEndTriggered = false;
     void installCrunchyrollEpisodeEndWatcher();
@@ -9795,6 +10094,8 @@ if (isCrunchyroll) {
     }, 500);
   });
   crunchyrollCopObserver.observe(document.body, { childList: true, subtree: true });
+
+  void checkShufflrAutoNavErrorLanding();
 }
 
 if (IS_MAX) {
@@ -9807,6 +10108,7 @@ void readShuffleSettings().then(settings => {
   shuffleModeCached = settings.shuffleMode;
 });
 void maybeAutoClickShowPageResume();
+void checkShufflrAutoNavErrorLanding();
 setTimeout(() => {
   if (!isChromeContextValid()) return;
   startExtensionContextHealthCheck();
@@ -9822,5 +10124,6 @@ setTimeout(() => {
     void maybeAutoClickShowPageResume();
     void prefetchShowPageEpisodeCacheIfStandalone();
   });
+  void checkShufflrAutoNavErrorLanding();
 }, 2500);
 }
