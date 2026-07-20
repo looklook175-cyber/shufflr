@@ -1108,6 +1108,8 @@ async function shufflrNavigateTo(url, options = {}) {
     recordShufflrAutoNavigation(url);
   } else {
     clearShufflrAutoNavStopped();
+    // User navigations must not inherit a stale auto-nav error-check latch.
+    try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
   }
 
   if (typeof options.beforeNavigate === 'function') {
@@ -1255,9 +1257,12 @@ async function checkShufflrAutoNavErrorLanding() {
     }
 
     const delayed = detectStreamingErrorPage();
+    // Tubi watch pages often contain marketing copy matching "unavailable" during
+    // slow hydration — only trust detectStreamingErrorPage() there, not bodyHint alone.
     const bodyHint = /oh\s*snap|too many requests|something went wrong|page not found|unavailable|access denied/i
       .test(`${document.title || ''}\n${document.body?.innerText?.slice(0, 2000) || ''}`);
-    if (delayed || bodyHint) {
+    const allowBodyHint = !(IS_TUBI && isTubiEpisodePage());
+    if (delayed || (bodyHint && allowBodyHint)) {
       await disarmShufflrAfterErrorPage(delayed || (IS_TUBI ? 'Tubi' : isCrunchyroll ? 'Crunchyroll' : 'Max'));
     }
   } finally {
@@ -7587,21 +7592,56 @@ function getTubiActiveShuffleSeriesId() {
   return sessionStorage.getItem(TUBI_SHUFFLE_ACTIVE_KEY);
 }
 
-function readTubiSeriesIdFromPageData() {
-  const holderId = 'shufflr-tubi-series-id-holder';
+// Filled by MAIN-world tubi-page-data.js via postMessage (CSP-safe).
+let tubiCachedReactQueryState = null;
+let tubiCachedSeriesIdFromPage = null;
+let tubiCachedPageDataPath = null;
+
+function tubiPageDataCacheIsCurrent() {
+  if (!tubiCachedPageDataPath) return false;
   try {
-    document.getElementById(holderId)?.remove();
-    const runner = document.createElement('script');
-    runner.textContent = `(function(){try{var d=window.__data;if(!d)return;var path=location.pathname;var m=path.match(/\\/tv-shows\\/(\\d+)/);var vid=m&&m[1];var seriesId=null;if(vid&&d.video&&d.video.byId&&d.video.byId[vid])seriesId=d.video.byId[vid].series_id;if(!seriesId&&d.video&&d.video.byId){for(var k in d.video.byId){if(d.video.byId[k].series_id){seriesId=d.video.byId[k].series_id;break;}}}if(seriesId){var h=document.createElement('script');h.id='${holderId}';h.type='application/json';h.textContent=JSON.stringify({seriesId:String(seriesId)});(document.head||document.documentElement).appendChild(h);}}catch(e){}})();`;
-    (document.head || document.documentElement).appendChild(runner);
-    runner.remove();
-    const holder = document.getElementById(holderId);
-    if (!holder?.textContent) return null;
-    const parsed = JSON.parse(holder.textContent);
-    return parsed.seriesId || null;
+    return tubiCachedPageDataPath === location.pathname;
   } catch {
-    return null;
+    return false;
   }
+}
+
+function installTubiPageDataListener() {
+  if (window.__shufflrTubiPageDataListener) return;
+  window.__shufflrTubiPageDataListener = true;
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data?.source !== 'shufflr-tubi-page-data') return;
+
+    try {
+      tubiCachedPageDataPath = new URL(event.data.href || location.href, location.origin).pathname;
+    } catch {
+      tubiCachedPageDataPath = location.pathname;
+    }
+    if (event.data.reactQueryState) {
+      tubiCachedReactQueryState = event.data.reactQueryState;
+    }
+    if (event.data.seriesId) {
+      tubiCachedSeriesIdFromPage = String(event.data.seriesId);
+    }
+
+    console.log('[Shufflr] Tubi page data received', {
+      seriesId: tubiCachedSeriesIdFromPage || null,
+      hasReactQueryState: !!tubiCachedReactQueryState,
+      path: tubiCachedPageDataPath,
+    });
+
+    // Late series-id resolution: re-run restore so watcher installs after CSP-safe data arrives.
+    if (isTubiShuffleActive() && restoreTubiShuffleSession()) {
+      /* restore logs once per landing */
+    }
+  });
+}
+
+function readTubiSeriesIdFromPageData() {
+  if (!tubiPageDataCacheIsCurrent()) return null;
+  return tubiCachedSeriesIdFromPage || null;
 }
 
 function readTubiSeriesIdFromReactQueryState() {
@@ -7731,19 +7771,8 @@ function parseTubiJsObjectLiteral(raw) {
 }
 
 function readTubiReactQueryStateFromPageWindow() {
-  const holderId = 'shufflr-tubi-rqs-holder';
-  try {
-    document.getElementById(holderId)?.remove();
-    const runner = document.createElement('script');
-    runner.textContent = `(function(){try{var s=window.__REACT_QUERY_STATE__;if(!s)return;var h=document.createElement('script');h.id='${holderId}';h.type='application/json';h.textContent=JSON.stringify(s);(document.head||document.documentElement).appendChild(h);}catch(e){}})();`;
-    (document.head || document.documentElement).appendChild(runner);
-    runner.remove();
-    const holder = document.getElementById(holderId);
-    if (!holder?.textContent) return null;
-    return JSON.parse(holder.textContent);
-  } catch {
-    return null;
-  }
+  if (!tubiPageDataCacheIsCurrent()) return null;
+  return tubiCachedReactQueryState || null;
 }
 
 function readTubiReactQueryStateFromScripts() {
@@ -8000,6 +8029,15 @@ function restoreTubiShuffleSession() {
   if (isTubiEpisodePage()) {
     installTubiEpisodeEndWatcher();
   }
+  try {
+    if (window.__shufflrTubiRestoreLoggedPath !== location.pathname) {
+      window.__shufflrTubiRestoreLoggedPath = location.pathname;
+      console.log('[Shufflr] Tubi session restored on landing', {
+        activeSeriesId: getTubiActiveShuffleSeriesId(),
+        pageSeriesId: getTubiShowIdFromUrl(),
+      });
+    }
+  } catch { /* ignore */ }
   return true;
 }
 
@@ -8415,6 +8453,7 @@ function tryInjectShufflrButtonOnTubi() {
 
 if (IS_TUBI) {
   console.log('[Shufflr] Tubi detected');
+  installTubiPageDataListener();
   const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
   const hasPending = sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded';
   // URL + persistence observers install immediately; poll waits for React hydration.
@@ -8460,6 +8499,12 @@ if (IS_TUBI) {
       const activeId = getTubiActiveShuffleSeriesId();
       if (!activeId) return;
       const newSeriesId = getTubiShowIdFromUrl();
+      // Watch-page series id can lag as vid-* until MAIN-world page data arrives —
+      // do not treat unresolved ids as leaving the show.
+      if (isWatchDest && (!newSeriesId || String(newSeriesId).startsWith('vid-'))) {
+        console.log('[Shufflr] Tubi cop: series id unresolved on watch page — keeping session');
+        return;
+      }
       let stillOnActiveShow = !!(newSeriesId && String(newSeriesId) === String(activeId));
       if (!stillOnActiveShow) {
         try {
