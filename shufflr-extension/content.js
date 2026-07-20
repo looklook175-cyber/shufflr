@@ -123,6 +123,11 @@ const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
 const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
+/** After a Shufflr Tubi navigation, ignore cop URL churn for this long (survives full loads). */
+const TUBI_LANDING_GRACE_KEY = 'shufflr_tubi_landing_grace_until';
+const TUBI_LANDING_GRACE_MS = 10000;
+const TUBI_WATCHER_RETRY_MS = 200;
+const TUBI_WATCHER_MAX_MS = 15000;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
 const CRUNCHYROLL_SHUFFLE_ACTIVE_KEY = 'shufflr_crunchyroll_shuffle_active';
 const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
@@ -1109,7 +1114,16 @@ async function shufflrNavigateTo(url, options = {}) {
   } else {
     clearShufflrAutoNavStopped();
     // User navigations must not inherit a stale auto-nav error-check latch.
-    try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
+    try {
+      if (sessionStorage.getItem(SHUFFLR_PENDING_ERROR_CHECK_KEY)) {
+        sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY);
+        console.log('[Shufflr] latch hygiene: cleared stale pending error check (user navigation)');
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (IS_TUBI) {
+    markTubiShuffleLandingGrace();
   }
 
   if (typeof options.beforeNavigate === 'function') {
@@ -7565,6 +7579,7 @@ let tubiEpisodeEndContextUntil = 0;
 let tubiTimeupdateVideo = null;
 let tubiTimeupdateHandler = null;
 let tubiButtonObserver = null;
+let tubiWatcherRetryStartedAt = 0;
 
 const TUBI_EPISODE_END_CONTEXT_MS = 10000;
 
@@ -7578,6 +7593,44 @@ function isTubiEpisodeEndContextFresh() {
 
 function clearTubiEpisodeEndContext() {
   tubiEpisodeEndContextUntil = 0;
+}
+
+function markTubiShuffleLandingGrace() {
+  try {
+    sessionStorage.setItem(TUBI_LANDING_GRACE_KEY, String(Date.now() + TUBI_LANDING_GRACE_MS));
+    console.log('[Shufflr] Tubi landing grace: armed for', TUBI_LANDING_GRACE_MS / 1000, 's');
+  } catch { /* ignore */ }
+}
+
+function isTubiShuffleLandingGraceActive() {
+  try {
+    const until = Number(sessionStorage.getItem(TUBI_LANDING_GRACE_KEY) || 0);
+    if (!until) return false;
+    if (Date.now() <= until) return true;
+    sessionStorage.removeItem(TUBI_LANDING_GRACE_KEY);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** vid-* and null/empty are UNKNOWN — never treat as a confirmed different series. */
+function isTubiUnresolvedSeriesId(seriesId) {
+  if (seriesId == null || seriesId === '') return true;
+  return String(seriesId).startsWith('vid-');
+}
+
+function isTubiReliableSeriesId(seriesId) {
+  return !isTubiUnresolvedSeriesId(seriesId);
+}
+
+function setTubiActiveShuffleSeriesId(seriesId) {
+  if (!isTubiReliableSeriesId(seriesId)) {
+    console.log('[Shufflr] Tubi: refusing to write unresolved/vid-* as active series id', seriesId);
+    return false;
+  }
+  sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(seriesId));
+  return true;
 }
 
 function isTubiSeriesPage() {
@@ -7676,12 +7729,8 @@ function getTubiSeriesId(url = location.href) {
   const fromPageData = readTubiSeriesIdFromPageData();
   if (fromPageData) return fromPageData;
 
-  // new fallback: use episode video ID from URL as surrogate cache key
-  try {
-    const vidMatch = new URL(location.href, location.origin).pathname.match(/\/tv-shows\/(\d+)/);
-    if (vidMatch) return 'vid-' + vidMatch[1];
-  } catch { /* ignore */ }
-
+  // No vid-* fallback — MAIN-world tubi-page-data.js supplies series id on watch pages.
+  // Unresolved stays null so cop/watcher treat it as UNKNOWN, not a different show.
   return null;
 }
 
@@ -8048,6 +8097,7 @@ function teardownTubiEpisodeEndWatcher() {
   tubiTimeupdateVideo = null;
   tubiTimeupdateHandler = null;
   tubiEpisodeEndTriggered = false;
+  tubiWatcherRetryStartedAt = 0;
 }
 
 function stopTubiShuffle() {
@@ -8074,8 +8124,11 @@ function pickRandomTubiEpisode(episodes, currentUrl = null) {
 async function navigateToRandomTubiEpisode(source = 'episode-end') {
   if (!isChromeContextValid()) return;
   if (isShufflrAutoNavStopped()) return;
-  const showId = getTubiShowIdFromUrl();
-  if (!showId || !isTubiShuffleActiveForShow(showId)) return;
+  let showId = getTubiShowIdFromUrl();
+  if (isTubiUnresolvedSeriesId(showId)) {
+    showId = getTubiActiveShuffleSeriesId();
+  }
+  if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) return;
 
   let episodes = await getCachedTubiEpisodes(showId);
   if (!episodes?.length && isTubiSeriesPage()) {
@@ -8113,18 +8166,22 @@ async function autoStartTubiShuffleAfterReload() {
   if (!isChromeContextValid()) return;
   clearShufflrAutoNavStopped();
   let showId = null;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 15; attempt++) {
     showId = getTubiShowIdFromUrl();
-    if (showId) break;
+    if (isTubiReliableSeriesId(showId)) break;
+    showId = null;
     await new Promise(r => setTimeout(r, 500));
   }
-  if (!showId) return;
+  if (!isTubiReliableSeriesId(showId)) {
+    console.log('[Shufflr] Tubi auto-start: series id still unresolved — aborting');
+    return;
+  }
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
   let episodes = await collectTubiEpisodes();
   if (!episodes?.length) { showToast('Could not find episodes.'); return; }
   await setCachedTubiEpisodes(showId, episodes, showName);
-  sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
+  if (!setTubiActiveShuffleSeriesId(showId)) return;
   shufflrActive = true;
   syncTubiShuffleUiState();
   const pick = pickRandomTubiEpisode(episodes, location.href);
@@ -8137,12 +8194,13 @@ async function startTubiShuffle() {
   if (!isChromeContextValid()) return;
   clearShufflrAutoNavStopped();
   let showId = null;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 15; attempt++) {
     showId = getTubiShowIdFromUrl();
-    if (showId) break;
+    if (isTubiReliableSeriesId(showId)) break;
+    showId = null;
     await new Promise(r => setTimeout(r, 500));
   }
-  if (!showId) {
+  if (!isTubiReliableSeriesId(showId)) {
     showToast('Could not identify this show.');
     return;
   }
@@ -8168,7 +8226,10 @@ async function startTubiShuffle() {
   }
 
   await setCachedTubiEpisodes(showId, episodes, showName);
-  sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(showId));
+  if (!setTubiActiveShuffleSeriesId(showId)) {
+    showToast('Could not identify this show.');
+    return;
+  }
   shufflrActive = true;
   syncTubiShuffleUiState();
 
@@ -8402,9 +8463,24 @@ function installCrunchyrollUrlObserver() {
 
 function installTubiEpisodeEndWatcher() {
   if (!isChromeContextValid() || !isTubiEpisodePage()) return;
+  if (!isTubiShuffleActive()) return;
 
   const showId = getTubiShowIdFromUrl();
+  // Unresolved page id — poll until MAIN-world data resolves (do not fail permanently).
+  if (isTubiUnresolvedSeriesId(showId)) {
+    if (!tubiWatcherRetryStartedAt) tubiWatcherRetryStartedAt = Date.now();
+    if (Date.now() - tubiWatcherRetryStartedAt < TUBI_WATCHER_MAX_MS) {
+      console.log('[Shufflr] Tubi: watcher waiting for series id resolution');
+      setTimeout(installTubiEpisodeEndWatcher, TUBI_WATCHER_RETRY_MS);
+    } else {
+      console.log('[Shufflr] Tubi: watcher gave up waiting for series id resolution');
+      tubiWatcherRetryStartedAt = 0;
+    }
+    return;
+  }
+
   if (!isTubiShuffleActiveForShow(showId)) return;
+  tubiWatcherRetryStartedAt = 0;
 
   const video = document.querySelector('video');
   if (!video) {
@@ -8495,18 +8571,31 @@ if (IS_TUBI) {
     const isWatchDest = isTubiEpisodePage();
     const endContextFresh = isTubiEpisodeEndContextFresh();
     if (!isWatchDest || !previousWasWatch || !endContextFresh) {
-      // Deliberate browse / left the player — end single-show session if we left its show.
-      const activeId = getTubiActiveShuffleSeriesId();
-      if (!activeId) return;
-      const newSeriesId = getTubiShowIdFromUrl();
-      // Watch-page series id can lag as vid-* until MAIN-world page data arrives —
-      // do not treat unresolved ids as leaving the show.
-      if (isWatchDest && (!newSeriesId || String(newSeriesId).startsWith('vid-'))) {
-        console.log('[Shufflr] Tubi cop: series id unresolved on watch page — keeping session');
+      // After Shufflr's own shuffle landing, Tubi URL canonicalize/replaceState is noise.
+      if (isTubiShuffleLandingGraceActive()) {
+        console.log('[Shufflr] Tubi cop: landing grace — ignoring URL change');
         return;
       }
-      let stillOnActiveShow = !!(newSeriesId && String(newSeriesId) === String(activeId));
-      if (!stillOnActiveShow) {
+
+      const activeId = getTubiActiveShuffleSeriesId();
+      if (!activeId) return;
+
+      // Left the player/series surface entirely — end session (outside grace).
+      if (!isWatchDest && !isTubiSeriesPage()) {
+        console.log('[Shufflr] Tubi cop: left watch/series — ending session');
+        stopTubiShuffle();
+        return;
+      }
+
+      const newSeriesId = getTubiShowIdFromUrl();
+      // Unresolved / former vid-* fallback is UNKNOWN — never "different".
+      if (isTubiUnresolvedSeriesId(newSeriesId)) {
+        console.log('[Shufflr] Tubi cop: series unresolved, no action');
+        return;
+      }
+
+      let stillOnActiveShow = String(newSeriesId) === String(activeId);
+      if (!stillOnActiveShow && isTubiSeriesPage()) {
         try {
           stillOnActiveShow = new URL(location.href).pathname.includes(`/series/${activeId}`);
         } catch { /* ignore */ }
