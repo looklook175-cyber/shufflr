@@ -8652,9 +8652,48 @@ function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true, skipRem
   void navigateToRandomTubiEpisode(source);
 }
 
+function ensureTubiVideoSwapObserver() {
+  if (!isChromeContextValid() || !IS_TUBI) return;
+  if (window.__shufflrTubiVideoSwapObserver) return;
+  window.__shufflrTubiVideoSwapObserver = true;
+
+  const checkForVideoSwap = () => {
+    if (!isChromeContextValid() || !IS_TUBI) return;
+    if (!isTubiEpisodePage() || !isTubiShuffleActive()) return;
+    const liveVideo = document.querySelector('video');
+    if (!liveVideo) return;
+    if (liveVideo === tubiTimeupdateVideo && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) {
+      return;
+    }
+    // True element swap (ad break) vs first-time attach — only log the swap case.
+    if (tubiTimeupdateVideo && tubiTimeupdateVideo !== liveVideo) {
+      console.log('[Shufflr] Tubi video element swapped — reattaching watcher');
+    }
+    installTubiEpisodeEndWatcher();
+  };
+
+  const observer = new MutationObserver(() => {
+    checkForVideoSwap();
+  });
+
+  const observeBody = () => {
+    if (!document.body) return;
+    try {
+      observer.observe(document.body, { childList: true, subtree: true });
+    } catch { /* body not ready */ }
+  };
+  if (document.body) observeBody();
+  else document.addEventListener('DOMContentLoaded', observeBody, { once: true });
+
+  // Lightweight backup — some player swaps mutate attributes more than the tree.
+  setInterval(checkForVideoSwap, 2000);
+}
+
 function installTubiEpisodeEndWatcher() {
   if (!isChromeContextValid() || !isTubiEpisodePage()) return;
   if (!isTubiShuffleActive()) return;
+
+  ensureTubiVideoSwapObserver();
 
   const showId = getTubiShowIdFromUrl();
   // Unresolved page id — poll until MAIN-world data resolves (do not fail permanently).
@@ -8719,6 +8758,7 @@ function tryInjectShufflrButtonOnTubi() {
   if (!IS_TUBI) return;
   installTubiUrlObserver();
   installTubiButtonPersistenceObserver();
+  ensureTubiVideoSwapObserver();
   if (isTubiInjectablePage()) {
     startTubiButtonInjectPolling();
   }
