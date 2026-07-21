@@ -123,6 +123,8 @@ const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
 const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
+/** Episode video id Shufflr is about to land on (sessionStorage — survives full loads). */
+const TUBI_EXPECTED_LANDING_KEY = 'shufflr_tubi_expected_landing';
 /** After a Shufflr Tubi navigation, ignore cop URL churn for this long (survives full loads). */
 const TUBI_LANDING_GRACE_KEY = 'shufflr_tubi_landing_grace_until';
 const TUBI_LANDING_GRACE_MS = 10000;
@@ -1186,6 +1188,7 @@ async function disarmShufflrAfterErrorPage(serviceLabel) {
 
   if (IS_TUBI) {
     try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
+    try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
     clearTubiEpisodeEndContext();
     teardownTubiEpisodeEndWatcher();
     void resetShuffleModeToSingle();
@@ -7643,6 +7646,110 @@ function isTubiEpisodePage() {
   return IS_TUBI && location.pathname.includes('/tv-shows/');
 }
 
+function getTubiEpisodeIdFromUrl(url = location.href) {
+  try {
+    const match = new URL(url, location.origin).pathname.match(/\/tv-shows\/(\d+)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function markTubiExpectedLanding(urlOrEpisodeId) {
+  if (urlOrEpisodeId == null || urlOrEpisodeId === '') return;
+  const id = String(urlOrEpisodeId).includes('/')
+    ? getTubiEpisodeIdFromUrl(String(urlOrEpisodeId))
+    : String(urlOrEpisodeId);
+  if (!id) return;
+  try {
+    sessionStorage.setItem(TUBI_EXPECTED_LANDING_KEY, id);
+  } catch { /* ignore */ }
+}
+
+function consumeTubiExpectedLanding() {
+  try {
+    const value = sessionStorage.getItem(TUBI_EXPECTED_LANDING_KEY);
+    sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY);
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Primary Tubi correction: on a watch landing with shuffle active, if this episode
+ * was not Shufflr's expected pick, redirect once to a random episode.
+ * Returns true when a redirect was started.
+ */
+async function maybeCorrectTubiForeignLanding() {
+  if (!IS_TUBI || !isChromeContextValid()) return false;
+  if (!isTubiEpisodePage()) return false;
+  if (!isTubiShuffleActive()) return false;
+  if (window.__shufflrTubiLandingCopRan) return false;
+
+  let showId = getTubiShowIdFromUrl();
+  if (isTubiUnresolvedSeriesId(showId)) {
+    showId = getTubiActiveShuffleSeriesId();
+  }
+  if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) {
+    // Series id may still be resolving — allow a later restore/page-data pass to retry.
+    return false;
+  }
+
+  // One evaluation per document load (prevents redirect chains / restore re-entry).
+  window.__shufflrTubiLandingCopRan = true;
+
+  const currentEpId = getTubiEpisodeIdFromUrl();
+  const expectedEpId = consumeTubiExpectedLanding();
+
+  if (expectedEpId && currentEpId && String(expectedEpId) === String(currentEpId)) {
+    console.log('[Shufflr] Tubi landing was our own pick — continuing');
+    return false;
+  }
+
+  console.log('[Shufflr] Tubi landing was not our own pick — redirecting', {
+    expectedEpId,
+    currentEpId,
+  });
+
+  if (isShufflrAutoNavStopped()) {
+    console.log('[Shufflr] Tubi landing redirect skipped — auto-nav stopped');
+    return false;
+  }
+
+  let episodes = await getCachedTubiEpisodes(showId);
+  if (!episodes?.length) {
+    episodes = await collectTubiEpisodes();
+    if (episodes?.length) {
+      await setCachedTubiEpisodes(showId, episodes, getTubiShowTitle());
+    }
+  }
+  if (!episodes?.length) {
+    console.log('[Shufflr] Tubi landing redirect: no episodes available — letting current play');
+    return false;
+  }
+
+  const pick = pickRandomTubiEpisode(episodes, location.href);
+  if (!pick?.url) {
+    console.log('[Shufflr] Tubi landing redirect: could not pick — letting current play');
+    return false;
+  }
+
+  markTubiExpectedLanding(pick.url);
+  const showName = getTubiShowTitle() || 'Tubi';
+  showToast(`Shuffling ${showName}...`);
+  console.log(`[Shufflr] Tubi shuffle (landing-cop): → ${pick.url}`);
+  await shufflrNavigateTo(pick.url, {
+    mode: 'auto',
+    source: 'tubi-landing-cop',
+    beforeNavigate: () => {
+      tubiEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
+  return true;
+}
+
 function getTubiActiveShuffleSeriesId() {
   return sessionStorage.getItem(TUBI_SHUFFLE_ACTIVE_KEY);
 }
@@ -8079,6 +8186,7 @@ function restoreTubiShuffleSession() {
   }
   if (isTubiEpisodePage()) {
     installTubiEpisodeEndWatcher();
+    void maybeCorrectTubiForeignLanding();
   }
   try {
     if (window.__shufflrTubiRestoreLoggedPath !== location.pathname) {
@@ -8115,6 +8223,7 @@ function teardownTubiEpisodeEndWatcher() {
 function stopTubiShuffle() {
   shufflrActive = false;
   sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY);
+  try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
   clearTubiEpisodeEndContext();
   teardownTubiEpisodeEndWatcher();
   void resetShuffleModeToSingle();
@@ -8159,6 +8268,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   const showName = getTubiShowTitle() || 'Tubi';
   showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
+  markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, {
     mode: 'auto',
     source: `tubi-${source}`,
@@ -8199,6 +8309,7 @@ async function autoStartTubiShuffleAfterReload() {
   const pick = pickRandomTubiEpisode(episodes, location.href);
   if (!pick) { showToast('Could not pick an episode.'); return; }
   console.log(`[Shufflr] Tubi auto-start: ${episodes.length} episodes → ${pick.url}`);
+  markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, { mode: 'user', source: 'tubi-toggle-start' });
 }
 
@@ -8252,6 +8363,7 @@ async function startTubiShuffle() {
   }
 
   console.log(`[Shufflr] Tubi shuffle start: ${episodes.length} episodes → ${pick.url}`);
+  markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, { mode: 'user', source: 'tubi-toggle-start' });
 }
 
