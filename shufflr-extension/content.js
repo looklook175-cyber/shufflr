@@ -128,8 +128,9 @@ const TUBI_EXPECTED_LANDING_KEY = 'shufflr_tubi_expected_landing';
 /** After a Shufflr Tubi navigation, ignore cop URL churn for this long (survives full loads). */
 const TUBI_LANDING_GRACE_KEY = 'shufflr_tubi_landing_grace_until';
 const TUBI_LANDING_GRACE_MS = 10000;
-const TUBI_WATCHER_RETRY_MS = 200;
-const TUBI_WATCHER_MAX_MS = 15000;
+/** Bounded series-id resolution retries for Tubi watcher install (no tight/stacked loops). */
+const TUBI_WATCHER_ID_RETRY_MS = 400;
+const TUBI_WATCHER_ID_MAX_RETRIES = 5;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
 const CRUNCHYROLL_SHUFFLE_ACTIVE_KEY = 'shufflr_crunchyroll_shuffle_active';
 const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
@@ -7586,6 +7587,8 @@ let tubiSeekedHandler = null;
 let tubiEndedHandler = null;
 let tubiButtonObserver = null;
 let tubiWatcherRetryStartedAt = 0;
+let tubiWatcherIdRetryCount = 0;
+let tubiWatcherIdRetryTimer = null;
 let tubiUpNextObserver = null;
 let tubiUpNextPollTimer = null;
 
@@ -8462,6 +8465,9 @@ function teardownTubiEpisodeEndWatcher() {
   tubiEndedHandler = null;
   tubiEpisodeEndTriggered = false;
   tubiWatcherRetryStartedAt = 0;
+  tubiWatcherIdRetryCount = 0;
+  clearTubiWatcherIdRetry();
+  window.__shufflrTubiNoVideoRetryScheduled = false;
 }
 
 function stopTubiShuffle() {
@@ -8987,35 +8993,16 @@ function ensureTubiVideoSwapObserver() {
 
   const checkForVideoSwap = (from = 'mutation') => {
     if (!isChromeContextValid() || !IS_TUBI) return;
-    if (!isTubiEpisodePage() || !isTubiShuffleActive()) {
-      return;
-    }
+    if (!isTubiEpisodePage() || !isTubiShuffleActive()) return;
+
     const liveVideo = document.querySelector('video');
-    const same = liveVideo === tubiTimeupdateVideo
-      && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler;
-    const isSwap = !!(tubiTimeupdateVideo && liveVideo && tubiTimeupdateVideo !== liveVideo);
-    const now = Date.now();
-    // Heartbeat every ~2s; always log real swaps.
-    if (isSwap || from === 'interval' || !window.__shufflrTubiSwapDiagAt
-      || now - window.__shufflrTubiSwapDiagAt > 2000) {
-      window.__shufflrTubiSwapDiagAt = now;
-      console.log('[Shufflr][diag] video-swap check', {
-        from,
-        hasLiveVideo: !!liveVideo,
-        storedVideo: !!tubiTimeupdateVideo,
-        sameElement: liveVideo === tubiTimeupdateVideo,
-        fullyAttached: same,
-        isSwap,
-      });
-    }
-    if (!liveVideo) return;
-    if (same) return;
-    // True element swap (ad break) vs first-time attach — only log the swap case.
-    if (isSwap) {
-      console.log('[Shufflr] Tubi video element swapped — reattaching watcher');
-    } else {
-      console.log('[Shufflr][diag] video-swap reattach (first attach or incomplete handlers)');
-    }
+    // Only reinstall on a genuine element swap. Unrelated DOM churn (captions,
+    // progress, ad chrome) must not tear down a healthy binding, and first
+    // attach stays with restore/inject — not this observer.
+    if (!liveVideo || !tubiTimeupdateVideo) return;
+    if (liveVideo === tubiTimeupdateVideo) return;
+
+    console.log('[Shufflr] Tubi video element swapped — reattaching watcher', { from });
     installTubiEpisodeEndWatcher();
   };
 
@@ -9032,15 +9019,59 @@ function ensureTubiVideoSwapObserver() {
   if (document.body) observeBody();
   else document.addEventListener('DOMContentLoaded', observeBody, { once: true });
 
-  // Lightweight backup — some player swaps mutate attributes more than the tree.
   setInterval(() => checkForVideoSwap('interval'), 2000);
 }
 
+function noteTubiWatcherInstallCall() {
+  if (!window.__shufflrTubiInstallStats) {
+    window.__shufflrTubiInstallStats = { count: 0, startedAt: Date.now() };
+  }
+  window.__shufflrTubiInstallStats.count += 1;
+}
+
+function logTubiWatcherInstallSettled(reason) {
+  const stats = window.__shufflrTubiInstallStats;
+  if (!stats) return;
+  const elapsed = Date.now() - stats.startedAt;
+  console.log(`[Shufflr] Tubi watcher install loop fixed — ${stats.count} calls in ${elapsed} ms (${reason})`);
+  window.__shufflrTubiInstallStats = { count: 0, startedAt: Date.now() };
+}
+
+function clearTubiWatcherIdRetry() {
+  if (tubiWatcherIdRetryTimer) {
+    clearTimeout(tubiWatcherIdRetryTimer);
+    tubiWatcherIdRetryTimer = null;
+  }
+  window.__shufflrTubiIdRetryScheduled = false;
+}
+
+function scheduleTubiWatcherIdRetry() {
+  if (window.__shufflrTubiIdRetryScheduled) return;
+  if (tubiWatcherIdRetryCount >= TUBI_WATCHER_ID_MAX_RETRIES) {
+    console.log('[Shufflr] Tubi: giving up on series id resolution for now');
+    logTubiWatcherInstallSettled('gave up on series id');
+    return;
+  }
+  window.__shufflrTubiIdRetryScheduled = true;
+  tubiWatcherIdRetryCount += 1;
+  console.log('[Shufflr] Tubi: watcher waiting for series id resolution', {
+    attempt: tubiWatcherIdRetryCount,
+    max: TUBI_WATCHER_ID_MAX_RETRIES,
+  });
+  tubiWatcherIdRetryTimer = setTimeout(() => {
+    tubiWatcherIdRetryTimer = null;
+    window.__shufflrTubiIdRetryScheduled = false;
+    installTubiEpisodeEndWatcher();
+  }, TUBI_WATCHER_ID_RETRY_MS);
+}
+
 function installTubiEpisodeEndWatcher() {
+  noteTubiWatcherInstallCall();
   console.log('[Shufflr][diag] installTubiEpisodeEndWatcher enter', {
     href: location.href,
     shuffleActive: isTubiShuffleActive(),
     pageShowId: getTubiShowIdFromUrl(),
+    installCall: window.__shufflrTubiInstallStats?.count,
   });
   if (!isChromeContextValid() || !isTubiEpisodePage()) {
     console.log('[Shufflr][diag] installTubiEpisodeEndWatcher abort — not watch page / invalid');
@@ -9054,35 +9085,43 @@ function installTubiEpisodeEndWatcher() {
   ensureTubiVideoSwapObserver();
   ensureTubiUpNextSuppressor();
 
-  const showId = getTubiShowIdFromUrl();
-  // Unresolved page id — poll until MAIN-world data resolves (do not fail permanently).
+  let showId = getTubiShowIdFromUrl();
+  // Unresolved page id: prefer active session id; otherwise bounded delayed retries.
   if (isTubiUnresolvedSeriesId(showId)) {
-    if (!tubiWatcherRetryStartedAt) tubiWatcherRetryStartedAt = Date.now();
-    if (Date.now() - tubiWatcherRetryStartedAt < TUBI_WATCHER_MAX_MS) {
-      console.log('[Shufflr] Tubi: watcher waiting for series id resolution');
-      setTimeout(installTubiEpisodeEndWatcher, TUBI_WATCHER_RETRY_MS);
+    const activeId = getTubiActiveShuffleSeriesId();
+    if (isTubiReliableSeriesId(activeId)) {
+      showId = activeId;
+      console.log('[Shufflr][diag] installTubiEpisodeEndWatcher using active series id', { showId });
     } else {
-      console.log('[Shufflr] Tubi: watcher gave up waiting for series id resolution');
-      tubiWatcherRetryStartedAt = 0;
+      scheduleTubiWatcherIdRetry();
+      return;
     }
-    return;
   }
 
   if (!isTubiShuffleActiveForShow(showId)) {
     console.log('[Shufflr][diag] installTubiEpisodeEndWatcher abort — not active for show', { showId });
     return;
   }
+  clearTubiWatcherIdRetry();
+  tubiWatcherIdRetryCount = 0;
   tubiWatcherRetryStartedAt = 0;
 
   const video = document.querySelector('video');
   if (!video) {
     console.log('[Shufflr][diag] installTubiEpisodeEndWatcher — no video yet, retry in 1s');
-    setTimeout(installTubiEpisodeEndWatcher, 1000);
+    if (!window.__shufflrTubiNoVideoRetryScheduled) {
+      window.__shufflrTubiNoVideoRetryScheduled = true;
+      setTimeout(() => {
+        window.__shufflrTubiNoVideoRetryScheduled = false;
+        installTubiEpisodeEndWatcher();
+      }, 1000);
+    }
     return;
   }
 
   if (tubiTimeupdateVideo === video && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) {
     console.log('[Shufflr][diag] installTubiEpisodeEndWatcher — already attached to live video');
+    logTubiWatcherInstallSettled('already attached');
     return;
   }
 
@@ -9124,6 +9163,7 @@ function installTubiEpisodeEndWatcher() {
     hasEnded: !!tubiEndedHandler,
     videoDuration: video.duration,
   });
+  logTubiWatcherInstallSettled('attached');
 }
 
 function tryInjectShufflrButtonOnTubi() {
