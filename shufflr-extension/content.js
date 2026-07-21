@@ -2172,7 +2172,7 @@ async function addCurrentShowToYourShows() {
       return;
     }
     const title = getTubiShowTitle() || 'Unknown Show';
-    const shows = await readYourShowsFromStorage();
+    const shows = await readYourShowsPreferCloud();
     const alreadyAdded = shows.some(show => show.tubiId === tubiId);
     if (alreadyAdded) {
       showToast('Already in Your Shows');
