@@ -8385,13 +8385,21 @@ function installTubiUrlObserver() {
   if (window.__shufflrTubiUrlObserver) return;
   window.__shufflrTubiUrlObserver = true;
 
-  let lastTubiUrl = location.href;
+  let lastTubiHref = location.href;
+  let lastTubiPathname = location.pathname;
   let reinjectTimer = null;
 
   function routeTubiPageAfterUrlChange() {
     if (!IS_TUBI || !isChromeContextValid()) return;
-    if (location.href === lastTubiUrl) return;
-    lastTubiUrl = location.href;
+    if (location.href === lastTubiHref) return;
+    lastTubiHref = location.href;
+
+    // Query/hash-only churn (e.g. ?autoplay=true) must not tear down the watcher.
+    if (location.pathname === lastTubiPathname) {
+      console.log('[Shufflr] Tubi URL query-only change ignored');
+      return;
+    }
+    lastTubiPathname = location.pathname;
 
     removeShufflrUI();
     teardownTubiEpisodeEndWatcher();
