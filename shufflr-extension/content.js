@@ -7607,11 +7607,31 @@ function clearTubiEpisodeEndContext() {
 }
 
 /**
- * Tubi's web player shows an "Up Next" graphic near episode end with a "Hide" button.
- * Clicking Hide dismisses the overlay and cancels Tubi's native next-episode autoplay
- * (documented user behavior). While shuffle is active we auto-click Hide and neutralize
- * the overlay so Shufflr owns the transition.
+ * Tubi's web player shows a native auto-advance overlay near episode end:
+ * "Starting in Ns" countdown + next-episode thumbnail/title + a "Hide" control.
+ * Clicking Hide dismisses it and cancels Tubi's timer-driven next-episode navigation.
+ * While shuffle is active we auto-click Hide (and neutralize leftover CTAs) so Shufflr owns the transition.
  */
+function isTubiUpNextOverlayText(text) {
+  if (!text) return false;
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  // Confirmed UI: countdown ("Starting in 5s") — may or may not also say "Up Next".
+  if (/\bstarting\s+in\s+\d+\s*s(?:ec(?:onds?)?)?\b/i.test(t)) return true;
+  if (/\bup\s*next\b/i.test(t)) return true;
+  return false;
+}
+
+function elementHasTubiUpNextContext(el) {
+  let node = el;
+  for (let depth = 0; node && depth < 10; depth += 1) {
+    const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (isTubiUpNextOverlayText(text)) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
 function isTubiUpNextDismissControl(el) {
   if (!el) return false;
   const label = `${el.textContent || ''} ${el.getAttribute?.('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
@@ -7624,7 +7644,8 @@ function isTubiUpNextDismissControl(el) {
 function findTubiUpNextHideButton(root = document) {
   const nodes = root.querySelectorAll?.('button, [role="button"], a, span') || [];
   for (const el of nodes) {
-    if (isTubiUpNextDismissControl(el)) return el.closest('button, [role="button"], a') || el;
+    if (!isTubiUpNextDismissControl(el)) continue;
+    return el.closest('button, [role="button"], a') || el;
   }
   return null;
 }
@@ -7634,22 +7655,27 @@ function findTubiUpNextContainers(root = document.body) {
   const found = new Set();
 
   const selectorHits = root.querySelectorAll?.(
-    '[class*="UpNext"], [class*="up-next"], [class*="upNext"], [class*="NextEpisode"], [class*="next-episode"], [data-testid*="up-next"], [data-testid*="next-episode"], [aria-label*="Up Next"], [aria-label*="up next"]'
+    '[class*="UpNext"], [class*="up-next"], [class*="upNext"], [class*="NextEpisode"], [class*="next-episode"], [data-testid*="up-next"], [data-testid*="next-episode"], [aria-label*="Up Next"], [aria-label*="up next"], [aria-label*="Starting in"]'
   ) || [];
-  for (const el of selectorHits) found.add(el);
+  for (const el of selectorHits) {
+    // Avoid matching unrelated chrome that only shares a class substring.
+    if (isTubiUpNextOverlayText(el.textContent || '') || findTubiUpNextHideButton(el)) {
+      found.add(el);
+    }
+  }
 
-  // Text-based: Tubi's overlay is a graphic containing "Up Next" + Hide.
-  const walkRoots = [root];
-  if (root !== document.body && document.body) walkRoots.push(document.body);
+  // Text-based: compact countdown / Up Next graphic with Hide (or Play next).
+  const walkRoots = root === document.body || !document.body ? [root] : [root, document.body];
   for (const scope of walkRoots) {
+    if (!scope?.querySelectorAll) continue;
     for (const el of scope.querySelectorAll('div, section, aside, article, [role="dialog"]')) {
       if (found.has(el)) continue;
       const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length > 400) continue;
-      if (!/\bup\s*next\b/i.test(text)) continue;
-      // Prefer a mid-sized container that also exposes Hide / Play next.
+      // Keep to overlay-sized nodes — never the whole player shell.
+      if (!text || text.length > 500) continue;
+      if (!isTubiUpNextOverlayText(text)) continue;
       const hasHide = !!findTubiUpNextHideButton(el);
-      const hasNextCta = /\b(play|watch|next)\b/i.test(text);
+      const hasNextCta = /\b(play|watch|next|start)\b/i.test(text);
       if (hasHide || hasNextCta) found.add(el);
     }
   }
@@ -7657,23 +7683,46 @@ function findTubiUpNextContainers(root = document.body) {
   return [...found];
 }
 
-function neutralizeTubiUpNextContainer(container) {
-  if (!container || container.dataset?.shufflrTubiUpNextSuppressed === '1') return false;
-
-  const hideBtn = findTubiUpNextHideButton(container) || findTubiUpNextHideButton(document);
-  if (hideBtn) {
-    try {
-      hideBtn.click();
-      console.log('[Shufflr] Tubi Up Next: clicked Hide to cancel native auto-advance');
-    } catch (err) {
-      console.log('[Shufflr] Tubi Up Next: Hide click failed', err);
+function clickTubiUpNextHide(hideBtn) {
+  if (!hideBtn) return false;
+  const now = Date.now();
+  const last = Number(hideBtn.dataset.shufflrTubiHideClickedAt || 0);
+  // Allow retries if the overlay reappears; avoid click spam while countdown ticks.
+  if (now - last < 700) return false;
+  hideBtn.dataset.shufflrTubiHideClickedAt = String(now);
+  try {
+    const opts = { bubbles: true, cancelable: true, view: window };
+    if (typeof PointerEvent === 'function') {
+      hideBtn.dispatchEvent(new PointerEvent('pointerdown', opts));
+      hideBtn.dispatchEvent(new PointerEvent('pointerup', opts));
     }
-  } else {
+    hideBtn.dispatchEvent(new MouseEvent('mousedown', opts));
+    hideBtn.dispatchEvent(new MouseEvent('mouseup', opts));
+    hideBtn.dispatchEvent(new MouseEvent('click', opts));
+    if (typeof hideBtn.click === 'function') hideBtn.click();
+    console.log('[Shufflr] Tubi Up Next overlay dismissed');
+    return true;
+  } catch (err) {
+    console.log('[Shufflr] Tubi Up Next: Hide click failed', err);
+    return false;
+  }
+}
+
+function neutralizeTubiUpNextContainer(container) {
+  if (!container) return false;
+
+  const hideBtn = findTubiUpNextHideButton(container);
+  if (hideBtn && elementHasTubiUpNextContext(hideBtn)) {
+    clickTubiUpNextHide(hideBtn);
+  } else if (!hideBtn) {
     console.log('[Shufflr] Tubi Up Next: no Hide button found — neutralizing overlay DOM');
   }
 
+  if (container.dataset?.shufflrTubiUpNextSuppressed === '1') return true;
+
   try {
     container.style.setProperty('display', 'none', 'important');
+    container.style.setProperty('visibility', 'hidden', 'important');
     container.style.setProperty('pointer-events', 'none', 'important');
     container.setAttribute('aria-hidden', 'true');
     container.dataset.shufflrTubiUpNextSuppressed = '1';
@@ -7713,20 +7762,13 @@ function scanAndSuppressTubiUpNext(root = document.body) {
   if (!IS_TUBI || !isChromeContextValid()) return;
   if (!isTubiShuffleActive() || !isTubiEpisodePage()) return;
 
-  // Document-wide Hide first (overlay may not match our container heuristics yet).
+  // Document-wide Hide first when it sits beside the countdown / Up Next graphic.
   const globalHide = findTubiUpNextHideButton(document);
-  if (globalHide && !globalHide.dataset.shufflrTubiHideClicked) {
-    const nearbyText = (globalHide.closest('div, section, aside')?.textContent || '').slice(0, 400);
-    if (/\bup\s*next\b/i.test(nearbyText) || nearbyText.length < 80) {
-      try {
-        globalHide.dataset.shufflrTubiHideClicked = '1';
-        globalHide.click();
-        console.log('[Shufflr] Tubi Up Next: clicked Hide (global scan)');
-      } catch { /* ignore */ }
-    }
+  if (globalHide && elementHasTubiUpNextContext(globalHide)) {
+    clickTubiUpNextHide(globalHide);
   }
 
-  for (const container of findTubiUpNextContainers(root)) {
+  for (const container of findTubiUpNextContainers(root || document.body)) {
     neutralizeTubiUpNextContainer(container);
   }
 }
@@ -7756,20 +7798,30 @@ function ensureTubiUpNextSuppressor() {
   window.__shufflrTubiUpNextSuppressor = true;
   console.log('[Shufflr] Tubi Up Next suppressor armed (shuffle active)');
 
-  tubiUpNextObserver = new MutationObserver((mutations) => {
-    if (!isTubiShuffleActive()) {
-      teardownTubiUpNextSuppressor();
-      return;
-    }
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        scanAndSuppressTubiUpNext(node);
+  let scanScheduled = false;
+  const scheduleScan = () => {
+    if (scanScheduled) return;
+    scanScheduled = true;
+    queueMicrotask(() => {
+      scanScheduled = false;
+      if (!isTubiShuffleActive()) {
+        teardownTubiUpNextSuppressor();
+        return;
       }
-    }
+      scanAndSuppressTubiUpNext();
+    });
+  };
+
+  tubiUpNextObserver = new MutationObserver(() => {
+    scheduleScan();
   });
   if (document.body) {
-    tubiUpNextObserver.observe(document.body, { childList: true, subtree: true });
+    // childList + characterData: overlay often mounts once then only updates "Starting in Ns".
+    tubiUpNextObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
   }
   tubiUpNextPollTimer = setInterval(() => {
     if (!isChromeContextValid() || !isTubiShuffleActive()) {
@@ -7777,7 +7829,7 @@ function ensureTubiUpNextSuppressor() {
       return;
     }
     scanAndSuppressTubiUpNext();
-  }, 500);
+  }, 300);
 
   scanAndSuppressTubiUpNext();
 }
