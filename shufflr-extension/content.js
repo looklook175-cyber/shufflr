@@ -7656,22 +7656,33 @@ function getTubiEpisodeIdFromUrl(url = location.href) {
 }
 
 function markTubiExpectedLanding(urlOrEpisodeId) {
-  if (urlOrEpisodeId == null || urlOrEpisodeId === '') return;
+  if (urlOrEpisodeId == null || urlOrEpisodeId === '') {
+    console.log('[Shufflr][diag] markTubiExpectedLanding skipped — empty input', { urlOrEpisodeId });
+    return;
+  }
   const id = String(urlOrEpisodeId).includes('/')
     ? getTubiEpisodeIdFromUrl(String(urlOrEpisodeId))
     : String(urlOrEpisodeId);
-  if (!id) return;
+  if (!id) {
+    console.log('[Shufflr][diag] markTubiExpectedLanding skipped — could not parse episode id', { urlOrEpisodeId });
+    return;
+  }
   try {
     sessionStorage.setItem(TUBI_EXPECTED_LANDING_KEY, id);
-  } catch { /* ignore */ }
+    console.log('[Shufflr][diag] markTubiExpectedLanding set', { expectedEpisodeId: id, from: urlOrEpisodeId });
+  } catch (err) {
+    console.log('[Shufflr][diag] markTubiExpectedLanding failed to write sessionStorage', err);
+  }
 }
 
 function consumeTubiExpectedLanding() {
   try {
     const value = sessionStorage.getItem(TUBI_EXPECTED_LANDING_KEY);
     sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY);
+    console.log('[Shufflr][diag] consumeTubiExpectedLanding', { consumed: value || null });
     return value || null;
-  } catch {
+  } catch (err) {
+    console.log('[Shufflr][diag] consumeTubiExpectedLanding failed', err);
     return null;
   }
 }
@@ -7682,17 +7693,45 @@ function consumeTubiExpectedLanding() {
  * Returns true when a redirect was started.
  */
 async function maybeCorrectTubiForeignLanding() {
-  if (!IS_TUBI || !isChromeContextValid()) return false;
-  if (!isTubiEpisodePage()) return false;
-  if (!isTubiShuffleActive()) return false;
-  if (window.__shufflrTubiLandingCopRan) return false;
+  console.log('[Shufflr][diag] maybeCorrectTubiForeignLanding enter', {
+    href: location.href,
+    isEpisodePage: isTubiEpisodePage(),
+    activeKey: getTubiActiveShuffleSeriesId(),
+    alreadyRan: !!window.__shufflrTubiLandingCopRan,
+  });
+  if (!IS_TUBI || !isChromeContextValid()) {
+    console.log('[Shufflr][diag] landing-cop stand down — not Tubi or invalid context');
+    return false;
+  }
+  if (!isTubiEpisodePage()) {
+    console.log('[Shufflr][diag] landing-cop stand down — not a watch page');
+    return false;
+  }
+  if (!isTubiShuffleActive()) {
+    console.log('[Shufflr][diag] landing-cop stand down — shuffle not active');
+    return false;
+  }
+  if (window.__shufflrTubiLandingCopRan) {
+    console.log('[Shufflr][diag] landing-cop stand down — already evaluated this document');
+    return false;
+  }
 
   let showId = getTubiShowIdFromUrl();
+  const pageShowId = showId;
   if (isTubiUnresolvedSeriesId(showId)) {
     showId = getTubiActiveShuffleSeriesId();
   }
-  if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) {
+  const activeForShow = isTubiShuffleActiveForShow(showId);
+  console.log('[Shufflr][diag] landing-cop series check', {
+    pageShowId,
+    resolvedShowId: showId,
+    activeSeriesId: getTubiActiveShuffleSeriesId(),
+    isTubiShuffleActiveForShow: activeForShow,
+    reliable: isTubiReliableSeriesId(showId),
+  });
+  if (!isTubiReliableSeriesId(showId) || !activeForShow) {
     // Series id may still be resolving — allow a later restore/page-data pass to retry.
+    console.log('[Shufflr][diag] landing-cop defer — show id unresolved or not active for show');
     return false;
   }
 
@@ -7718,8 +7757,10 @@ async function maybeCorrectTubiForeignLanding() {
   }
 
   let episodes = await getCachedTubiEpisodes(showId);
+  console.log('[Shufflr][diag] landing-cop cache', { showId, cachedCount: episodes?.length || 0 });
   if (!episodes?.length) {
     episodes = await collectTubiEpisodes();
+    console.log('[Shufflr][diag] landing-cop collect', { collectedCount: episodes?.length || 0 });
     if (episodes?.length) {
       await setCachedTubiEpisodes(showId, episodes, getTubiShowTitle());
     }
@@ -8160,9 +8201,25 @@ function isTubiShuffleActive() {
 
 function isTubiShuffleActiveForShow(seriesId) {
   const activeSeriesId = getTubiActiveShuffleSeriesId();
-  if (!activeSeriesId) return false;
-  if (!seriesId) return true;
-  return String(activeSeriesId) === String(seriesId);
+  let result;
+  let reason;
+  if (!activeSeriesId) {
+    result = false;
+    reason = 'no active series key in sessionStorage';
+  } else if (!seriesId) {
+    result = true;
+    reason = 'page seriesId null/empty — treated as active';
+  } else {
+    result = String(activeSeriesId) === String(seriesId);
+    reason = result ? 'page seriesId matches active' : 'page seriesId differs from active';
+  }
+  console.log('[Shufflr][diag] isTubiShuffleActiveForShow', {
+    seriesId: seriesId ?? null,
+    activeSeriesId,
+    result,
+    reason,
+  });
+  return result;
 }
 
 function updateTubiShuffleUI(showName) {
@@ -8179,6 +8236,13 @@ function updateTubiShuffleUI(showName) {
 }
 
 function restoreTubiShuffleSession() {
+  console.log('[Shufflr][diag] restoreTubiShuffleSession', {
+    active: isTubiShuffleActive(),
+    activeSeriesId: getTubiActiveShuffleSeriesId(),
+    pageSeriesId: getTubiShowIdFromUrl(),
+    isEpisodePage: isTubiEpisodePage(),
+    href: location.href,
+  });
   if (!IS_TUBI || !isTubiShuffleActive()) return false;
   shufflrActive = true;
   if (hasShufflrButtonInDom()) {
@@ -8243,13 +8307,23 @@ function pickRandomTubiEpisode(episodes, currentUrl = null) {
 }
 
 async function navigateToRandomTubiEpisode(source = 'episode-end') {
-  if (!isChromeContextValid()) return;
-  if (isShufflrAutoNavStopped()) return;
+  console.log('[Shufflr][diag] navigateToRandomTubiEpisode enter', { source, href: location.href });
+  if (!isChromeContextValid()) {
+    console.log('[Shufflr][diag] navigateToRandomTubiEpisode abort — invalid context');
+    return;
+  }
+  if (isShufflrAutoNavStopped()) {
+    console.log('[Shufflr][diag] navigateToRandomTubiEpisode abort — auto-nav stopped');
+    return;
+  }
   let showId = getTubiShowIdFromUrl();
   if (isTubiUnresolvedSeriesId(showId)) {
     showId = getTubiActiveShuffleSeriesId();
   }
-  if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) return;
+  if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) {
+    console.log('[Shufflr][diag] navigateToRandomTubiEpisode abort — show not active/reliable', { showId });
+    return;
+  }
 
   let episodes = await getCachedTubiEpisodes(showId);
   if (!episodes?.length && isTubiSeriesPage()) {
@@ -8263,11 +8337,20 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
     return;
   }
   const pick = pickRandomTubiEpisode(episodes, location.href);
-  if (!pick) return;
+  if (!pick) {
+    console.log('[Shufflr][diag] navigateToRandomTubiEpisode abort — pick failed');
+    return;
+  }
 
   const showName = getTubiShowTitle() || 'Tubi';
   showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
+  console.log('[Shufflr][diag] first/next shuffle pick', {
+    source,
+    pickUrl: pick.url,
+    episodeId: getTubiEpisodeIdFromUrl(pick.url),
+    showId,
+  });
   markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, {
     mode: 'auto',
@@ -8285,6 +8368,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
 }
 
 async function autoStartTubiShuffleAfterReload() {
+  console.log('[Shufflr][diag] toggle-ON autoStartTubiShuffleAfterReload');
   if (!isChromeContextValid()) return;
   clearShufflrAutoNavStopped();
   let showId = null;
@@ -8298,22 +8382,32 @@ async function autoStartTubiShuffleAfterReload() {
     console.log('[Shufflr] Tubi auto-start: series id still unresolved — aborting');
     return;
   }
+  console.log('[Shufflr][diag] toggle-ON resolved series id', { showId });
   const showName = getTubiShowTitle() || 'this show';
   showToast(`Shuffling ${showName}...`);
   let episodes = await collectTubiEpisodes();
   if (!episodes?.length) { showToast('Could not find episodes.'); return; }
   await setCachedTubiEpisodes(showId, episodes, showName);
   if (!setTubiActiveShuffleSeriesId(showId)) return;
+  console.log('[Shufflr][diag] toggle-ON wrote sessionStorage', {
+    key: TUBI_SHUFFLE_ACTIVE_KEY,
+    value: sessionStorage.getItem(TUBI_SHUFFLE_ACTIVE_KEY),
+  });
   shufflrActive = true;
   syncTubiShuffleUiState();
   const pick = pickRandomTubiEpisode(episodes, location.href);
   if (!pick) { showToast('Could not pick an episode.'); return; }
   console.log(`[Shufflr] Tubi auto-start: ${episodes.length} episodes → ${pick.url}`);
+  console.log('[Shufflr][diag] toggle-ON first shuffle pick', {
+    pickUrl: pick.url,
+    episodeId: getTubiEpisodeIdFromUrl(pick.url),
+  });
   markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, { mode: 'user', source: 'tubi-toggle-start' });
 }
 
 async function startTubiShuffle() {
+  console.log('[Shufflr][diag] toggle-ON startTubiShuffle', { href: location.href });
   if (!isChromeContextValid()) return;
   clearShufflrAutoNavStopped();
   let showId = null;
@@ -8325,12 +8419,15 @@ async function startTubiShuffle() {
   }
   if (!isTubiReliableSeriesId(showId)) {
     showToast('Could not identify this show.');
+    console.log('[Shufflr][diag] toggle-ON abort — no reliable series id');
     return;
   }
+  console.log('[Shufflr][diag] toggle-ON resolved series id', { showId });
   const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
   const alreadyReloaded = sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded';
   if (!alreadyReloaded) {
     sessionStorage.setItem(TUBI_PENDING_KEY, 'reloaded');
+    console.log('[Shufflr][diag] toggle-ON reloading page to hydrate episodes');
     location.reload();
     return;
   }
@@ -8345,6 +8442,7 @@ async function startTubiShuffle() {
   }
   if (!episodes?.length) {
     showToast('Could not find episodes.');
+    console.log('[Shufflr][diag] toggle-ON abort — no episodes');
     return;
   }
 
@@ -8353,6 +8451,11 @@ async function startTubiShuffle() {
     showToast('Could not identify this show.');
     return;
   }
+  console.log('[Shufflr][diag] toggle-ON wrote sessionStorage', {
+    key: TUBI_SHUFFLE_ACTIVE_KEY,
+    value: sessionStorage.getItem(TUBI_SHUFFLE_ACTIVE_KEY),
+    episodeCacheCount: episodes.length,
+  });
   shufflrActive = true;
   syncTubiShuffleUiState();
 
@@ -8363,6 +8466,10 @@ async function startTubiShuffle() {
   }
 
   console.log(`[Shufflr] Tubi shuffle start: ${episodes.length} episodes → ${pick.url}`);
+  console.log('[Shufflr][diag] toggle-ON first shuffle pick', {
+    pickUrl: pick.url,
+    episodeId: getTubiEpisodeIdFromUrl(pick.url),
+  });
   markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, { mode: 'user', source: 'tubi-toggle-start' });
 }
@@ -8629,16 +8736,54 @@ function installCrunchyrollUrlObserver() {
 }
 
 function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true, skipRemainingGate = false } = {}) {
-  if (tubiEpisodeEndTriggered) return;
-  if (!video?.duration || !Number.isFinite(video.duration)) return;
-  if (requirePlaying && video.paused) return;
+  const duration = Number(video?.duration);
+  const currentTime = Number(video?.currentTime);
+  const remaining = Number.isFinite(duration) && Number.isFinite(currentTime)
+    ? duration - currentTime
+    : null;
+  const logEval = (pass, reason) => {
+    // timeupdate is frequent — always log near end / failures; heartbeat far from end.
+    const near = remaining != null && remaining <= 60;
+    const now = Date.now();
+    if (!near && source === 'timeupdate') {
+      if (window.__shufflrTubiDiagTuAt && now - window.__shufflrTubiDiagTuAt < 10000) return;
+      window.__shufflrTubiDiagTuAt = now;
+    }
+    console.log('[Shufflr][diag] Tubi near-end listener', {
+      source,
+      pass,
+      reason,
+      remaining,
+      duration: Number.isFinite(duration) ? duration : null,
+      paused: !!video?.paused,
+      requirePlaying,
+      skipRemainingGate,
+      alreadyTriggered: tubiEpisodeEndTriggered,
+    });
+  };
+
+  if (tubiEpisodeEndTriggered) {
+    logEval(false, 'already triggered (tubiEpisodeEndTriggered)');
+    return;
+  }
+  if (!video?.duration || !Number.isFinite(video.duration)) {
+    logEval(false, 'missing/non-finite duration');
+    return;
+  }
+  if (requirePlaying && video.paused) {
+    logEval(false, 'paused (requirePlaying)');
+    return;
+  }
   if (isNonEpisodePlayback(video)) {
+    logEval(false, 'isNonEpisodePlayback (duration too short or invalid)');
     logNonEpisodePlaybackIgnored(video);
     return;
   }
   if (!skipRemainingGate) {
-    const remaining = video.duration - video.currentTime;
-    if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+    if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) {
+      logEval(false, `remaining ${remaining?.toFixed?.(2)} > ${TIMEUPDATE_SHUFFLE_REMAINING_SEC}s threshold`);
+      return;
+    }
   }
   if (source === 'seeked') {
     console.log('[Shufflr] Tubi near-end check via seeked');
@@ -8646,6 +8791,7 @@ function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true, skipRem
   if (source === 'ended') {
     console.log('[Shufflr] Tubi shuffle triggered via ended event');
   }
+  logEval(true, 'all gates passed — shuffling');
   // Fresh near-end window so the cop can correct Tubi autoplay if it races our navigation.
   markTubiEpisodeEndContext();
   tubiEpisodeEndTriggered = true;
@@ -8656,24 +8802,44 @@ function ensureTubiVideoSwapObserver() {
   if (!isChromeContextValid() || !IS_TUBI) return;
   if (window.__shufflrTubiVideoSwapObserver) return;
   window.__shufflrTubiVideoSwapObserver = true;
+  console.log('[Shufflr][diag] Tubi video-swap observer installed');
 
-  const checkForVideoSwap = () => {
+  const checkForVideoSwap = (from = 'mutation') => {
     if (!isChromeContextValid() || !IS_TUBI) return;
-    if (!isTubiEpisodePage() || !isTubiShuffleActive()) return;
-    const liveVideo = document.querySelector('video');
-    if (!liveVideo) return;
-    if (liveVideo === tubiTimeupdateVideo && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) {
+    if (!isTubiEpisodePage() || !isTubiShuffleActive()) {
       return;
     }
+    const liveVideo = document.querySelector('video');
+    const same = liveVideo === tubiTimeupdateVideo
+      && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler;
+    const isSwap = !!(tubiTimeupdateVideo && liveVideo && tubiTimeupdateVideo !== liveVideo);
+    const now = Date.now();
+    // Heartbeat every ~2s; always log real swaps.
+    if (isSwap || from === 'interval' || !window.__shufflrTubiSwapDiagAt
+      || now - window.__shufflrTubiSwapDiagAt > 2000) {
+      window.__shufflrTubiSwapDiagAt = now;
+      console.log('[Shufflr][diag] video-swap check', {
+        from,
+        hasLiveVideo: !!liveVideo,
+        storedVideo: !!tubiTimeupdateVideo,
+        sameElement: liveVideo === tubiTimeupdateVideo,
+        fullyAttached: same,
+        isSwap,
+      });
+    }
+    if (!liveVideo) return;
+    if (same) return;
     // True element swap (ad break) vs first-time attach — only log the swap case.
-    if (tubiTimeupdateVideo && tubiTimeupdateVideo !== liveVideo) {
+    if (isSwap) {
       console.log('[Shufflr] Tubi video element swapped — reattaching watcher');
+    } else {
+      console.log('[Shufflr][diag] video-swap reattach (first attach or incomplete handlers)');
     }
     installTubiEpisodeEndWatcher();
   };
 
   const observer = new MutationObserver(() => {
-    checkForVideoSwap();
+    checkForVideoSwap('mutation');
   });
 
   const observeBody = () => {
@@ -8686,12 +8852,23 @@ function ensureTubiVideoSwapObserver() {
   else document.addEventListener('DOMContentLoaded', observeBody, { once: true });
 
   // Lightweight backup — some player swaps mutate attributes more than the tree.
-  setInterval(checkForVideoSwap, 2000);
+  setInterval(() => checkForVideoSwap('interval'), 2000);
 }
 
 function installTubiEpisodeEndWatcher() {
-  if (!isChromeContextValid() || !isTubiEpisodePage()) return;
-  if (!isTubiShuffleActive()) return;
+  console.log('[Shufflr][diag] installTubiEpisodeEndWatcher enter', {
+    href: location.href,
+    shuffleActive: isTubiShuffleActive(),
+    pageShowId: getTubiShowIdFromUrl(),
+  });
+  if (!isChromeContextValid() || !isTubiEpisodePage()) {
+    console.log('[Shufflr][diag] installTubiEpisodeEndWatcher abort — not watch page / invalid');
+    return;
+  }
+  if (!isTubiShuffleActive()) {
+    console.log('[Shufflr][diag] installTubiEpisodeEndWatcher abort — shuffle not active');
+    return;
+  }
 
   ensureTubiVideoSwapObserver();
 
@@ -8709,16 +8886,23 @@ function installTubiEpisodeEndWatcher() {
     return;
   }
 
-  if (!isTubiShuffleActiveForShow(showId)) return;
+  if (!isTubiShuffleActiveForShow(showId)) {
+    console.log('[Shufflr][diag] installTubiEpisodeEndWatcher abort — not active for show', { showId });
+    return;
+  }
   tubiWatcherRetryStartedAt = 0;
 
   const video = document.querySelector('video');
   if (!video) {
+    console.log('[Shufflr][diag] installTubiEpisodeEndWatcher — no video yet, retry in 1s');
     setTimeout(installTubiEpisodeEndWatcher, 1000);
     return;
   }
 
-  if (tubiTimeupdateVideo === video && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) return;
+  if (tubiTimeupdateVideo === video && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) {
+    console.log('[Shufflr][diag] installTubiEpisodeEndWatcher — already attached to live video');
+    return;
+  }
 
   if (tubiTimeupdateVideo) {
     if (tubiTimeupdateHandler) {
@@ -8752,6 +8936,12 @@ function installTubiEpisodeEndWatcher() {
     showFullscreenRestorePrompt();
   }, { once: true });
   console.log('[Shufflr] Tubi: episode-end watcher installed');
+  console.log('[Shufflr][diag] watcher listeners attached', {
+    hasTimeupdate: !!tubiTimeupdateHandler,
+    hasSeeked: !!tubiSeekedHandler,
+    hasEnded: !!tubiEndedHandler,
+    videoDuration: video.duration,
+  });
 }
 
 function tryInjectShufflrButtonOnTubi() {
@@ -8789,10 +8979,21 @@ if (IS_TUBI) {
     if (location.href === tubiLastUrl) return;
     const prevUrl = tubiLastUrl;
     tubiLastUrl = location.href;
-    if (!shufflrActive) return;
+    console.log('[Shufflr][diag] Tubi cop URL change seen', {
+      prevUrl,
+      nextUrl: location.href,
+      shufflrActive,
+      tubiEpisodeEndTriggered,
+      endContextFresh: isTubiEpisodeEndContextFresh(),
+    });
+    if (!shufflrActive) {
+      console.log('[Shufflr][diag] Tubi cop stand down — shufflrActive false');
+      return;
+    }
 
     // Shufflr's own navigation — allow it.
     if (tubiEpisodeEndTriggered) {
+      console.log('[Shufflr][diag] Tubi cop stand down — own navigation (tubiEpisodeEndTriggered)');
       tubiEpisodeEndTriggered = false;
       return;
     }
@@ -8808,6 +9009,11 @@ if (IS_TUBI) {
     const isWatchDest = isTubiEpisodePage();
     const endContextFresh = isTubiEpisodeEndContextFresh();
     if (!isWatchDest || !previousWasWatch || !endContextFresh) {
+      console.log('[Shufflr][diag] Tubi cop not correcting (gates)', {
+        isWatchDest,
+        previousWasWatch,
+        endContextFresh,
+      });
       // After Shufflr's own shuffle landing, Tubi URL canonicalize/replaceState is noise.
       if (isTubiShuffleLandingGraceActive()) {
         console.log('[Shufflr] Tubi cop: landing grace — ignoring URL change');
@@ -8815,7 +9021,10 @@ if (IS_TUBI) {
       }
 
       const activeId = getTubiActiveShuffleSeriesId();
-      if (!activeId) return;
+      if (!activeId) {
+        console.log('[Shufflr][diag] Tubi cop stand down — no activeId');
+        return;
+      }
 
       // Left the player/series surface entirely — end session (outside grace).
       if (!isWatchDest && !isTubiSeriesPage()) {
@@ -8837,9 +9046,16 @@ if (IS_TUBI) {
           stillOnActiveShow = new URL(location.href).pathname.includes(`/series/${activeId}`);
         } catch { /* ignore */ }
       }
+      console.log('[Shufflr][diag] Tubi cop same-show check', {
+        activeId,
+        newSeriesId,
+        stillOnActiveShow,
+      });
       if (!stillOnActiveShow) {
         console.log('[Shufflr] Tubi cop: deliberate navigation away from shuffle show — ending session');
         stopTubiShuffle();
+      } else {
+        console.log('[Shufflr][diag] Tubi cop stand down — still on active show, no near-end context (native sequential autoplay uncorrected)');
       }
       return;
     }
