@@ -7579,6 +7579,7 @@ let tubiEpisodeEndContextUntil = 0;
 let tubiTimeupdateVideo = null;
 let tubiTimeupdateHandler = null;
 let tubiSeekedHandler = null;
+let tubiEndedHandler = null;
 let tubiButtonObserver = null;
 let tubiWatcherRetryStartedAt = 0;
 
@@ -8099,10 +8100,14 @@ function teardownTubiEpisodeEndWatcher() {
     if (tubiSeekedHandler) {
       tubiTimeupdateVideo.removeEventListener('seeked', tubiSeekedHandler);
     }
+    if (tubiEndedHandler) {
+      tubiTimeupdateVideo.removeEventListener('ended', tubiEndedHandler);
+    }
   }
   tubiTimeupdateVideo = null;
   tubiTimeupdateHandler = null;
   tubiSeekedHandler = null;
+  tubiEndedHandler = null;
   tubiEpisodeEndTriggered = false;
   tubiWatcherRetryStartedAt = 0;
 }
@@ -8511,7 +8516,7 @@ function installCrunchyrollUrlObserver() {
   setInterval(routeCrunchyrollPageAfterUrlChange, 500);
 }
 
-function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true } = {}) {
+function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true, skipRemainingGate = false } = {}) {
   if (tubiEpisodeEndTriggered) return;
   if (!video?.duration || !Number.isFinite(video.duration)) return;
   if (requirePlaying && video.paused) return;
@@ -8519,10 +8524,15 @@ function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true } = {}) 
     logNonEpisodePlaybackIgnored(video);
     return;
   }
-  const remaining = video.duration - video.currentTime;
-  if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+  if (!skipRemainingGate) {
+    const remaining = video.duration - video.currentTime;
+    if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+  }
   if (source === 'seeked') {
     console.log('[Shufflr] Tubi near-end check via seeked');
+  }
+  if (source === 'ended') {
+    console.log('[Shufflr] Tubi shuffle triggered via ended event');
   }
   // Fresh near-end window so the cop can correct Tubi autoplay if it races our navigation.
   markTubiEpisodeEndContext();
@@ -8557,7 +8567,7 @@ function installTubiEpisodeEndWatcher() {
     return;
   }
 
-  if (tubiTimeupdateVideo === video && tubiTimeupdateHandler && tubiSeekedHandler) return;
+  if (tubiTimeupdateVideo === video && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) return;
 
   if (tubiTimeupdateVideo) {
     if (tubiTimeupdateHandler) {
@@ -8565,6 +8575,9 @@ function installTubiEpisodeEndWatcher() {
     }
     if (tubiSeekedHandler) {
       tubiTimeupdateVideo.removeEventListener('seeked', tubiSeekedHandler);
+    }
+    if (tubiEndedHandler) {
+      tubiTimeupdateVideo.removeEventListener('ended', tubiEndedHandler);
     }
   }
 
@@ -8576,9 +8589,14 @@ function installTubiEpisodeEndWatcher() {
   tubiSeekedHandler = () => {
     maybeShuffleTubiNearEnd(video, 'seeked', { requirePlaying: false });
   };
+  tubiEndedHandler = () => {
+    // Backstop when the last timeupdate missed the ≤8s window — episode already finished.
+    maybeShuffleTubiNearEnd(video, 'ended', { requirePlaying: false, skipRemainingGate: true });
+  };
 
   video.addEventListener('timeupdate', tubiTimeupdateHandler);
   video.addEventListener('seeked', tubiSeekedHandler);
+  video.addEventListener('ended', tubiEndedHandler);
   video.addEventListener('playing', () => {
     showFullscreenRestorePrompt();
   }, { once: true });
