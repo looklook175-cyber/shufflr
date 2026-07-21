@@ -8385,21 +8385,52 @@ function installTubiUrlObserver() {
   if (window.__shufflrTubiUrlObserver) return;
   window.__shufflrTubiUrlObserver = true;
 
+  function getTubiUrlPathname(href = location.href) {
+    try {
+      return new URL(href, location.origin).pathname;
+    } catch {
+      return location.pathname;
+    }
+  }
+
+  /**
+   * Stable route key for teardown decisions — never includes query/hash.
+   * Watch/series pages key on the numeric id so slug rewrites
+   * (/tv-shows/123 → /tv-shows/123/s01-e01-…?autoplay=true) are not "navigation".
+   */
+  function getTubiUrlRouteKey(href = location.href) {
+    const pathname = getTubiUrlPathname(href);
+    const tvShow = pathname.match(/^\/tv-shows\/(\d+)/);
+    if (tvShow) return `/tv-shows/${tvShow[1]}`;
+    const series = pathname.match(/^\/series\/(\d+)/);
+    if (series) return `/series/${series[1]}`;
+    return pathname;
+  }
+
   let lastTubiHref = location.href;
-  let lastTubiPathname = location.pathname;
+  let lastTubiRouteKey = getTubiUrlRouteKey(location.href);
   let reinjectTimer = null;
 
   function routeTubiPageAfterUrlChange() {
     if (!IS_TUBI || !isChromeContextValid()) return;
-    if (location.href === lastTubiHref) return;
-    lastTubiHref = location.href;
+    const currentHref = location.href;
+    if (currentHref === lastTubiHref) return;
 
-    // Query/hash-only churn (e.g. ?autoplay=true) must not tear down the watcher.
-    if (location.pathname === lastTubiPathname) {
-      console.log('[Shufflr] Tubi URL query-only change ignored');
+    const prevHref = lastTubiHref;
+    const prevKey = lastTubiRouteKey;
+    const nextKey = getTubiUrlRouteKey(currentHref);
+    lastTubiHref = currentHref;
+
+    // Query/hash/slug churn on the same episode/series must not tear down the watcher.
+    if (nextKey === prevKey) {
+      console.log('[Shufflr] Tubi URL query-only change ignored', {
+        from: prevHref,
+        to: currentHref,
+        routeKey: nextKey,
+      });
       return;
     }
-    lastTubiPathname = location.pathname;
+    lastTubiRouteKey = nextKey;
 
     removeShufflrUI();
     teardownTubiEpisodeEndWatcher();
@@ -8414,7 +8445,11 @@ function installTubiUrlObserver() {
     reinjectTimer = setTimeout(() => {
       reinjectTimer = null;
       if (!isChromeContextValid() || !isTubiInjectablePage()) return;
-      console.log('[Shufflr] Tubi URL changed — re-injecting');
+      console.log('[Shufflr] Tubi URL changed — re-injecting', {
+        from: prevHref,
+        to: currentHref,
+        routeKey: nextKey,
+      });
       startTubiButtonInjectPolling();
     }, 300);
   }
