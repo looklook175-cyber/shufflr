@@ -1191,6 +1191,7 @@ async function disarmShufflrAfterErrorPage(serviceLabel) {
     try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
     clearTubiEpisodeEndContext();
     teardownTubiEpisodeEndWatcher();
+    teardownTubiUpNextSuppressor();
     void resetShuffleModeToSingle();
     updateShuffleUI('');
     return;
@@ -7585,6 +7586,8 @@ let tubiSeekedHandler = null;
 let tubiEndedHandler = null;
 let tubiButtonObserver = null;
 let tubiWatcherRetryStartedAt = 0;
+let tubiUpNextObserver = null;
+let tubiUpNextPollTimer = null;
 
 const TUBI_EPISODE_END_CONTEXT_MS = 10000;
 
@@ -7598,6 +7601,182 @@ function isTubiEpisodeEndContextFresh() {
 
 function clearTubiEpisodeEndContext() {
   tubiEpisodeEndContextUntil = 0;
+}
+
+/**
+ * Tubi's web player shows an "Up Next" graphic near episode end with a "Hide" button.
+ * Clicking Hide dismisses the overlay and cancels Tubi's native next-episode autoplay
+ * (documented user behavior). While shuffle is active we auto-click Hide and neutralize
+ * the overlay so Shufflr owns the transition.
+ */
+function isTubiUpNextDismissControl(el) {
+  if (!el) return false;
+  const label = `${el.textContent || ''} ${el.getAttribute?.('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
+  if (!label) return false;
+  if (/^hide$/i.test(label)) return true;
+  if (label.length <= 24 && /\bhide\b/i.test(label) && !/\bhide\s+ads?\b/i.test(label)) return true;
+  return false;
+}
+
+function findTubiUpNextHideButton(root = document) {
+  const nodes = root.querySelectorAll?.('button, [role="button"], a, span') || [];
+  for (const el of nodes) {
+    if (isTubiUpNextDismissControl(el)) return el.closest('button, [role="button"], a') || el;
+  }
+  return null;
+}
+
+function findTubiUpNextContainers(root = document.body) {
+  if (!root?.querySelectorAll) return [];
+  const found = new Set();
+
+  const selectorHits = root.querySelectorAll?.(
+    '[class*="UpNext"], [class*="up-next"], [class*="upNext"], [class*="NextEpisode"], [class*="next-episode"], [data-testid*="up-next"], [data-testid*="next-episode"], [aria-label*="Up Next"], [aria-label*="up next"]'
+  ) || [];
+  for (const el of selectorHits) found.add(el);
+
+  // Text-based: Tubi's overlay is a graphic containing "Up Next" + Hide.
+  const walkRoots = [root];
+  if (root !== document.body && document.body) walkRoots.push(document.body);
+  for (const scope of walkRoots) {
+    for (const el of scope.querySelectorAll('div, section, aside, article, [role="dialog"]')) {
+      if (found.has(el)) continue;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 400) continue;
+      if (!/\bup\s*next\b/i.test(text)) continue;
+      // Prefer a mid-sized container that also exposes Hide / Play next.
+      const hasHide = !!findTubiUpNextHideButton(el);
+      const hasNextCta = /\b(play|watch|next)\b/i.test(text);
+      if (hasHide || hasNextCta) found.add(el);
+    }
+  }
+
+  return [...found];
+}
+
+function neutralizeTubiUpNextContainer(container) {
+  if (!container || container.dataset?.shufflrTubiUpNextSuppressed === '1') return false;
+
+  const hideBtn = findTubiUpNextHideButton(container) || findTubiUpNextHideButton(document);
+  if (hideBtn) {
+    try {
+      hideBtn.click();
+      console.log('[Shufflr] Tubi Up Next: clicked Hide to cancel native auto-advance');
+    } catch (err) {
+      console.log('[Shufflr] Tubi Up Next: Hide click failed', err);
+    }
+  } else {
+    console.log('[Shufflr] Tubi Up Next: no Hide button found — neutralizing overlay DOM');
+  }
+
+  try {
+    container.style.setProperty('display', 'none', 'important');
+    container.style.setProperty('pointer-events', 'none', 'important');
+    container.setAttribute('aria-hidden', 'true');
+    container.dataset.shufflrTubiUpNextSuppressed = '1';
+  } catch { /* ignore */ }
+
+  // Block residual CTAs inside the overlay from navigating to the sequential next episode.
+  try {
+    for (const link of container.querySelectorAll('a[href*="/tv-shows/"]')) {
+      if (link.dataset.shufflrTubiNextBlocked === '1') continue;
+      link.dataset.shufflrTubiNextBlocked = '1';
+      link.addEventListener('click', (event) => {
+        if (!isTubiShuffleActive()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        console.log('[Shufflr] Tubi Up Next: blocked native next-episode link click');
+      }, true);
+    }
+    for (const btn of container.querySelectorAll('button, [role="button"]')) {
+      if (isTubiUpNextDismissControl(btn)) continue;
+      const label = `${btn.textContent || ''} ${btn.getAttribute('aria-label') || ''}`.toLowerCase();
+      if (!/\b(play|watch|next|start)\b/.test(label)) continue;
+      if (btn.dataset.shufflrTubiNextBlocked === '1') continue;
+      btn.dataset.shufflrTubiNextBlocked = '1';
+      btn.addEventListener('click', (event) => {
+        if (!isTubiShuffleActive()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        console.log('[Shufflr] Tubi Up Next: blocked native next-episode button click');
+      }, true);
+    }
+  } catch { /* ignore */ }
+
+  return true;
+}
+
+function scanAndSuppressTubiUpNext(root = document.body) {
+  if (!IS_TUBI || !isChromeContextValid()) return;
+  if (!isTubiShuffleActive() || !isTubiEpisodePage()) return;
+
+  // Document-wide Hide first (overlay may not match our container heuristics yet).
+  const globalHide = findTubiUpNextHideButton(document);
+  if (globalHide && !globalHide.dataset.shufflrTubiHideClicked) {
+    const nearbyText = (globalHide.closest('div, section, aside')?.textContent || '').slice(0, 400);
+    if (/\bup\s*next\b/i.test(nearbyText) || nearbyText.length < 80) {
+      try {
+        globalHide.dataset.shufflrTubiHideClicked = '1';
+        globalHide.click();
+        console.log('[Shufflr] Tubi Up Next: clicked Hide (global scan)');
+      } catch { /* ignore */ }
+    }
+  }
+
+  for (const container of findTubiUpNextContainers(root)) {
+    neutralizeTubiUpNextContainer(container);
+  }
+}
+
+function teardownTubiUpNextSuppressor() {
+  if (tubiUpNextObserver) {
+    try { tubiUpNextObserver.disconnect(); } catch { /* ignore */ }
+    tubiUpNextObserver = null;
+  }
+  if (tubiUpNextPollTimer) {
+    clearInterval(tubiUpNextPollTimer);
+    tubiUpNextPollTimer = null;
+  }
+  window.__shufflrTubiUpNextSuppressor = false;
+}
+
+function ensureTubiUpNextSuppressor() {
+  if (!isChromeContextValid() || !IS_TUBI) return;
+  if (!isTubiShuffleActive()) {
+    teardownTubiUpNextSuppressor();
+    return;
+  }
+  if (window.__shufflrTubiUpNextSuppressor) {
+    scanAndSuppressTubiUpNext();
+    return;
+  }
+  window.__shufflrTubiUpNextSuppressor = true;
+  console.log('[Shufflr] Tubi Up Next suppressor armed (shuffle active)');
+
+  tubiUpNextObserver = new MutationObserver((mutations) => {
+    if (!isTubiShuffleActive()) {
+      teardownTubiUpNextSuppressor();
+      return;
+    }
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        scanAndSuppressTubiUpNext(node);
+      }
+    }
+  });
+  if (document.body) {
+    tubiUpNextObserver.observe(document.body, { childList: true, subtree: true });
+  }
+  tubiUpNextPollTimer = setInterval(() => {
+    if (!isChromeContextValid() || !isTubiShuffleActive()) {
+      teardownTubiUpNextSuppressor();
+      return;
+    }
+    scanAndSuppressTubiUpNext();
+  }, 500);
+
+  scanAndSuppressTubiUpNext();
 }
 
 function markTubiShuffleLandingGrace() {
@@ -8245,6 +8424,7 @@ function restoreTubiShuffleSession() {
   });
   if (!IS_TUBI || !isTubiShuffleActive()) return false;
   shufflrActive = true;
+  ensureTubiUpNextSuppressor();
   if (hasShufflrButtonInDom()) {
     updateTubiShuffleUI(getTubiShowTitle());
   }
@@ -8290,6 +8470,7 @@ function stopTubiShuffle() {
   try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
   clearTubiEpisodeEndContext();
   teardownTubiEpisodeEndWatcher();
+  teardownTubiUpNextSuppressor();
   void resetShuffleModeToSingle();
   updateShuffleUI('');
   showToast('Shufflr OFF — double-click to turn on');
@@ -8871,6 +9052,7 @@ function installTubiEpisodeEndWatcher() {
   }
 
   ensureTubiVideoSwapObserver();
+  ensureTubiUpNextSuppressor();
 
   const showId = getTubiShowIdFromUrl();
   // Unresolved page id — poll until MAIN-world data resolves (do not fail permanently).
