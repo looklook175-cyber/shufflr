@@ -1951,7 +1951,7 @@ function selectService(btn, svc){
 }
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
-  const names={netflix:'Netflix',max:'Max',hulu:'Hulu',disney:'Disney+',prime:'Prime Video',tubi:'Tubi',peacock:'Peacock',paramount:'Paramount+',appletv:'Apple TV+',crunchyroll:'Crunchyroll'};
+  const names={netflix:'Netflix',max:'Max',hulu:'Hulu',disney:'Disney+',prime:'Prime Video',peacock:'Peacock',paramount:'Paramount+',appletv:'Apple TV+',crunchyroll:'Crunchyroll'};
   const btn=document.getElementById('service-connect-btn');
   if(!btn) return;
   if(saved&&names[saved]){
@@ -2364,7 +2364,6 @@ function getEpLink(){
     hulu:'https://www.hulu.com',
     disney:'https://www.disneyplus.com',
     prime:'https://www.amazon.com/prime-video',
-    tubi:'https://tubitv.com',
     peacock:'https://www.peacocktv.com',
     paramount:'https://www.paramountplus.com',
     appletv:'https://tv.apple.com',
@@ -2635,7 +2634,7 @@ function renderPlaylistPage(){
       if (!serviceGroups[svc]) serviceGroups[svc] = [];
       serviceGroups[svc].push({ p, pi });
     });
-    const serviceLabels = { max: 'HBO Max', tubi: 'Tubi', crunchyroll: 'Crunchyroll', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
+    const serviceLabels = { max: 'HBO Max', crunchyroll: 'Crunchyroll', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
     html += Object.entries(serviceGroups).map(([svc, entries]) => {
       const label = serviceLabels[svc] || svc.toUpperCase();
       const groupId = `pl-group-${svc}`;
@@ -2788,7 +2787,6 @@ function setStandaloneLaunchViaBridge(launchUrl, maxId = null, blockedSeasons = 
 
 function showBelongsToConnectedService(show, connectedService = null) {
   const service = connectedService || localStorage.getItem('shufflr_service') || 'max';
-  if (service === 'tubi') return !!show?.tubiId;
   if (service === 'crunchyroll') {
     return !!show?.crunchyrollId || show?.service === 'crunchyroll';
   }
@@ -2927,13 +2925,6 @@ async function launchShowFromDrawer(playlistIndex, showIndex) {
   const playlist = homePlaylistsCache[playlistIndex];
   const show = (playlist?.shows || [])[showIndex];
   if (!playlist || !show) return;
-  if (show.tubiId) {
-    const url = show.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(show.title || '')}`;
-    showToast('OPENING: ' + (show.title || '').toUpperCase().slice(0, 18));
-    window.open(url, '_blank');
-    closePlaylistDrawer();
-    return;
-  }
   if (show.crunchyrollId || show.service === 'crunchyroll') {
     if (launchCrunchyrollShowFromWeb(show)) closePlaylistDrawer();
     return;
@@ -2958,7 +2949,6 @@ function openDrawerAddShowMode(playlistIndex) {
 
 function getDrawerAddShowDedupeKey(show) {
   if (show?.crunchyrollId) return `crunchyroll:${String(show.crunchyrollId)}`;
-  if (show?.tubiId) return `tubi:${String(show.tubiId)}`;
   const maxId = getShowMaxId(show);
   if (maxId) return `max:${String(maxId).toLowerCase()}`;
   const nameKey = normalizePlShowName(getPlaylistShowLabel(show));
@@ -3241,7 +3231,6 @@ const SERVICE_AVAILABILITY={
   hulu:{ids:[15],names:['hulu']},
   disney:{ids:[337],names:['disney','disney+']},
   prime:{ids:[9,119],names:['prime','amazon','prime video']},
-  tubi:{ids:[531],names:['tubi']},
   peacock:{ids:[387],names:['peacock']},
   paramount:{ids:[1855],names:['paramount']},
   appletv:{ids:[2,386],names:['apple','apple tv']},
@@ -3527,15 +3516,6 @@ async function playPlaylist(pi){
   if(!loggedIn){showToast('You must sign in to use this feature.');return;}
   const p=playlists[pi];
   if(!(p.shows||[]).length&&!(p.episodes||[]).length){showToast('NOTHING IN PLAYLIST');return;}
-  if ((p.service || 'max') === 'tubi') {
-    const tubiShows = (p.shows || []).filter(s => s.tubiId);
-    if (!tubiShows.length) { showToast('NO TUBI SHOWS IN PLAYLIST'); return; }
-    const pick = tubiShows[Math.floor(Math.random() * tubiShows.length)];
-    const url = pick.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(pick.title || '')}`;
-    showToast('OPENING: ' + (pick.title || '').toUpperCase().slice(0, 18));
-    window.open(url, '_blank');
-    return;
-  }
   if ((p.service || 'max') === 'crunchyroll' || (p.shows || []).some(s => s.crunchyrollId)) {
     const crunchyShows = (p.shows || []).filter(s => s.crunchyrollId || s.service === 'crunchyroll');
     if (!crunchyShows.length) { showToast('NO CRUNCHYROLL SHOWS IN PLAYLIST'); return; }
@@ -3934,11 +3914,6 @@ async function openYourShowPopup(pi,si,clickedCard){
 
 function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
-  if (show?.tubiId) {
-    const tubiUrl = show.tubiSeriesUrl || `https://tubitv.com/search/${encodeURIComponent(show.name || show.title || '')}`;
-    window.open(tubiUrl, '_blank');
-    return;
-  }
   if (show?.crunchyrollId || show?.service === 'crunchyroll') {
     closeYourShowPopup();
     launchCrunchyrollShowFromWeb(show, launchIntent);
@@ -3998,9 +3973,6 @@ async function removeYourShowFromPopup() {
 
 function libraryShowsMatchForDelete(a, b) {
   if (!a || !b) return false;
-  if (a.tubiId || b.tubiId) {
-    return !!(a.tubiId && b.tubiId && String(a.tubiId) === String(b.tubiId));
-  }
   const maxA = getShowMaxId(a);
   const maxB = getShowMaxId(b);
   if (maxA || maxB) {
