@@ -3780,12 +3780,124 @@ async function playCrunchyrollPlaylistFromDropdown(playlistIndex) {
   window.location.href = seriesUrl;
 }
 
+/** Tubi dropdown Play — same Phase A handoff + auto-start as web app Play. */
+async function playTubiPlaylistFromDropdown(playlistIndex) {
+  if (!isChromeContextValid()) return;
+
+  const playlists = await readPlaylistsFromStorage();
+  dropdownPlaylists = playlists;
+  const playlist = playlists[playlistIndex];
+  if (!playlist) {
+    showToast('Playlist not found');
+    return;
+  }
+
+  const tubiShows = (playlist.shows || []).filter(s => s.tubiId);
+  if (!tubiShows.length) {
+    showToast('No Tubi shows in this playlist — add shows using +');
+    return;
+  }
+
+  const pickShow = tubiShows[Math.floor(Math.random() * tubiShows.length)];
+  const showId = String(pickShow.tubiId);
+  const seriesUrl = getTubiSeriesUrlFromPlaylistShow(pickShow)
+    || `https://tubitv.com/series/${showId}`;
+  if (!seriesUrl) {
+    showToast('No Tubi shows in this playlist — add shows using +');
+    return;
+  }
+
+  closePlaylistDropdown();
+  getShufflrTabId();
+  clearTubiSessionPin();
+
+  // Same handoff shape as web-app playPlaylist for Tubi; this tab claims ownership immediately.
+  const enriched = tubiShows.map(s => ({
+    id: String(s.tubiId),
+    name: s.title || s.name || '',
+    type: 'tv',
+    episodes: [],
+  }));
+  const playedByShow = {};
+  const roundPlayedShows = serializeRoundPlayedShows(new Set([showId]));
+  const handoff = {
+    armed: true,
+    playlist: enriched,
+    playlistName: playlist.name || '',
+    playlistIndex,
+    shows: [...(playlist.shows || [])],
+    episodes: [...(playlist.episodes || [])],
+    selectedService: 'tubi',
+    currentEpisode: {
+      showId,
+      showName: pickShow.title || pickShow.name || '',
+      seasonNum: 0,
+      episode_number: 0,
+      name: pickShow.title || pickShow.name || '',
+      isMovie: false,
+      id: showId,
+      alternateId: null,
+    },
+    currentEpisodeUrl: seriesUrl,
+    playedByShow,
+    lastPlayedShow: showId,
+    roundPlayedShows,
+    nextEpisodeIndexByShow: {},
+    createdAt: Date.now(),
+    sessionStartedAt: Date.now(),
+    ownerTabId: getShufflrTabId(),
+    pendingFirstShow: true,
+    pendingFirstShowId: showId,
+  };
+
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: handoff,
+    [SHUFFLR_EPISODE_STATE_KEY]: {
+      playedByShow,
+      lastPlayedShow: showId,
+      roundPlayedShows,
+      nextEpisodeIndexByShow: {},
+      playlistName: playlist.name || '',
+      playlistIndex,
+    },
+  });
+  console.log('[Shufflr] Tubi dropdown handoff written:', handoff.playlistName);
+  console.log('[Shufflr] armed playlist owned by this tab');
+
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  if (!isChromeContextValid()) return;
+  updateTubiShuffleUI(playlist.name || 'Playlist');
+
+  // Already on this show's series page — collect/pick/navigate in place (Phase A path).
+  const currentId = getCurrentTubiSeriesId();
+  if (isTubiSeriesPage() && currentId && String(currentId) === showId) {
+    await completeTubiSeriesCollectAndPlay(handoff, showId, 'dropdown-play-first');
+    return;
+  }
+
+  // Otherwise hop to the series page; restore + pending-collect auto-starts (same as web Play).
+  showToast(`Opening: ${(pickShow.title || pickShow.name || '').slice(0, 24)}`);
+  console.log(`[Shufflr] Dropdown Tubi play → ${seriesUrl}`);
+  setTubiActiveShuffleSeriesId(showId);
+  await shufflrNavigateTo(seriesUrl, {
+    mode: 'user',
+    source: 'tubi-dropdown-play',
+    beforeNavigate: () => captureFullscreenBeforeShufflrNavigation(),
+  });
+}
+
 async function playPlaylistFromDropdown(playlistIndex) {
   if (!isChromeContextValid()) return;
 
   const session = await getStoredAuthSession();
   if (!session?.userId || !session?.accessToken) {
     showToast('You must sign in to use this feature.');
+    return;
+  }
+
+  if (IS_TUBI) {
+    await playTubiPlaylistFromDropdown(playlistIndex);
     return;
   }
 
