@@ -8313,6 +8313,9 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   await shufflrNavigateTo(pick.url, {
     mode: 'auto',
     source: `tubi-${source}`,
+    // Cop is a single reactive fix for Tubi's own nav — don't wait out the 30s
+    // throttle that exists to slow repeated Shufflr-initiated near-end hops.
+    bypassCooldown: source === 'cop',
     beforeNavigate: () => {
       tubiEpisodeEndTriggered = true;
       captureFullscreenBeforeShufflrNavigation();
@@ -8386,16 +8389,13 @@ function restoreTubiShuffleSession() {
   if (!IS_TUBI || !isTubiShuffleActive()) return false;
   shufflrActive = true;
 
-  // Consume our own landing marker first; if foreign/leave, cop handles it.
+  // Consume our own landing marker first; if foreign/leave, cop handles it immediately.
   const expected = peekTubiExpectedLanding();
   const currentEp = getTubiEpisodeIdFromUrl();
   if (expected && currentEp && String(expected) === String(currentEp)) {
     consumeTubiExpectedLanding();
   } else if (isTubiShuffleActive()) {
-    // Delay slightly so page series-id resolution / video can settle.
-    setTimeout(() => {
-      void handleTubiShuffleCop('landing');
-    }, 600);
+    void handleTubiShuffleCop('landing');
   }
 
   ensureTubiUpNextSuppressor();
@@ -8661,10 +8661,16 @@ if (IS_TUBI) {
       void startTubiShuffle();
     }, 1200);
   } else if (isTubiShuffleActive()) {
-    setTimeout(() => {
+    // Run as soon as the document can host checks — no arbitrary 800ms landing delay.
+    const runRestore = () => {
       if (!isChromeContextValid() || !IS_TUBI) return;
       restoreTubiShuffleSession();
-    }, 800);
+    };
+    if (document.body) {
+      runRestore();
+    } else {
+      document.addEventListener('DOMContentLoaded', runRestore, { once: true });
+    }
   }
 }
 
