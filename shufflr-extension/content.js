@@ -7526,6 +7526,10 @@ let tubiWatcherIdRetryCount = 0;
 let tubiWatcherIdRetryTimer = null;
 let tubiUpNextObserver = null;
 let tubiUpNextPollTimer = null;
+/** In-memory: this page load's landing was already judged — do not re-run the cop. */
+let tubiLandingVerifiedThisPageLoad = false;
+const TUBI_COP_MIN_INTERVAL_MS = 3000;
+const TUBI_LAST_COP_AT_KEY = 'shufflr_tubi_last_cop_at';
 
 function isTubiSeriesPage() {
   return IS_TUBI && location.pathname.includes('/series/');
@@ -8331,20 +8335,44 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
  * Tamed shuffle cop (backstop only).
  * — Our own landings: expected-episode marker matches → stand down.
  * — Non-watch or different series: user left → end session.
- * — Same-show watch without our marker: Tubi sneaked through → redirect.
+ * — Same-show watch without our marker (FIRST evaluation only) → Tubi sneaked through → redirect.
  */
+function getTubiLastCopCorrectionAt() {
+  try {
+    const n = Number(sessionStorage.getItem(TUBI_LAST_COP_AT_KEY) || 0);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function markTubiCopCorrectionNow() {
+  try {
+    sessionStorage.setItem(TUBI_LAST_COP_AT_KEY, String(Date.now()));
+  } catch { /* ignore */ }
+}
+
+function markTubiLandingVerifiedThisPageLoad() {
+  tubiLandingVerifiedThisPageLoad = true;
+}
+
 async function handleTubiShuffleCop(reason = 'url-change') {
   if (!isChromeContextValid() || !IS_TUBI) return false;
   if (!isTubiShuffleActive()) return false;
   if (window.__shufflrTubiCopInFlight) return false;
 
-  // Query-only churn on the same watch URL is not a navigation.
-  // (Handled by callers comparing href; keep a cheap path guard here too.)
+  const lastCopAt = getTubiLastCopCorrectionAt();
+  if (lastCopAt && Date.now() - lastCopAt < TUBI_COP_MIN_INTERVAL_MS) {
+    console.log('[Shufflr] Tubi cop: skipping — corrected too recently');
+    markTubiLandingVerifiedThisPageLoad();
+    return false;
+  }
 
   const expected = peekTubiExpectedLanding();
   const currentEp = getTubiEpisodeIdFromUrl();
   if (expected && currentEp && String(expected) === String(currentEp)) {
     consumeTubiExpectedLanding();
+    markTubiLandingVerifiedThisPageLoad();
     return false;
   }
 
@@ -8354,6 +8382,7 @@ async function handleTubiShuffleCop(reason = 'url-change') {
       const pageId = getTubiShowIdFromUrl();
       const activeId = getTubiActiveShuffleSeriesId();
       if (!isTubiReliableSeriesId(pageId) || String(pageId) === String(activeId)) {
+        markTubiLandingVerifiedThisPageLoad();
         return false;
       }
     }
@@ -8370,8 +8399,11 @@ async function handleTubiShuffleCop(reason = 'url-change') {
     return true;
   }
 
-  // Same-show watch landing without our marker (or marker mismatch) → correct.
+  // Same-show watch: marker absent/mismatch is foreign only on the first judgment
+  // of this page load (restore sets the verified flag before calling us).
   if (expected) consumeTubiExpectedLanding();
+  markTubiLandingVerifiedThisPageLoad();
+  markTubiCopCorrectionNow();
   window.__shufflrTubiCopInFlight = true;
   console.log('[Shufflr] Tubi cop: correcting unexpected navigation', { reason });
   showToast('Shufflr correcting...');
@@ -8389,13 +8421,20 @@ function restoreTubiShuffleSession() {
   if (!IS_TUBI || !isTubiShuffleActive()) return false;
   shufflrActive = true;
 
-  // Consume our own landing marker first; if foreign/leave, cop handles it immediately.
-  const expected = peekTubiExpectedLanding();
-  const currentEp = getTubiEpisodeIdFromUrl();
-  if (expected && currentEp && String(expected) === String(currentEp)) {
-    consumeTubiExpectedLanding();
-  } else if (isTubiShuffleActive()) {
-    void handleTubiShuffleCop('landing');
+  // Judge this page load at most once. A later inject/sync restore must not
+  // re-interpret "marker already consumed" as a foreign Tubi navigation.
+  if (!tubiLandingVerifiedThisPageLoad) {
+    const expected = peekTubiExpectedLanding();
+    const currentEp = getTubiEpisodeIdFromUrl();
+    if (expected && currentEp && String(expected) === String(currentEp)) {
+      consumeTubiExpectedLanding();
+      markTubiLandingVerifiedThisPageLoad();
+    } else {
+      // First evaluation only: absent or mismatched marker → potentially foreign.
+      // Set verified before the async cop so a concurrent sync restore cannot re-enter.
+      markTubiLandingVerifiedThisPageLoad();
+      void handleTubiShuffleCop('landing');
+    }
   }
 
   ensureTubiUpNextSuppressor();
@@ -8592,9 +8631,12 @@ function installTubiUrlObserver() {
         if (new URL(prevHref).pathname === location.pathname) {
           /* still sync UI below if injectable */
         } else {
+          // Real path change = new page context for landing verification.
+          tubiLandingVerifiedThisPageLoad = false;
           void handleTubiShuffleCop('url-change');
         }
       } catch {
+        tubiLandingVerifiedThisPageLoad = false;
         void handleTubiShuffleCop('url-change');
       }
     }
