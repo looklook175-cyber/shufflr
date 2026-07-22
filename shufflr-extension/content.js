@@ -123,6 +123,11 @@ const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_INJECT_POLL_MS = 200;
 const TUBI_INJECT_MAX_MS = 15000;
+const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
+const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
+const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
+const TUBI_WATCHER_ID_RETRY_MS = 400;
+const TUBI_WATCHER_ID_MAX_RETRIES = 5;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
 const CRUNCHYROLL_SHUFFLE_ACTIVE_KEY = 'shufflr_crunchyroll_shuffle_active';
 const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
@@ -4042,8 +4047,13 @@ function onShuffleBtnClick(event) {
   if (!chrome.runtime?.id) return;
   event.preventDefault();
   event.stopPropagation();
-  // Tubi rebuild step 1: button is visual-only — no shuffle/toggle yet.
+  // Tubi rebuild step 2: single-show shuffle toggle.
   if (IS_TUBI && (isTubiSeriesPage() || isTubiEpisodePage())) {
+    if (shufflrActive || isTubiShuffleActive()) {
+      stopTubiShuffle();
+      return;
+    }
+    void startTubiShuffle();
     return;
   }
   if (isCrunchyroll && (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage())) {
@@ -7503,7 +7513,17 @@ function installCrunchyrollUrlObserver() {
   setInterval(routeCrunchyrollPageAfterUrlChange, 500);
 }
 
-// ── TUBI HELPERS (rebuild step 1: reliable inject only — no shuffle) ───────
+// ── TUBI HELPERS (rebuild step 2: single-show shuffle) ─────────────────────
+
+let tubiEpisodeEndTriggered = false;
+let tubiTimeupdateVideo = null;
+let tubiTimeupdateHandler = null;
+let tubiSeekedHandler = null;
+let tubiEndedHandler = null;
+let tubiWatcherIdRetryCount = 0;
+let tubiWatcherIdRetryTimer = null;
+let tubiUpNextObserver = null;
+let tubiUpNextPollTimer = null;
 
 function isTubiSeriesPage() {
   return IS_TUBI && location.pathname.includes('/series/');
@@ -7515,6 +7535,860 @@ function isTubiEpisodePage() {
 
 function isTubiInjectablePage() {
   return isTubiSeriesPage() || isTubiEpisodePage();
+}
+
+function isTubiUnresolvedSeriesId(seriesId) {
+  if (seriesId == null || seriesId === '') return true;
+  return String(seriesId).startsWith('vid-');
+}
+
+function isTubiReliableSeriesId(seriesId) {
+  return !isTubiUnresolvedSeriesId(seriesId);
+}
+
+function getTubiActiveShuffleSeriesId() {
+  try {
+    return sessionStorage.getItem(TUBI_SHUFFLE_ACTIVE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function setTubiActiveShuffleSeriesId(seriesId) {
+  if (!isTubiReliableSeriesId(seriesId)) {
+    console.log('[Shufflr] Tubi: refusing to write unresolved/vid-* as active series id', seriesId);
+    return false;
+  }
+  sessionStorage.setItem(TUBI_SHUFFLE_ACTIVE_KEY, String(seriesId));
+  return true;
+}
+
+function isTubiShuffleActive() {
+  return !!getTubiActiveShuffleSeriesId();
+}
+
+function isTubiShuffleActiveForShow(seriesId) {
+  const activeSeriesId = getTubiActiveShuffleSeriesId();
+  if (!activeSeriesId) return false;
+  // Unresolved page id on a watch landing — still treat as active for this tab.
+  if (!seriesId) return true;
+  return String(activeSeriesId) === String(seriesId);
+}
+
+function getTubiEpisodeIdFromUrl(url = location.href) {
+  try {
+    const match = new URL(url, location.origin).pathname.match(/\/tv-shows\/(\d+)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function getTubiShowTitle() {
+  const selectors = [
+    'h1',
+    '[data-testid="title"]',
+    '[data-testid="video-title"]',
+    '[class*="video-title"]',
+    'main h1',
+  ];
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    const text = el?.textContent?.replace(/\s+/g, ' ').trim();
+    if (text) return text;
+  }
+  const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+  return ogTitle?.trim() || null;
+}
+
+function formatTubiEpisodeLabel(season, episode) {
+  return `S${String(season).padStart(2, '0')}:E${String(episode).padStart(2, '0')}`;
+}
+
+function tubiEpisodeCacheKey(showId) {
+  return `${TUBI_EPISODE_CACHE_PREFIX}${showId}`;
+}
+
+function extractBalancedBraceObject(text, openBraceIndex) {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = openBraceIndex; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (c === '\\') escape = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return text.slice(openBraceIndex, i + 1);
+    }
+  }
+  return null;
+}
+
+function parseTubiJsObjectLiteral(raw) {
+  if (!raw) return null;
+  let text = raw.trim();
+  if (text.endsWith(';')) text = text.slice(0, -1).trim();
+  text = text.replace(/\bundefined\b/g, 'null');
+  text = text.replace(/,\s*([}\]])/g, '$1');
+  return JSON.parse(text);
+}
+
+function readTubiReactQueryStateFromScripts() {
+  const marker = 'window.__REACT_QUERY_STATE__';
+  const sources = [];
+  for (const script of document.querySelectorAll('script:not([src])')) {
+    const text = script.textContent;
+    if (text?.includes(marker)) sources.push(text);
+  }
+  if (!sources.length) {
+    const html = document.documentElement?.innerHTML;
+    if (html?.includes(marker)) sources.push(html);
+  }
+  for (const text of sources) {
+    const markerIndex = text.indexOf(marker);
+    if (markerIndex === -1) continue;
+    const eqIndex = text.indexOf('=', markerIndex);
+    if (eqIndex === -1) continue;
+    let braceIndex = eqIndex + 1;
+    while (braceIndex < text.length && text[braceIndex] !== '{') braceIndex++;
+    if (text[braceIndex] !== '{') continue;
+    const objectText = extractBalancedBraceObject(text, braceIndex);
+    if (!objectText) continue;
+    try {
+      return parseTubiJsObjectLiteral(objectText);
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+function getTubiReactQueryState() {
+  return readTubiReactQueryStateFromScripts();
+}
+
+function readTubiSeriesIdFromReactQueryState() {
+  const state = getTubiReactQueryState();
+  if (!state?.queries?.length) return null;
+  for (const query of state.queries) {
+    const data = query?.state?.data;
+    if (!data) continue;
+    if (data.id && Array.isArray(data.seasons)) return String(data.id);
+    if (data.series_id) return String(data.series_id);
+    for (const season of data.seasons || []) {
+      for (const episode of season.episodes || []) {
+        if (episode?.series_id) return String(episode.series_id);
+      }
+    }
+  }
+  return null;
+}
+
+function getTubiSeriesId(url = location.href) {
+  try {
+    const path = new URL(url, location.origin).pathname;
+    const seriesMatch = path.match(/\/series\/(\d+)/);
+    if (seriesMatch) return seriesMatch[1];
+  } catch { /* ignore */ }
+  const fromReactQuery = readTubiSeriesIdFromReactQueryState();
+  if (fromReactQuery) return fromReactQuery;
+  return null;
+}
+
+function getTubiShowIdFromUrl(url = location.href) {
+  return getTubiSeriesId(url);
+}
+
+function findTubiSeriesDataInReactQueryState(state) {
+  if (!state?.queries?.length) return null;
+  for (const query of state.queries) {
+    const data = query?.state?.data;
+    if (!Array.isArray(data?.seasons)) continue;
+    if (data.seasons.some(season => Array.isArray(season?.episodes) && season.episodes.length)) {
+      return data;
+    }
+  }
+  return null;
+}
+
+function tubiEpisodeTitleSlug(title) {
+  const match = (title || '').match(/\bS\d+\s*:?\s*E\d+\s*[-–—]\s*(.+)/i);
+  const name = (match?.[1] || title || '').trim();
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildTubiEpisodeUrl(id, season, episode, title) {
+  const seasonPart = String(season).padStart(2, '0');
+  const episodePart = String(episode).padStart(2, '0');
+  const slug = tubiEpisodeTitleSlug(title);
+  const path = slug
+    ? `s${seasonPart}-e${episodePart}-${slug}`
+    : `s${seasonPart}-e${episodePart}`;
+  return `https://tubitv.com/tv-shows/${id}/${path}`;
+}
+
+function parseTubiEpisodesFromPageState() {
+  const state = getTubiReactQueryState();
+  const seriesData = findTubiSeriesDataInReactQueryState(state);
+  if (!seriesData?.seasons?.length) return [];
+  const episodes = [];
+  const seen = new Set();
+  for (const season of seriesData.seasons) {
+    const seasonNumber = Number(season?.number);
+    if (!Number.isFinite(seasonNumber) || seasonNumber <= 0) continue;
+    for (const episode of season.episodes || []) {
+      const id = episode?.id;
+      const episodeNumber = Number(episode?.num ?? episode?.episode_number);
+      if (!id || !Number.isFinite(episodeNumber) || episodeNumber <= 0) continue;
+      const title = (episode?.title || '').trim()
+        || formatTubiEpisodeLabel(seasonNumber, episodeNumber);
+      const url = buildTubiEpisodeUrl(id, seasonNumber, episodeNumber, title);
+      if (seen.has(url)) continue;
+      seen.add(url);
+      episodes.push({ url, title, season: seasonNumber, episode: episodeNumber });
+    }
+  }
+  return episodes;
+}
+
+function parseTubiEpisodeLink(anchor) {
+  const href = anchor.href?.split('?')[0];
+  if (!href || !/\/tv-shows\/\d+/i.test(href)) return null;
+  const text = (anchor.textContent || '').replace(/\s+/g, ' ').trim();
+  const textMatch = text.match(/\bS(\d+)\s*:?\s*E(\d+)\s*[-–—]\s*(.+)/i)
+    || text.match(/\bS(\d+)\s*:?\s*E(\d+)\b/i);
+  if (textMatch) {
+    return {
+      url: href,
+      title: textMatch[3]?.trim() || text,
+      season: Number(textMatch[1]),
+      episode: Number(textMatch[2]),
+    };
+  }
+  const slugMatch = href.match(/s(\d+)-e(\d+)/i);
+  if (!slugMatch) return null;
+  return {
+    url: href,
+    title: text || formatTubiEpisodeLabel(slugMatch[1], slugMatch[2]),
+    season: Number(slugMatch[1]),
+    episode: Number(slugMatch[2]),
+  };
+}
+
+function collectTubiEpisodesFromCurrentDom() {
+  const episodes = [];
+  const seen = new Set();
+  for (const anchor of document.querySelectorAll('a[href*="/tv-shows/"]')) {
+    const parsed = parseTubiEpisodeLink(anchor);
+    if (!parsed || seen.has(parsed.url)) continue;
+    seen.add(parsed.url);
+    episodes.push(parsed);
+  }
+  return episodes;
+}
+
+function mergeTubiEpisodes(existing, found) {
+  const seen = new Set(existing.map(ep => ep.url));
+  for (const ep of found) {
+    if (seen.has(ep.url)) continue;
+    seen.add(ep.url);
+    existing.push(ep);
+  }
+  return existing;
+}
+
+async function collectTubiEpisodesFromSeasonDropdown() {
+  let all = collectTubiEpisodesFromCurrentDom();
+  let dropdownReady = false;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    dropdownReady = await openSeasonDropdown(`Tubi collect ${attempt}`);
+    if (dropdownReady) break;
+    await wait(500);
+  }
+  if (!dropdownReady) return all;
+  const seasonOptions = findSeasonDropdownOptions();
+  if (!seasonOptions.length) return all;
+  for (let i = 0; i < seasonOptions.length; i++) {
+    const { label } = seasonOptions[i];
+    if (i > 0) {
+      const reopened = await openSeasonDropdown(`Tubi season ${i + 1}`);
+      if (!reopened) continue;
+    }
+    const freshOptions = findSeasonDropdownOptions();
+    const option = freshOptions.find(opt => opt.label === label);
+    if (!option) continue;
+    clickElement(option.el);
+    await wait(2000);
+    mergeTubiEpisodes(all, collectTubiEpisodesFromCurrentDom());
+  }
+  return all;
+}
+
+async function collectTubiEpisodes() {
+  const fromPageState = parseTubiEpisodesFromPageState();
+  if (fromPageState.length) {
+    console.log(`[Shufflr] Tubi: collected ${fromPageState.length} episode(s) via React Query state`);
+    return fromPageState;
+  }
+  console.log('[Shufflr] Tubi: React Query state unavailable — falling back to season dropdown');
+  const fromDropdown = await collectTubiEpisodesFromSeasonDropdown();
+  console.log(`[Shufflr] Tubi: collected ${fromDropdown.length} episode(s) via season dropdown`);
+  return fromDropdown;
+}
+
+async function getCachedTubiEpisodes(showId) {
+  if (!isChromeContextValid() || !showId) return null;
+  const entry = await storageLocalGet(tubiEpisodeCacheKey(showId));
+  if (!entry?.cachedAt || !Array.isArray(entry.episodes) || !entry.episodes.length) return null;
+  if (Date.now() - entry.cachedAt > EPISODE_CACHE_TTL_MS) return null;
+  return entry.episodes;
+}
+
+async function setCachedTubiEpisodes(showId, episodes, showName) {
+  if (!isChromeContextValid() || !showId) return;
+  await storageLocalSet(tubiEpisodeCacheKey(showId), {
+    showId,
+    showName: showName || null,
+    episodes,
+    cachedAt: Date.now(),
+  });
+}
+
+function pickRandomTubiEpisode(episodes, currentUrl = null) {
+  if (!episodes?.length) return null;
+  const normalizedCurrent = currentUrl?.split('?')[0] || null;
+  const pool = normalizedCurrent
+    ? episodes.filter(ep => ep.url !== normalizedCurrent)
+    : episodes;
+  const pickFrom = pool.length ? pool : episodes;
+  return pickFrom[Math.floor(Math.random() * pickFrom.length)];
+}
+
+function updateTubiShuffleUI(showName) {
+  const btn = document.getElementById('shufflr-btn');
+  const label = document.getElementById('shufflr-label');
+  const status = document.getElementById('shufflr-status');
+  if (!btn || !label) return;
+  btn.classList.add('active');
+  label.textContent = 'ON';
+  if (status) {
+    const name = showName || getTubiShowTitle() || '';
+    status.textContent = name ? name.toUpperCase().slice(0, 24) : '';
+  }
+}
+
+// ── Up Next suppression (built in from day one) ───────────────────────────
+
+function isTubiUpNextOverlayText(text) {
+  if (!text) return false;
+  const t = String(text).replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (/\bstarting\s+in\s+\d+\s*s(?:ec(?:onds?)?)?\b/i.test(t)) return true;
+  if (/\bup\s*next\b/i.test(t)) return true;
+  return false;
+}
+
+function elementHasTubiUpNextContext(el) {
+  let node = el;
+  for (let depth = 0; node && depth < 10; depth += 1) {
+    const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (isTubiUpNextOverlayText(text)) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function isTubiUpNextDismissControl(el) {
+  if (!el) return false;
+  const label = `${el.textContent || ''} ${el.getAttribute?.('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
+  if (!label) return false;
+  if (/^hide$/i.test(label)) return true;
+  if (label.length <= 24 && /\bhide\b/i.test(label) && !/\bhide\s+ads?\b/i.test(label)) return true;
+  return false;
+}
+
+function findTubiUpNextHideButton(root = document) {
+  const nodes = root.querySelectorAll?.('button, [role="button"], a, span') || [];
+  for (const el of nodes) {
+    if (!isTubiUpNextDismissControl(el)) continue;
+    return el.closest('button, [role="button"], a') || el;
+  }
+  return null;
+}
+
+function findTubiUpNextContainers(root = document.body) {
+  if (!root?.querySelectorAll) return [];
+  const found = new Set();
+  const selectorHits = root.querySelectorAll?.(
+    '[class*="UpNext"], [class*="up-next"], [class*="upNext"], [class*="NextEpisode"], [class*="next-episode"], [data-testid*="up-next"], [data-testid*="next-episode"], [aria-label*="Up Next"], [aria-label*="up next"], [aria-label*="Starting in"]'
+  ) || [];
+  for (const el of selectorHits) {
+    if (isTubiUpNextOverlayText(el.textContent || '') || findTubiUpNextHideButton(el)) {
+      found.add(el);
+    }
+  }
+  const walkRoots = root === document.body || !document.body ? [root] : [root, document.body];
+  for (const scope of walkRoots) {
+    if (!scope?.querySelectorAll) continue;
+    for (const el of scope.querySelectorAll('div, section, aside, article, [role="dialog"]')) {
+      if (found.has(el)) continue;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 500) continue;
+      if (!isTubiUpNextOverlayText(text)) continue;
+      const hasHide = !!findTubiUpNextHideButton(el);
+      const hasNextCta = /\b(play|watch|next|start)\b/i.test(text);
+      if (hasHide || hasNextCta) found.add(el);
+    }
+  }
+  return [...found];
+}
+
+function clickTubiUpNextHide(hideBtn) {
+  if (!hideBtn) return false;
+  const now = Date.now();
+  const last = Number(hideBtn.dataset.shufflrTubiHideClickedAt || 0);
+  if (now - last < 700) return false;
+  hideBtn.dataset.shufflrTubiHideClickedAt = String(now);
+  try {
+    const opts = { bubbles: true, cancelable: true, view: window };
+    if (typeof PointerEvent === 'function') {
+      hideBtn.dispatchEvent(new PointerEvent('pointerdown', opts));
+      hideBtn.dispatchEvent(new PointerEvent('pointerup', opts));
+    }
+    hideBtn.dispatchEvent(new MouseEvent('mousedown', opts));
+    hideBtn.dispatchEvent(new MouseEvent('mouseup', opts));
+    hideBtn.dispatchEvent(new MouseEvent('click', opts));
+    if (typeof hideBtn.click === 'function') hideBtn.click();
+    console.log('[Shufflr] Tubi Up Next dismissed');
+    return true;
+  } catch (err) {
+    console.log('[Shufflr] Tubi Up Next: Hide click failed', err);
+    return false;
+  }
+}
+
+function neutralizeTubiUpNextContainer(container) {
+  if (!container) return false;
+  const hideBtn = findTubiUpNextHideButton(container);
+  if (hideBtn && elementHasTubiUpNextContext(hideBtn)) {
+    clickTubiUpNextHide(hideBtn);
+  }
+  if (container.dataset?.shufflrTubiUpNextSuppressed === '1') return true;
+  try {
+    container.style.setProperty('display', 'none', 'important');
+    container.style.setProperty('visibility', 'hidden', 'important');
+    container.style.setProperty('pointer-events', 'none', 'important');
+    container.setAttribute('aria-hidden', 'true');
+    container.dataset.shufflrTubiUpNextSuppressed = '1';
+  } catch { /* ignore */ }
+  try {
+    for (const link of container.querySelectorAll('a[href*="/tv-shows/"]')) {
+      if (link.dataset.shufflrTubiNextBlocked === '1') continue;
+      link.dataset.shufflrTubiNextBlocked = '1';
+      link.addEventListener('click', (event) => {
+        if (!isTubiShuffleActive()) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }, true);
+    }
+    for (const btn of container.querySelectorAll('button, [role="button"]')) {
+      if (isTubiUpNextDismissControl(btn)) continue;
+      const label = `${btn.textContent || ''} ${btn.getAttribute('aria-label') || ''}`.toLowerCase();
+      if (!/\b(play|watch|next|start)\b/.test(label)) continue;
+      if (btn.dataset.shufflrTubiNextBlocked === '1') continue;
+      btn.dataset.shufflrTubiNextBlocked = '1';
+      btn.addEventListener('click', (event) => {
+        if (!isTubiShuffleActive()) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }, true);
+    }
+  } catch { /* ignore */ }
+  return true;
+}
+
+function scanAndSuppressTubiUpNext(root = document.body) {
+  if (!IS_TUBI || !isChromeContextValid()) return;
+  if (!isTubiShuffleActive() || !isTubiEpisodePage()) return;
+  const globalHide = findTubiUpNextHideButton(document);
+  if (globalHide && elementHasTubiUpNextContext(globalHide)) {
+    clickTubiUpNextHide(globalHide);
+  }
+  for (const container of findTubiUpNextContainers(root || document.body)) {
+    neutralizeTubiUpNextContainer(container);
+  }
+}
+
+function teardownTubiUpNextSuppressor() {
+  if (tubiUpNextObserver) {
+    try { tubiUpNextObserver.disconnect(); } catch { /* ignore */ }
+    tubiUpNextObserver = null;
+  }
+  if (tubiUpNextPollTimer) {
+    clearInterval(tubiUpNextPollTimer);
+    tubiUpNextPollTimer = null;
+  }
+  window.__shufflrTubiUpNextSuppressor = false;
+}
+
+function ensureTubiUpNextSuppressor() {
+  if (!isChromeContextValid() || !IS_TUBI) return;
+  if (!isTubiShuffleActive()) {
+    teardownTubiUpNextSuppressor();
+    return;
+  }
+  if (window.__shufflrTubiUpNextSuppressor) {
+    scanAndSuppressTubiUpNext();
+    return;
+  }
+  window.__shufflrTubiUpNextSuppressor = true;
+  console.log('[Shufflr] Tubi Up Next suppressor armed');
+
+  let scanScheduled = false;
+  const scheduleScan = () => {
+    if (scanScheduled) return;
+    scanScheduled = true;
+    queueMicrotask(() => {
+      scanScheduled = false;
+      if (!isTubiShuffleActive()) {
+        teardownTubiUpNextSuppressor();
+        return;
+      }
+      scanAndSuppressTubiUpNext();
+    });
+  };
+
+  tubiUpNextObserver = new MutationObserver(() => scheduleScan());
+  if (document.body) {
+    tubiUpNextObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
+  tubiUpNextPollTimer = setInterval(() => {
+    if (!isChromeContextValid() || !isTubiShuffleActive()) {
+      teardownTubiUpNextSuppressor();
+      return;
+    }
+    scanAndSuppressTubiUpNext();
+  }, 300);
+  scanAndSuppressTubiUpNext();
+}
+
+// ── Episode-end + safe video-swap ─────────────────────────────────────────
+
+function clearTubiWatcherIdRetry() {
+  if (tubiWatcherIdRetryTimer) {
+    clearTimeout(tubiWatcherIdRetryTimer);
+    tubiWatcherIdRetryTimer = null;
+  }
+  window.__shufflrTubiIdRetryScheduled = false;
+}
+
+function scheduleTubiWatcherIdRetry() {
+  if (window.__shufflrTubiIdRetryScheduled) return;
+  if (tubiWatcherIdRetryCount >= TUBI_WATCHER_ID_MAX_RETRIES) {
+    console.log('[Shufflr] Tubi: giving up on series id resolution for now');
+    return;
+  }
+  window.__shufflrTubiIdRetryScheduled = true;
+  tubiWatcherIdRetryCount += 1;
+  tubiWatcherIdRetryTimer = setTimeout(() => {
+    tubiWatcherIdRetryTimer = null;
+    window.__shufflrTubiIdRetryScheduled = false;
+    installTubiEpisodeEndWatcher();
+  }, TUBI_WATCHER_ID_RETRY_MS);
+}
+
+function teardownTubiEpisodeEndWatcher() {
+  if (tubiTimeupdateVideo) {
+    if (tubiTimeupdateHandler) {
+      tubiTimeupdateVideo.removeEventListener('timeupdate', tubiTimeupdateHandler);
+    }
+    if (tubiSeekedHandler) {
+      tubiTimeupdateVideo.removeEventListener('seeked', tubiSeekedHandler);
+    }
+    if (tubiEndedHandler) {
+      tubiTimeupdateVideo.removeEventListener('ended', tubiEndedHandler);
+    }
+  }
+  tubiTimeupdateVideo = null;
+  tubiTimeupdateHandler = null;
+  tubiSeekedHandler = null;
+  tubiEndedHandler = null;
+  tubiEpisodeEndTriggered = false;
+  tubiWatcherIdRetryCount = 0;
+  clearTubiWatcherIdRetry();
+  window.__shufflrTubiNoVideoRetryScheduled = false;
+}
+
+function maybeShuffleTubiNearEnd(video, source, { requirePlaying = true, skipRemainingGate = false } = {}) {
+  if (tubiEpisodeEndTriggered) return;
+  if (!video?.duration || !Number.isFinite(video.duration)) return;
+  if (requirePlaying && video.paused) return;
+  if (isNonEpisodePlayback(video)) {
+    logNonEpisodePlaybackIgnored(video);
+    return;
+  }
+  if (!skipRemainingGate) {
+    const remaining = video.duration - video.currentTime;
+    if (remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
+  }
+  tubiEpisodeEndTriggered = true;
+  console.log(`[Shufflr] Tubi episode-end shuffle fired (${source})`);
+  void navigateToRandomTubiEpisode(source);
+}
+
+function ensureTubiVideoSwapObserver() {
+  if (!isChromeContextValid() || !IS_TUBI) return;
+  if (window.__shufflrTubiVideoSwapObserver) return;
+  window.__shufflrTubiVideoSwapObserver = true;
+
+  const checkForVideoSwap = (from = 'mutation') => {
+    if (!isChromeContextValid() || !IS_TUBI) return;
+    if (!isTubiEpisodePage() || !isTubiShuffleActive()) return;
+    const liveVideo = document.querySelector('video');
+    // Real reference inequality only — never reinstall on unrelated DOM churn.
+    if (!liveVideo || !tubiTimeupdateVideo) return;
+    if (liveVideo === tubiTimeupdateVideo) return;
+    console.log('[Shufflr] Tubi video element swapped — reattaching watcher', { from });
+    installTubiEpisodeEndWatcher();
+  };
+
+  const observer = new MutationObserver(() => checkForVideoSwap('mutation'));
+  const observeBody = () => {
+    if (!document.body) return;
+    try {
+      observer.observe(document.body, { childList: true, subtree: true });
+    } catch { /* ignore */ }
+  };
+  if (document.body) observeBody();
+  else document.addEventListener('DOMContentLoaded', observeBody, { once: true });
+  setInterval(() => checkForVideoSwap('interval'), 2000);
+}
+
+function installTubiEpisodeEndWatcher() {
+  if (!isChromeContextValid() || !isTubiEpisodePage()) return;
+  if (!isTubiShuffleActive()) return;
+
+  ensureTubiVideoSwapObserver();
+  ensureTubiUpNextSuppressor();
+
+  let showId = getTubiShowIdFromUrl();
+  if (isTubiUnresolvedSeriesId(showId)) {
+    const activeId = getTubiActiveShuffleSeriesId();
+    if (isTubiReliableSeriesId(activeId)) {
+      showId = activeId;
+    } else {
+      scheduleTubiWatcherIdRetry();
+      return;
+    }
+  }
+
+  if (!isTubiShuffleActiveForShow(showId)) return;
+  clearTubiWatcherIdRetry();
+  tubiWatcherIdRetryCount = 0;
+
+  const video = document.querySelector('video');
+  if (!video) {
+    if (!window.__shufflrTubiNoVideoRetryScheduled) {
+      window.__shufflrTubiNoVideoRetryScheduled = true;
+      setTimeout(() => {
+        window.__shufflrTubiNoVideoRetryScheduled = false;
+        installTubiEpisodeEndWatcher();
+      }, 1000);
+    }
+    return;
+  }
+
+  if (tubiTimeupdateVideo === video && tubiTimeupdateHandler && tubiSeekedHandler && tubiEndedHandler) {
+    return;
+  }
+
+  if (tubiTimeupdateVideo) {
+    if (tubiTimeupdateHandler) {
+      tubiTimeupdateVideo.removeEventListener('timeupdate', tubiTimeupdateHandler);
+    }
+    if (tubiSeekedHandler) {
+      tubiTimeupdateVideo.removeEventListener('seeked', tubiSeekedHandler);
+    }
+    if (tubiEndedHandler) {
+      tubiTimeupdateVideo.removeEventListener('ended', tubiEndedHandler);
+    }
+  }
+
+  tubiEpisodeEndTriggered = false;
+  tubiTimeupdateVideo = video;
+  tubiTimeupdateHandler = () => {
+    maybeShuffleTubiNearEnd(video, 'timeupdate', { requirePlaying: true });
+  };
+  tubiSeekedHandler = () => {
+    maybeShuffleTubiNearEnd(video, 'seeked', { requirePlaying: false });
+  };
+  tubiEndedHandler = () => {
+    maybeShuffleTubiNearEnd(video, 'ended', { requirePlaying: false, skipRemainingGate: true });
+  };
+
+  video.addEventListener('timeupdate', tubiTimeupdateHandler);
+  video.addEventListener('seeked', tubiSeekedHandler);
+  video.addEventListener('ended', tubiEndedHandler);
+  console.log('[Shufflr] Tubi episode-end watcher installed');
+}
+
+async function navigateToRandomTubiEpisode(source = 'episode-end') {
+  if (!isChromeContextValid()) return;
+  if (isShufflrAutoNavStopped()) return;
+
+  let showId = getTubiShowIdFromUrl();
+  if (isTubiUnresolvedSeriesId(showId)) {
+    showId = getTubiActiveShuffleSeriesId();
+  }
+  if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) return;
+
+  let episodes = await getCachedTubiEpisodes(showId);
+  if (!episodes?.length && isTubiSeriesPage()) {
+    episodes = await collectTubiEpisodes();
+    if (episodes.length) {
+      await setCachedTubiEpisodes(showId, episodes, getTubiShowTitle());
+    }
+  }
+  if (!episodes?.length) {
+    console.log(`[Shufflr] Tubi: no cached episodes for shuffle (${source})`);
+    return;
+  }
+
+  const pick = pickRandomTubiEpisode(episodes, location.href);
+  if (!pick) return;
+
+  const showName = getTubiShowTitle() || 'Tubi';
+  showToast(`Shuffling ${showName}...`);
+  console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
+
+  await shufflrNavigateTo(pick.url, {
+    mode: 'auto',
+    source: `tubi-${source}`,
+    beforeNavigate: () => {
+      tubiEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
+  setTimeout(() => {
+    tubiEpisodeEndTriggered = false;
+    installTubiEpisodeEndWatcher();
+  }, 3000);
+}
+
+function restoreTubiShuffleSession() {
+  if (!IS_TUBI || !isTubiShuffleActive()) return false;
+  shufflrActive = true;
+  ensureTubiUpNextSuppressor();
+  if (hasShufflrButtonInDom()) {
+    updateTubiShuffleUI(getTubiShowTitle());
+  }
+  if (isTubiEpisodePage()) {
+    installTubiEpisodeEndWatcher();
+  }
+  return true;
+}
+
+function stopTubiShuffle() {
+  shufflrActive = false;
+  try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(TUBI_PENDING_KEY); } catch { /* ignore */ }
+  teardownTubiEpisodeEndWatcher();
+  teardownTubiUpNextSuppressor();
+  void resetShuffleModeToSingle();
+  updateShuffleUI('');
+  showToast('Shufflr OFF');
+  console.log('[Shufflr] Tubi shuffle stopped');
+}
+
+async function startTubiShuffle() {
+  if (!isChromeContextValid()) return;
+  clearShufflrAutoNavStopped();
+
+  let showId = null;
+  for (let attempt = 0; attempt < 15; attempt++) {
+    showId = getTubiShowIdFromUrl();
+    if (isTubiReliableSeriesId(showId)) break;
+    showId = null;
+    await wait(500);
+  }
+  if (!isTubiReliableSeriesId(showId)) {
+    showToast('Could not identify this show.');
+    return;
+  }
+
+  // One reload to hydrate React Query / episode list (Tubi SPA often needs it).
+  if (sessionStorage.getItem(TUBI_PENDING_KEY) !== 'reloaded') {
+    sessionStorage.setItem(TUBI_PENDING_KEY, 'reloaded');
+    location.reload();
+    return;
+  }
+  sessionStorage.removeItem(TUBI_PENDING_KEY);
+
+  const showName = getTubiShowTitle() || 'this show';
+  showToast(`Shuffling ${showName}...`);
+
+  let episodes = await getCachedTubiEpisodes(showId);
+  if (!episodes?.length) {
+    await wait(800);
+    episodes = await collectTubiEpisodes();
+  }
+  if (!episodes?.length) {
+    showToast('Could not find episodes.');
+    return;
+  }
+
+  await setCachedTubiEpisodes(showId, episodes, showName);
+  if (!setTubiActiveShuffleSeriesId(showId)) {
+    showToast('Could not identify this show.');
+    return;
+  }
+
+  shufflrActive = true;
+  ensureTubiUpNextSuppressor();
+  updateTubiShuffleUI(showName);
+  console.log('[Shufflr] Tubi shuffle started', { showId, episodes: episodes.length });
+
+  // Series page → jump to a random episode. Already on an episode → arm and keep watching.
+  if (isTubiEpisodePage()) {
+    installTubiEpisodeEndWatcher();
+    return;
+  }
+
+  const pick = pickRandomTubiEpisode(episodes, location.href);
+  if (!pick) {
+    showToast('Could not pick an episode.');
+    return;
+  }
+
+  await shufflrNavigateTo(pick.url, {
+    mode: 'user',
+    source: 'tubi-toggle-start',
+    beforeNavigate: () => captureFullscreenBeforeShufflrNavigation(),
+  });
+}
+
+function syncTubiShuffleUiState() {
+  if (!IS_TUBI || !isTubiShuffleActive()) return;
+  const seriesId = getTubiSeriesId();
+  if (seriesId && !isTubiShuffleActiveForShow(seriesId)) return;
+  restoreTubiShuffleSession();
 }
 
 /** Hydration-ready anchor near title/player — signals the SPA shell is ready enough to host UI. */
@@ -7548,16 +8422,17 @@ function injectTubiShufflrButtonIfNeeded(startedAt) {
 
   if (document.getElementById('shufflr-wrap')) {
     ensureTubiButtonHandlersBound();
+    syncTubiShuffleUiState();
     return true;
   }
 
   if (!findTubiInjectAnchor()) return false;
 
-  // null video → shared UI only; do not attach Max episode-end listeners.
   injectShufflrButton(null);
   ensureTubiButtonHandlersBound();
   const elapsed = Math.max(0, Date.now() - (startedAt || Date.now()));
   console.log(`[Shufflr] Tubi button injected (after ${elapsed}ms)`);
+  syncTubiShuffleUiState();
   return !!document.getElementById('shufflr-wrap');
 }
 
@@ -7607,6 +8482,7 @@ function installTubiUrlObserver() {
 
     if (document.getElementById('shufflr-wrap')) {
       ensureTubiButtonHandlersBound();
+      syncTubiShuffleUiState();
       return;
     }
     window.__shufflrTubiInjectPolling = false;
@@ -7656,6 +8532,19 @@ if (IS_TUBI) {
   installTubiUrlObserver();
   installTubiButtonPersistenceObserver();
   startTubiButtonInjectPolling();
+
+  // Resume after reload hydrate or episode-end navigation.
+  if (sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded') {
+    setTimeout(() => {
+      if (!isChromeContextValid() || !IS_TUBI) return;
+      void startTubiShuffle();
+    }, 1200);
+  } else if (isTubiShuffleActive()) {
+    setTimeout(() => {
+      if (!isChromeContextValid() || !IS_TUBI) return;
+      restoreTubiShuffleSession();
+    }, 800);
+  }
 }
 
 // ── CRUNCHYROLL HELPERS ──────────────────────────────────────────────────
