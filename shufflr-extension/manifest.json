@@ -9,6 +9,8 @@
     "https://www.max.com/*",
     "https://play.hbomax.com/*",
     "https://www.hbomax.com/*",
+    "https://tubitv.com/*",
+    "https://www.tubitv.com/*",
     "*://*.crunchyroll.com/*",
     "https://shufflr-app.netlify.app/*",
     "https://*.api.hbomax.com/*",
@@ -33,6 +35,14 @@
         "https://www.max.com/*",
         "https://play.hbomax.com/*",
         "https://www.hbomax.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://tubitv.com/*",
+        "https://www.tubitv.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

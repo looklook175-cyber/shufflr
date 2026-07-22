@@ -119,7 +119,10 @@ const SUPABASE_KEY = 'sb_publishable_kNuk_g4uMWvhrexbh2MBmw_zxJ_7pFz';
 const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
 const IS_MAX = ['play.max.com', 'www.max.com', 'play.hbomax.com', 'www.hbomax.com'].includes(location.hostname);
+const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
+const TUBI_INJECT_POLL_MS = 200;
+const TUBI_INJECT_MAX_MS = 15000;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
 const CRUNCHYROLL_SHUFFLE_ACTIVE_KEY = 'shufflr_crunchyroll_shuffle_active';
 const CRUNCHYROLL_PENDING_KEY = 'shufflr_crunchyroll_pending';
@@ -4039,6 +4042,10 @@ function onShuffleBtnClick(event) {
   if (!chrome.runtime?.id) return;
   event.preventDefault();
   event.stopPropagation();
+  // Tubi rebuild step 1: button is visual-only — no shuffle/toggle yet.
+  if (IS_TUBI && (isTubiSeriesPage() || isTubiEpisodePage())) {
+    return;
+  }
   if (isCrunchyroll && (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage())) {
     if (shufflrActive) {
       void stopCrunchyrollShuffle();
@@ -7496,6 +7503,160 @@ function installCrunchyrollUrlObserver() {
   setInterval(routeCrunchyrollPageAfterUrlChange, 500);
 }
 
+// ── TUBI HELPERS (rebuild step 1: reliable inject only — no shuffle) ───────
+
+function isTubiSeriesPage() {
+  return IS_TUBI && location.pathname.includes('/series/');
+}
+
+function isTubiEpisodePage() {
+  return IS_TUBI && location.pathname.includes('/tv-shows/');
+}
+
+function isTubiInjectablePage() {
+  return isTubiSeriesPage() || isTubiEpisodePage();
+}
+
+/** Hydration-ready anchor near title/player — signals the SPA shell is ready enough to host UI. */
+function findTubiInjectAnchor() {
+  if (!isTubiInjectablePage()) return null;
+  const video = document.querySelector('video');
+  if (video) return video;
+  const title = document.querySelector('h1');
+  if (title && (title.textContent || '').trim()) return title;
+  const shell = document.querySelector(
+    '#root main, main, #root, [class*="web-player"], [class*="WebPlayer"], [class*="content-title"]'
+  );
+  if (shell) return shell;
+  return null;
+}
+
+/** Skip double-inject, but re-bind handlers if the wrap lost its bound flag. */
+function ensureTubiButtonHandlersBound() {
+  const wrap = document.getElementById('shufflr-wrap');
+  const btn = document.getElementById('shufflr-btn');
+  if (!wrap || !btn) return false;
+  if (wrap.dataset.shufflrBound !== '1') {
+    bindShufflrButtonHandlers();
+    wrap.dataset.shufflrBound = '1';
+  }
+  return true;
+}
+
+function injectTubiShufflrButtonIfNeeded(startedAt) {
+  if (!isChromeContextValid() || !isTubiInjectablePage()) return false;
+
+  if (document.getElementById('shufflr-wrap')) {
+    ensureTubiButtonHandlersBound();
+    return true;
+  }
+
+  if (!findTubiInjectAnchor()) return false;
+
+  // null video → shared UI only; do not attach Max episode-end listeners.
+  injectShufflrButton(null);
+  ensureTubiButtonHandlersBound();
+  const elapsed = Math.max(0, Date.now() - (startedAt || Date.now()));
+  console.log(`[Shufflr] Tubi button injected (after ${elapsed}ms)`);
+  return !!document.getElementById('shufflr-wrap');
+}
+
+function startTubiButtonInjectPolling() {
+  if (!IS_TUBI || !isChromeContextValid()) return;
+  if (window.__shufflrTubiInjectPolling) return;
+  window.__shufflrTubiInjectPolling = true;
+
+  const startedAt = Date.now();
+  console.log('[Shufflr] Tubi inject attempt');
+
+  const tick = () => {
+    if (!isChromeContextValid() || !IS_TUBI) {
+      window.__shufflrTubiInjectPolling = false;
+      return;
+    }
+
+    if (isTubiInjectablePage() && injectTubiShufflrButtonIfNeeded(startedAt)) {
+      window.__shufflrTubiInjectPolling = false;
+      return;
+    }
+
+    if (Date.now() - startedAt >= TUBI_INJECT_MAX_MS) {
+      console.log('[Shufflr] Tubi inject gave up after', TUBI_INJECT_MAX_MS, 'ms');
+      window.__shufflrTubiInjectPolling = false;
+      return;
+    }
+
+    setTimeout(tick, TUBI_INJECT_POLL_MS);
+  };
+
+  tick();
+}
+
+function installTubiUrlObserver() {
+  if (!IS_TUBI || window.__shufflrTubiUrlObserver) return;
+  window.__shufflrTubiUrlObserver = true;
+
+  let lastHref = location.href;
+
+  const onPossibleRouteChange = () => {
+    if (!isChromeContextValid() || !IS_TUBI) return;
+    if (location.href === lastHref) return;
+    lastHref = location.href;
+
+    if (!isTubiInjectablePage()) return;
+
+    if (document.getElementById('shufflr-wrap')) {
+      ensureTubiButtonHandlersBound();
+      return;
+    }
+    window.__shufflrTubiInjectPolling = false;
+    startTubiButtonInjectPolling();
+  };
+
+  const observer = new MutationObserver(onPossibleRouteChange);
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    }, { once: true });
+  }
+  window.addEventListener('popstate', onPossibleRouteChange);
+  setInterval(onPossibleRouteChange, 500);
+}
+
+function installTubiButtonPersistenceObserver() {
+  if (!IS_TUBI || window.__shufflrTubiButtonObserver) return;
+  window.__shufflrTubiButtonObserver = true;
+
+  const observer = new MutationObserver(() => {
+    if (!isChromeContextValid() || !IS_TUBI) return;
+    if (!isTubiInjectablePage()) return;
+
+    if (document.getElementById('shufflr-wrap')) {
+      ensureTubiButtonHandlersBound();
+      return;
+    }
+
+    if (!window.__shufflrTubiInjectPolling) {
+      startTubiButtonInjectPolling();
+    }
+  });
+
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    }, { once: true });
+  }
+}
+
+if (IS_TUBI) {
+  installTubiUrlObserver();
+  installTubiButtonPersistenceObserver();
+  startTubiButtonInjectPolling();
+}
 
 // ── CRUNCHYROLL HELPERS ──────────────────────────────────────────────────
 let crunchyrollEpisodeEndTriggered = false;
