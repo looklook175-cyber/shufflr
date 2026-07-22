@@ -1723,7 +1723,22 @@ async function submitCreatePlaylistForm() {
   }
 
   let showEntry, serviceTag;
-  if (isCrunchyroll) {
+  if (IS_TUBI) {
+    const tubiId = getCurrentTubiSeriesId();
+    if (!tubiId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const tubiSeriesUrl = getCurrentTubiSeriesUrl(tubiId);
+    showEntry = {
+      title,
+      tubiId,
+      tubiSeriesUrl,
+      service: 'tubi',
+    };
+    serviceTag = 'tubi';
+  } else if (isCrunchyroll) {
     const crunchyrollId = getCurrentCrunchyrollSeriesId();
     if (!crunchyrollId) {
       showToast('Could not find show ID');
@@ -2135,6 +2150,31 @@ async function writeYourShowsToStorage(shows) {
 async function addCurrentShowToYourShows() {
   if (!isChromeContextValid()) return;
 
+  if (IS_TUBI) {
+    const tubiId = getCurrentTubiSeriesId();
+    if (!tubiId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const shows = await readYourShowsPreferCloud();
+    const alreadyAdded = shows.some(show => String(show.tubiId) === String(tubiId));
+    if (alreadyAdded) {
+      showToast('Already in Your Shows');
+      return;
+    }
+    const tubiSeriesUrl = getCurrentTubiSeriesUrl(tubiId);
+    shows.push({
+      title,
+      tubiId,
+      tubiSeriesUrl,
+      service: 'tubi',
+    });
+    await writeYourShowsToStorage(shows);
+    showToast(`Added ${title} to Your Shows`);
+    return;
+  }
+
   if (isCrunchyroll) {
     const crunchyrollId = getCurrentCrunchyrollSeriesId();
     if (!crunchyrollId) {
@@ -2186,7 +2226,23 @@ async function addCurrentShowToPlaylist(playlistIndex) {
 
   let showEntry, serviceTag, alreadyAddedCheck;
 
-  if (isCrunchyroll) {
+  if (IS_TUBI) {
+    const tubiId = getCurrentTubiSeriesId();
+    if (!tubiId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const tubiSeriesUrl = getCurrentTubiSeriesUrl(tubiId);
+    showEntry = {
+      title,
+      tubiId,
+      tubiSeriesUrl,
+      service: 'tubi',
+    };
+    serviceTag = 'tubi';
+    alreadyAddedCheck = show => String(show.tubiId) === String(tubiId);
+  } else if (isCrunchyroll) {
     const crunchyrollId = getCurrentCrunchyrollSeriesId();
     if (!crunchyrollId) {
       showToast('Could not find show ID');
@@ -2246,7 +2302,7 @@ async function populatePlaylistDropdown() {
   const dropdown = document.getElementById('shufflr-playlist-dropdown');
   if (!dropdown) return;
   const allPlaylists = await readPlaylistsFromStorage();
-  const currentService = isCrunchyroll ? 'crunchyroll' : 'max';
+  const currentService = IS_TUBI ? 'tubi' : (isCrunchyroll ? 'crunchyroll' : 'max');
   const filteredPlaylists = allPlaylists.filter(p => (p.service || 'max') === currentService);
   dropdownPlaylists = allPlaylists;
   const settings = await readShuffleSettings();
@@ -7740,6 +7796,44 @@ function getTubiSeriesId(url = location.href) {
 
 function getTubiShowIdFromUrl(url = location.href) {
   return getTubiSeriesId(url);
+}
+
+/**
+ * Series ID for Add / Create Playlist.
+ * Series page: /series/{tubiId}/… from the URL.
+ * Watch page: same resolver episode collection uses — getTubiSeriesId →
+ * readTubiSeriesIdFromReactQueryState (React Query page data), never a title-slug guess.
+ */
+function getCurrentTubiSeriesId() {
+  const id = getTubiSeriesId();
+  return isTubiReliableSeriesId(id) ? String(id) : null;
+}
+
+/**
+ * Real series URL only — current /series/ path, or a matching DOM link for this id.
+ * Never invents a title slug.
+ */
+function getCurrentTubiSeriesUrl(seriesId) {
+  const id = seriesId != null ? String(seriesId) : null;
+  if (!id) return null;
+
+  if (isTubiSeriesPage()) {
+    try {
+      const pathMatch = location.pathname.match(/\/series\/\d+(?:\/[^/?#]*)?/);
+      if (pathMatch) return `https://tubitv.com${pathMatch[0]}`;
+    } catch { /* ignore */ }
+  }
+
+  for (const anchor of document.querySelectorAll('a[href*="/series/"]')) {
+    const href = anchor.getAttribute('href') || '';
+    const match = href.match(/\/series\/(\d+)(?:\/[^/?#]*)?/);
+    if (!match || match[1] !== id) continue;
+    if (href.startsWith('http')) return href.split(/[?#]/)[0];
+    return `https://tubitv.com${href.split(/[?#]/)[0]}`;
+  }
+
+  // ID-canonical series URL (no guessed slug).
+  return `https://tubitv.com/series/${id}`;
 }
 
 function findTubiSeriesDataInReactQueryState(state) {
