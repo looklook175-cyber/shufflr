@@ -1062,9 +1062,10 @@ function getShufflrLastAutoNavAt() {
 function recordShufflrAutoNavigation(url) {
   try {
     sessionStorage.setItem(SHUFFLR_LAST_AUTO_NAV_AT_KEY, String(Date.now()));
+    const service = IS_TUBI ? 'tubi' : (isCrunchyroll ? 'crunchyroll' : 'max');
     sessionStorage.setItem(SHUFFLR_PENDING_ERROR_CHECK_KEY, JSON.stringify({
       at: Date.now(),
-      service: isCrunchyroll ? 'crunchyroll' : 'max',
+      service,
       targetUrl: String(url || '').split('?')[0],
     }));
   } catch { /* ignore */ }
@@ -1146,6 +1147,20 @@ function detectStreamingErrorPage() {
       return 'Crunchyroll';
     }
   }
+  if (IS_TUBI) {
+    // Tubi bot/unavailable pages: static 404 URL and/or "Oh Snap" copy.
+    if (/\/static\/404\b/i.test(path) || /\/static\/404\b/i.test(href)) return 'Tubi';
+    if (/\/(404|error|not-found|unavailable)\b/i.test(path)
+      && !isTubiEpisodePage()
+      && !isTubiSeriesPage()) {
+      return 'Tubi';
+    }
+    if (/oh\s*snap|page not found|content (is )?unavailable|something went wrong/i.test(bodyText)
+      && !isTubiEpisodePage()
+      && !isTubiSeriesPage()) {
+      return 'Tubi';
+    }
+  }
   if (IS_MAX) {
     if (/\/(error|404|not-found)/i.test(path)) return 'Max';
     if (/something went wrong|page not found|unavailable/i.test(bodyText)
@@ -1160,6 +1175,7 @@ function detectStreamingErrorPage() {
 
 function isExpectedWatchLandingAfterAutoNav() {
   if (isCrunchyroll) return isCrunchyrollWatchPage();
+  if (IS_TUBI) return isTubiEpisodePage();
   if (IS_MAX) return location.href.includes('/video/') || location.href.includes('/play/');
   return false;
 }
@@ -1245,6 +1261,7 @@ async function checkShufflrAutoNavErrorLanding() {
 
     // Series-page hops are valid intermediate landings — clear the check.
     if ((isCrunchyroll && isCrunchyrollSeriesPage())
+      || (IS_TUBI && isTubiSeriesPage())
       || (IS_MAX && location.href.includes('/show/'))) {
       try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
       return;
@@ -1272,7 +1289,8 @@ async function checkShufflrAutoNavErrorLanding() {
     const bodyHint = /oh\s*snap|too many requests|something went wrong|page not found|unavailable|access denied/i
       .test(`${document.title || ''}\n${document.body?.innerText?.slice(0, 2000) || ''}`);
     if (delayed || bodyHint) {
-      await disarmShufflrAfterErrorPage(delayed || (isCrunchyroll ? 'Crunchyroll' : 'Max'));
+      const fallbackLabel = isCrunchyroll ? 'Crunchyroll' : (IS_TUBI ? 'Tubi' : 'Max');
+      await disarmShufflrAfterErrorPage(delayed || fallbackLabel);
     }
   } finally {
     window.__shufflrErrorCheckInFlight = false;
@@ -9701,6 +9719,9 @@ if (IS_TUBI) {
   installTubiUrlObserver();
   installTubiButtonPersistenceObserver();
   startTubiButtonInjectPolling();
+
+  // Inbound stop-on-error: same landing check Max/CR run after an auto-nav.
+  void checkShufflrAutoNavErrorLanding();
 
   // Resume after reload hydrate or episode-end navigation.
   if (sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded') {
