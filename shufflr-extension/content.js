@@ -8514,6 +8514,7 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
   let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
     await loadTubiPlaylistPlayState(active);
 
+  // Round-robin: prefer shows not yet played this round; reset when the round completes.
   let pool = shows;
   if (roundPlayedShows?.size) {
     const unplayed = shows.filter(s => !roundPlayedShows.has(String(s.tubiId)));
@@ -8523,6 +8524,7 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
       pool = shows;
     }
   }
+  // Avoid immediately repeating the last-played show when more than one remains.
   if (lastPlayedShow && pool.length > 1) {
     const withoutLast = pool.filter(s => String(s.tubiId) !== String(lastPlayedShow));
     if (withoutLast.length) pool = withoutLast;
@@ -8530,47 +8532,79 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
 
   const pickShow = pool[Math.floor(Math.random() * pool.length)];
   const showId = String(pickShow.tubiId);
+  const title = pickShow.title || pickShow.name || showId;
   const seriesUrl = getTubiSeriesUrlFromPlaylistShow(pickShow);
   if (!seriesUrl) {
-    await navigateToRandomTubiEpisodeForCurrentShow(source);
+    console.log(`[Shufflr] Tubi playlist pick ${title} has no series URL — excluding`);
+    await shuffleFromActiveTubiPlaylist(active, source, {
+      excludeShowIds: new Set([...excludeShowIds, showId]),
+    });
     return;
   }
 
-  const currentId = getCurrentTubiSeriesId();
-  if (currentId && String(currentId) === showId && (isTubiSeriesPage() || isTubiEpisodePage())) {
-    // Same show — pick from cache / current page.
-    let episodes = await getCachedTubiEpisodes(showId);
-    if (!episodes?.length && isTubiSeriesPage()) {
-      episodes = await collectTubiEpisodes();
-      if (episodes.length) await setCachedTubiEpisodes(showId, episodes, pickShow.title || pickShow.name);
+  // Warm cache — pick an episode and navigate directly (no series hop).
+  const cached = await getCachedTubiEpisodes(showId);
+  if (cached?.length) {
+    const pickEp = pickTubiEpisodeHonoringPlayed(cached, playedByShow, showId, location.href);
+    if (!pickEp?.url) {
+      console.log(`[Shufflr] Tubi playlist pick ${title} has no usable episode URLs — excluding`);
+      await shuffleFromActiveTubiPlaylist(active, source, {
+        excludeShowIds: new Set([...excludeShowIds, showId]),
+      });
+      return;
     }
-    if (episodes?.length) {
-      const pickEp = pickTubiEpisodeHonoringPlayed(episodes, playedByShow, showId, location.href);
-      if (pickEp?.url) {
-        roundPlayedShows.add(showId);
-        await saveTubiPlaylistShuffleState(
-          active, pickShow, pickEp, playedByShow, showId, roundPlayedShows, nextEpisodeIndexByShow
-        );
-        setTubiActiveShuffleSeriesId(showId);
-        markTubiExpectedLanding(pickEp.url);
-        await shufflrNavigateTo(pickEp.url, {
-          mode: 'auto',
-          source: `tubi-playlist-${source}`,
-          beforeNavigate: () => {
-            tubiEpisodeEndTriggered = true;
-            captureFullscreenBeforeShufflrNavigation();
-          },
-        });
-        setTimeout(() => {
-          tubiEpisodeEndTriggered = false;
-          installTubiEpisodeEndWatcher();
-        }, 3000);
-        return;
-      }
-    }
+
+    roundPlayedShows.add(showId);
+    await saveTubiPlaylistShuffleState(
+      active,
+      pickShow,
+      pickEp,
+      playedByShow,
+      showId,
+      roundPlayedShows,
+      nextEpisodeIndexByShow
+    );
+    setTubiActiveShuffleSeriesId(showId);
+    shufflrActive = true;
+    armedPlaylistCached = true;
+    ensureTubiUpNextSuppressor();
+    updateTubiShuffleUI(active.playlistName || title);
+    showToast(`Playing: ${title}`);
+    console.log(`[Shufflr] Tubi playlist shuffle (${source}): ${title} → ${pickEp.url}`);
+    markTubiExpectedLanding(pickEp.url);
+    await shufflrNavigateTo(pickEp.url, {
+      mode: 'auto',
+      source: `tubi-playlist-${source}`,
+      bypassCooldown: source === 'cop',
+      beforeNavigate: () => {
+        tubiEpisodeEndTriggered = true;
+        captureFullscreenBeforeShufflrNavigation();
+      },
+    });
+    setTimeout(() => {
+      tubiEpisodeEndTriggered = false;
+      installTubiEpisodeEndWatcher();
+    }, 3000);
+    return;
   }
 
-  // Hop to another show's series page; pending-collect auto-starts there.
+  // Cold cache — already on this show's series page: collect in place.
+  const currentId = getCurrentTubiSeriesId();
+  if (isTubiSeriesPage() && currentId && String(currentId) === showId) {
+    console.log(`[Shufflr] Tubi playlist pick ${title} cold — collecting on series page`);
+    const seeded = {
+      ...active,
+      pendingFirstShow: true,
+      pendingFirstShowId: showId,
+      currentEpisodeUrl: seriesUrl,
+    };
+    await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: seeded });
+    await completeTubiSeriesCollectAndPlay(seeded, showId, `${source}-cold-collect`);
+    return;
+  }
+
+  // Cold cache — write pending marker and hop to the series page to collect.
+  console.log(`[Shufflr] Tubi playlist pick ${title} not cached — hopping to series page`);
   roundPlayedShows.add(showId);
   const updated = {
     ...active,
@@ -8586,11 +8620,11 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
   setTubiActiveShuffleSeriesId(showId);
   shufflrActive = true;
   armedPlaylistCached = true;
-  showToast(`Loading ${pickShow.title || pickShow.name || showId}...`);
-  console.log(`[Shufflr] Tubi playlist hop → ${seriesUrl} (${source})`);
+  showToast(`Loading ${title}...`);
   await shufflrNavigateTo(seriesUrl, {
     mode: 'auto',
     source: `tubi-pending-hop-${source}`,
+    bypassCooldown: source === 'cop',
     beforeNavigate: () => {
       tubiEpisodeEndTriggered = true;
       captureFullscreenBeforeShufflrNavigation();
@@ -8707,10 +8741,9 @@ async function handleTubiShuffleCop(reason = 'url-change') {
   }
 
   const active = await getActivePlaylistFromStorage();
-  const allModeRoaming = !!(
-    isTubiArmedPayload(active)
-    && isArmedPlaylistOwnedByThisTab(active)
-    && (active.playlistIndex === -1 || active.playlistName === YOUR_SHOWS_ALL_MODE_NAME)
+  // Owned armed playlist (Phase B round-robin or Your Shows ALL) may hop between shows.
+  const playlistRoaming = !!(
+    isTubiArmedPayload(active) && isArmedPlaylistOwnedByThisTab(active)
   );
 
   if (!isTubiEpisodePage()) {
@@ -8722,8 +8755,8 @@ async function handleTubiShuffleCop(reason = 'url-change') {
         markTubiLandingVerifiedThisPageLoad();
         return false;
       }
-      // ALL mode hops between Your Shows series pages — adopt the new show, don't end.
-      if (allModeRoaming && isTubiReliableSeriesId(pageId)) {
+      // Playlist/ALL pending hop onto another show's series page — adopt, don't end.
+      if (playlistRoaming && isTubiReliableSeriesId(pageId)) {
         setTubiActiveShuffleSeriesId(pageId);
         markTubiLandingVerifiedThisPageLoad();
         return false;
@@ -8737,11 +8770,24 @@ async function handleTubiShuffleCop(reason = 'url-change') {
   const pageSeriesId = getTubiShowIdFromUrl();
   const activeId = getTubiActiveShuffleSeriesId();
   if (isTubiReliableSeriesId(pageSeriesId) && String(pageSeriesId) !== String(activeId)) {
-    // ALL mode roams the library — adopt the new series instead of ending the session.
-    if (allModeRoaming) {
+    if (playlistRoaming) {
+      // Foreign nav to another show while playlist is armed — correct via round-robin
+      // (same picker as episode-end), not end the session.
       setTubiActiveShuffleSeriesId(pageSeriesId);
+      if (expected) consumeTubiExpectedLanding();
       markTubiLandingVerifiedThisPageLoad();
-      return false;
+      markTubiCopCorrectionNow();
+      window.__shufflrTubiCopInFlight = true;
+      console.log('[Shufflr] Tubi cop: correcting unexpected navigation', { reason });
+      showToast('Shufflr correcting...');
+      try {
+        await navigateToRandomTubiEpisode('cop');
+      } finally {
+        setTimeout(() => {
+          window.__shufflrTubiCopInFlight = false;
+        }, 1500);
+      }
+      return true;
     }
     console.log('[Shufflr] Tubi cop: user left the show — ending session');
     await stopTubiShuffle();
@@ -8963,8 +9009,11 @@ async function completeTubiSeriesCollectAndPlay(activePayload, targetTubiId, sou
   }
   if (!episodes?.length) {
     console.log(`[Shufflr] Tubi pending collect failed for ${showId} — no episodes`);
-    showToast('Could not find episodes.');
-    return false;
+    // Loop guard: exclude this show for the round and pick another.
+    await shuffleFromActiveTubiPlaylist(active, `${source}-failed`, {
+      excludeShowIds: new Set([showId]),
+    });
+    return true;
   }
   await setCachedTubiEpisodes(showId, episodes, title);
 
@@ -8973,8 +9022,10 @@ async function completeTubiSeriesCollectAndPlay(activePayload, targetTubiId, sou
   const pickEp = pickTubiEpisodeHonoringPlayed(episodes, playedByShow, showId, null);
   if (!pickEp?.url) {
     console.log(`[Shufflr] Tubi pending collect failed for ${showId} — no pick`);
-    showToast('Could not pick an episode.');
-    return false;
+    await shuffleFromActiveTubiPlaylist(active, `${source}-failed`, {
+      excludeShowIds: new Set([showId]),
+    });
+    return true;
   }
 
   roundPlayedShows.add(showId);
@@ -8997,8 +9048,10 @@ async function completeTubiSeriesCollectAndPlay(activePayload, targetTubiId, sou
   showToast(`Playing: ${title}`);
   console.log(`[Shufflr] Tubi pending collect complete: ${title} → ${pickEp.url}`);
   markTubiExpectedLanding(pickEp.url);
+  const isFirstPlay = String(source).includes('play-first') || String(source).includes('standalone-launch');
   await shufflrNavigateTo(pickEp.url, {
-    mode: 'user',
+    mode: isFirstPlay ? 'user' : 'auto',
+    bypassCooldown: !isFirstPlay,
     source: `tubi-${source}`,
     beforeNavigate: () => {
       tubiEpisodeEndTriggered = true;
@@ -9037,7 +9090,10 @@ async function maybeResumeTubiPendingCollect(activeOverride = null) {
 
   window.__shufflrTubiPendingResume = true;
   try {
-    return await completeTubiSeriesCollectAndPlay(active, currentId, 'play-first-show');
+    // Mid-session hops (Phase B) already have an active shuffle session → auto.
+    // Fresh web Play landing does not → user-mode first play.
+    const source = isTubiShuffleActive() ? 'pending-collect' : 'play-first-show';
+    return await completeTubiSeriesCollectAndPlay(active, currentId, source);
   } finally {
     window.__shufflrTubiPendingResume = false;
   }
