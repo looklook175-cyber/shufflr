@@ -126,6 +126,8 @@ const TUBI_INJECT_MAX_MS = 15000;
 const TUBI_EPISODE_CACHE_PREFIX = 'shufflr_tubi_episodes_';
 const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
 const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
+/** Episode video id Shufflr is about to land on (sessionStorage — survives full loads). */
+const TUBI_EXPECTED_LANDING_KEY = 'shufflr_tubi_expected_landing';
 const TUBI_WATCHER_ID_RETRY_MS = 400;
 const TUBI_WATCHER_ID_MAX_RETRIES = 5;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
@@ -7584,6 +7586,35 @@ function getTubiEpisodeIdFromUrl(url = location.href) {
   }
 }
 
+function markTubiExpectedLanding(urlOrEpisodeId) {
+  if (urlOrEpisodeId == null || urlOrEpisodeId === '') return;
+  const id = String(urlOrEpisodeId).includes('/')
+    ? getTubiEpisodeIdFromUrl(String(urlOrEpisodeId))
+    : String(urlOrEpisodeId);
+  if (!id) return;
+  try {
+    sessionStorage.setItem(TUBI_EXPECTED_LANDING_KEY, id);
+  } catch { /* ignore */ }
+}
+
+function consumeTubiExpectedLanding() {
+  try {
+    const value = sessionStorage.getItem(TUBI_EXPECTED_LANDING_KEY);
+    sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY);
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+function peekTubiExpectedLanding() {
+  try {
+    return sessionStorage.getItem(TUBI_EXPECTED_LANDING_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
 function getTubiShowTitle() {
   const selectors = [
     'h1',
@@ -8278,6 +8309,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   showToast(`Shuffling ${showName}...`);
   console.log(`[Shufflr] Tubi shuffle (${source}): → ${pick.url}`);
 
+  markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, {
     mode: 'auto',
     source: `tubi-${source}`,
@@ -8292,9 +8324,80 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
   }, 3000);
 }
 
+/**
+ * Tamed shuffle cop (backstop only).
+ * — Our own landings: expected-episode marker matches → stand down.
+ * — Non-watch or different series: user left → end session.
+ * — Same-show watch without our marker: Tubi sneaked through → redirect.
+ */
+async function handleTubiShuffleCop(reason = 'url-change') {
+  if (!isChromeContextValid() || !IS_TUBI) return false;
+  if (!isTubiShuffleActive()) return false;
+  if (window.__shufflrTubiCopInFlight) return false;
+
+  // Query-only churn on the same watch URL is not a navigation.
+  // (Handled by callers comparing href; keep a cheap path guard here too.)
+
+  const expected = peekTubiExpectedLanding();
+  const currentEp = getTubiEpisodeIdFromUrl();
+  if (expected && currentEp && String(expected) === String(currentEp)) {
+    consumeTubiExpectedLanding();
+    return false;
+  }
+
+  if (!isTubiEpisodePage()) {
+    // Same-series series page during toggle hydrate is fine — don't end.
+    if (isTubiSeriesPage()) {
+      const pageId = getTubiShowIdFromUrl();
+      const activeId = getTubiActiveShuffleSeriesId();
+      if (!isTubiReliableSeriesId(pageId) || String(pageId) === String(activeId)) {
+        return false;
+      }
+    }
+    console.log('[Shufflr] Tubi cop: user left the show — ending session');
+    stopTubiShuffle();
+    return true;
+  }
+
+  const pageSeriesId = getTubiShowIdFromUrl();
+  const activeId = getTubiActiveShuffleSeriesId();
+  if (isTubiReliableSeriesId(pageSeriesId) && String(pageSeriesId) !== String(activeId)) {
+    console.log('[Shufflr] Tubi cop: user left the show — ending session');
+    stopTubiShuffle();
+    return true;
+  }
+
+  // Same-show watch landing without our marker (or marker mismatch) → correct.
+  if (expected) consumeTubiExpectedLanding();
+  window.__shufflrTubiCopInFlight = true;
+  console.log('[Shufflr] Tubi cop: correcting unexpected navigation', { reason });
+  showToast('Shufflr correcting...');
+  try {
+    await navigateToRandomTubiEpisode('cop');
+  } finally {
+    setTimeout(() => {
+      window.__shufflrTubiCopInFlight = false;
+    }, 1500);
+  }
+  return true;
+}
+
 function restoreTubiShuffleSession() {
   if (!IS_TUBI || !isTubiShuffleActive()) return false;
   shufflrActive = true;
+
+  // Consume our own landing marker first; if foreign/leave, cop handles it.
+  const expected = peekTubiExpectedLanding();
+  const currentEp = getTubiEpisodeIdFromUrl();
+  if (expected && currentEp && String(expected) === String(currentEp)) {
+    consumeTubiExpectedLanding();
+  } else if (isTubiShuffleActive()) {
+    // Delay slightly so page series-id resolution / video can settle.
+    setTimeout(() => {
+      void handleTubiShuffleCop('landing');
+    }, 600);
+  }
+
   ensureTubiUpNextSuppressor();
   if (hasShufflrButtonInDom()) {
     updateTubiShuffleUI(getTubiShowTitle());
@@ -8309,6 +8412,7 @@ function stopTubiShuffle() {
   shufflrActive = false;
   try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(TUBI_PENDING_KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
   teardownTubiEpisodeEndWatcher();
   teardownTubiUpNextSuppressor();
   void resetShuffleModeToSingle();
@@ -8367,6 +8471,8 @@ async function startTubiShuffle() {
 
   // Series page → jump to a random episode. Already on an episode → arm and keep watching.
   if (isTubiEpisodePage()) {
+    // Mark current episode as our landing so the cop doesn't treat stay-here as foreign.
+    markTubiExpectedLanding(location.href);
     installTubiEpisodeEndWatcher();
     return;
   }
@@ -8377,6 +8483,7 @@ async function startTubiShuffle() {
     return;
   }
 
+  markTubiExpectedLanding(pick.url);
   await shufflrNavigateTo(pick.url, {
     mode: 'user',
     source: 'tubi-toggle-start',
@@ -8476,7 +8583,21 @@ function installTubiUrlObserver() {
   const onPossibleRouteChange = () => {
     if (!isChromeContextValid() || !IS_TUBI) return;
     if (location.href === lastHref) return;
+    const prevHref = lastHref;
     lastHref = location.href;
+
+    if (isTubiShuffleActive()) {
+      // Ignore query-only changes on the same path.
+      try {
+        if (new URL(prevHref).pathname === location.pathname) {
+          /* still sync UI below if injectable */
+        } else {
+          void handleTubiShuffleCop('url-change');
+        }
+      } catch {
+        void handleTubiShuffleCop('url-change');
+      }
+    }
 
     if (!isTubiInjectablePage()) return;
 
