@@ -2808,6 +2808,15 @@ function getCrunchyrollSeriesUrlFromShow(show) {
   return null;
 }
 
+function getTubiSeriesUrlFromShow(show) {
+  if (!show) return null;
+  if (show.tubiSeriesUrl) return show.tubiSeriesUrl;
+  if (show.tubiId) {
+    return `https://tubitv.com/series/${String(show.tubiId)}`;
+  }
+  return null;
+}
+
 function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   const launchUrl = getCrunchyrollSeriesUrlFromShow(show);
   if (!launchUrl) {
@@ -2820,9 +2829,26 @@ function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   return true;
 }
 
+function launchTubiShowFromWeb(show, launchIntent = 'mode') {
+  const launchUrl = getTubiSeriesUrlFromShow(show);
+  if (!launchUrl) {
+    showToast('NO TUBI URL');
+    return false;
+  }
+  showToast('OPENING: ' + (show.title || show.name || '').toUpperCase().slice(0, 18));
+  setStandaloneLaunchViaBridge(launchUrl, null, null, launchIntent);
+  window.open(launchUrl, '_blank');
+  return true;
+}
+
 function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const show = playlists[playlistIndex]?.shows?.[showIndex];
   if (!show) return;
+  if (show.tubiId || show.service === 'tubi') {
+    // Power-button pick click-through — follow global SINGLE/ALL mode.
+    launchTubiShowFromWeb(show, 'mode');
+    return;
+  }
   if (show.crunchyrollId || show.service === 'crunchyroll') {
     // Power-button pick click-through — follow global SINGLE/ALL mode.
     launchCrunchyrollShowFromWeb(show, 'mode');
@@ -3979,6 +4005,11 @@ async function openYourShowPopup(pi,si,clickedCard){
 
 function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
+  if (show?.tubiId || show?.service === 'tubi') {
+    closeYourShowPopup();
+    launchTubiShowFromWeb(show, launchIntent);
+    return;
+  }
   if (show?.crunchyrollId || show?.service === 'crunchyroll') {
     closeYourShowPopup();
     launchCrunchyrollShowFromWeb(show, launchIntent);
