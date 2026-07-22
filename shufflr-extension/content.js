@@ -1184,7 +1184,21 @@ async function disarmShufflrAfterErrorPage(serviceLabel) {
     teardownCrunchyrollEpisodeEndWatcher();
     const active = await getActivePlaylistFromStorage();
     if (isArmedPlaylistOwnedByThisTab(active)) await clearActivePlaylist();
-    void resetShuffleModeToSingle();
+    await resetShuffleModeToSingle();
+    updateShuffleUI('');
+    return;
+  }
+
+  if (IS_TUBI) {
+    clearTubiSessionPin();
+    try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
+    try { sessionStorage.removeItem(TUBI_PENDING_KEY); } catch { /* ignore */ }
+    try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
+    teardownTubiEpisodeEndWatcher();
+    teardownTubiUpNextSuppressor();
+    const active = await getActivePlaylistFromStorage();
+    if (isArmedPlaylistOwnedByThisTab(active)) await clearActivePlaylist();
+    await resetShuffleModeToSingle();
     updateShuffleUI('');
     return;
   }
@@ -1194,7 +1208,7 @@ async function disarmShufflrAfterErrorPage(serviceLabel) {
     const active = await getActivePlaylistFromStorage();
     if (isArmedPlaylistOwnedByThisTab(active)) await clearActivePlaylist();
     clearMaxSessionPin();
-    void resetShuffleModeToSingle();
+    await resetShuffleModeToSingle();
     updateShuffleUI('');
   }
 }
@@ -8692,6 +8706,13 @@ async function handleTubiShuffleCop(reason = 'url-change') {
     return false;
   }
 
+  const active = await getActivePlaylistFromStorage();
+  const allModeRoaming = !!(
+    isTubiArmedPayload(active)
+    && isArmedPlaylistOwnedByThisTab(active)
+    && (active.playlistIndex === -1 || active.playlistName === YOUR_SHOWS_ALL_MODE_NAME)
+  );
+
   if (!isTubiEpisodePage()) {
     // Same-series series page during toggle hydrate is fine — don't end.
     if (isTubiSeriesPage()) {
@@ -8701,17 +8722,29 @@ async function handleTubiShuffleCop(reason = 'url-change') {
         markTubiLandingVerifiedThisPageLoad();
         return false;
       }
+      // ALL mode hops between Your Shows series pages — adopt the new show, don't end.
+      if (allModeRoaming && isTubiReliableSeriesId(pageId)) {
+        setTubiActiveShuffleSeriesId(pageId);
+        markTubiLandingVerifiedThisPageLoad();
+        return false;
+      }
     }
     console.log('[Shufflr] Tubi cop: user left the show — ending session');
-    stopTubiShuffle();
+    await stopTubiShuffle();
     return true;
   }
 
   const pageSeriesId = getTubiShowIdFromUrl();
   const activeId = getTubiActiveShuffleSeriesId();
   if (isTubiReliableSeriesId(pageSeriesId) && String(pageSeriesId) !== String(activeId)) {
+    // ALL mode roams the library — adopt the new series instead of ending the session.
+    if (allModeRoaming) {
+      setTubiActiveShuffleSeriesId(pageSeriesId);
+      markTubiLandingVerifiedThisPageLoad();
+      return false;
+    }
     console.log('[Shufflr] Tubi cop: user left the show — ending session');
-    stopTubiShuffle();
+    await stopTubiShuffle();
     return true;
   }
 
@@ -9162,8 +9195,9 @@ async function maybeAutoStartTubiStandaloneLaunch() {
       await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: synthetic });
     }
 
+    // Pick any show from Your Shows (not forced to the currently-viewed/launched page).
     console.log('[Shufflr] Tubi standalone launch → ALL mode auto-start');
-    await completeTubiSeriesCollectAndPlay(synthetic, sid, 'standalone-launch-all');
+    await shuffleFromActiveTubiPlaylist(synthetic, 'standalone-launch-all');
     return true;
   }
 
@@ -9258,7 +9292,8 @@ async function stopTubiShuffle() {
     await clearActivePlaylist();
   }
   armedPlaylistCached = false;
-  void resetShuffleModeToSingle();
+  // Same shared reset Max/Crunchyroll OFF handlers use — ALL never survives past OFF.
+  await resetShuffleModeToSingle();
   updateShuffleUI('');
   showToast('Shufflr OFF');
   console.log('[Shufflr] Tubi shuffle stopped');
