@@ -3519,6 +3519,62 @@ async function playPlaylist(pi){
   if(!loggedIn){showToast('You must sign in to use this feature.');return;}
   const p=playlists[pi];
   if(!(p.shows||[]).length&&!(p.episodes||[]).length){showToast('NOTHING IN PLAYLIST');return;}
+  if ((p.service || 'max') === 'tubi' || (p.shows || []).some(s => s.tubiId)) {
+    const tubiShows = (p.shows || []).filter(s => s.tubiId);
+    if (!tubiShows.length) { showToast('NO TUBI SHOWS IN PLAYLIST'); return; }
+    const pickShow = tubiShows[Math.floor(Math.random() * tubiShows.length)];
+    const showId = String(pickShow.tubiId);
+    const seriesUrl = pickShow.tubiSeriesUrl
+      || `https://tubitv.com/series/${showId}/${String(pickShow.title || pickShow.name || 'show')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')}`;
+    if (!seriesUrl || !pickShow.tubiId) { showToast('NO TUBI URL'); return; }
+
+    // No web-side episode enrichment for Tubi — hand off shows only; extension resolves episodes later.
+    const enriched = tubiShows.map(s => ({
+      id: String(s.tubiId),
+      name: s.title || s.name || '',
+      type: 'tv',
+      episodes: [],
+    }));
+    const playedByShow = {};
+    const roundPlayedShows = new Set([showId]);
+    const nextEpisodeIndexByShow = {};
+    const pick = {
+      showId,
+      showName: pickShow.title || pickShow.name || '',
+      seasonNum: 0,
+      episode_number: 0,
+      name: pickShow.title || pickShow.name || '',
+      isMovie: false,
+      id: showId,
+      alternateId: null,
+      watchUrl: seriesUrl,
+    };
+    const handoff = buildActivePlaylistHandoff(
+      p,
+      enriched,
+      'tubi',
+      pick,
+      playedByShow,
+      showId,
+      pi,
+      { roundPlayedShows, nextEpisodeIndexByShow }
+    );
+    // Series page auto-starts the first episode via the extension's pending-collect path.
+    handoff.pendingFirstShow = true;
+    handoff.pendingFirstShowId = showId;
+    handoff.ownerTabId = null; // Consuming Tubi tab claims ownership on auto-start.
+    handoff.createdAt = Date.now();
+    handoff.currentEpisodeUrl = seriesUrl;
+    localStorage.setItem(SHUFFLR_ACTIVE_PLAYLIST_KEY, JSON.stringify(handoff));
+    await handoffActivePlaylistToExtension(handoff);
+    console.log('[Shufflr] Tubi handoff written:', handoff.playlistName);
+    showToast('OPENING: ' + (pickShow.title || '').toUpperCase().slice(0, 18));
+    window.open(seriesUrl, '_blank');
+    return;
+  }
   if ((p.service || 'max') === 'crunchyroll' || (p.shows || []).some(s => s.crunchyrollId)) {
     const crunchyShows = (p.shows || []).filter(s => s.crunchyrollId || s.service === 'crunchyroll');
     if (!crunchyShows.length) { showToast('NO CRUNCHYROLL SHOWS IN PLAYLIST'); return; }
