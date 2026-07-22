@@ -1951,7 +1951,7 @@ function selectService(btn, svc){
 }
 function updateConnectBtnLabel(){
   const saved=localStorage.getItem('shufflr_service');
-  const names={netflix:'Netflix',max:'Max',hulu:'Hulu',disney:'Disney+',prime:'Prime Video',peacock:'Peacock',paramount:'Paramount+',appletv:'Apple TV+',crunchyroll:'Crunchyroll'};
+  const names={netflix:'Netflix',max:'Max',hulu:'Hulu',disney:'Disney+',prime:'Prime Video',tubi:'Tubi',peacock:'Peacock',paramount:'Paramount+',appletv:'Apple TV+',crunchyroll:'Crunchyroll'};
   const btn=document.getElementById('service-connect-btn');
   if(!btn) return;
   if(saved&&names[saved]){
@@ -2364,6 +2364,7 @@ function getEpLink(){
     hulu:'https://www.hulu.com',
     disney:'https://www.disneyplus.com',
     prime:'https://www.amazon.com/prime-video',
+    tubi:'https://tubitv.com',
     peacock:'https://www.peacocktv.com',
     paramount:'https://www.paramountplus.com',
     appletv:'https://tv.apple.com',
@@ -2634,7 +2635,7 @@ function renderPlaylistPage(){
       if (!serviceGroups[svc]) serviceGroups[svc] = [];
       serviceGroups[svc].push({ p, pi });
     });
-    const serviceLabels = { max: 'HBO Max', crunchyroll: 'Crunchyroll', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
+    const serviceLabels = { max: 'HBO Max', tubi: 'Tubi', crunchyroll: 'Crunchyroll', netflix: 'Netflix', hulu: 'Hulu', disney: 'Disney+', prime: 'Prime Video' };
     html += Object.entries(serviceGroups).map(([svc, entries]) => {
       const label = serviceLabels[svc] || svc.toUpperCase();
       const groupId = `pl-group-${svc}`;
@@ -2787,6 +2788,7 @@ function setStandaloneLaunchViaBridge(launchUrl, maxId = null, blockedSeasons = 
 
 function showBelongsToConnectedService(show, connectedService = null) {
   const service = connectedService || localStorage.getItem('shufflr_service') || 'max';
+  if (service === 'tubi') return !!show?.tubiId;
   if (service === 'crunchyroll') {
     return !!show?.crunchyrollId || show?.service === 'crunchyroll';
   }
@@ -3231,6 +3233,7 @@ const SERVICE_AVAILABILITY={
   hulu:{ids:[15],names:['hulu']},
   disney:{ids:[337],names:['disney','disney+']},
   prime:{ids:[9,119],names:['prime','amazon','prime video']},
+  tubi:{ids:[531],names:['tubi']},
   peacock:{ids:[387],names:['peacock']},
   paramount:{ids:[1855],names:['paramount']},
   appletv:{ids:[2,386],names:['apple','apple tv']},
