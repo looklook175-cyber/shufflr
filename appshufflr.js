@@ -2910,10 +2910,13 @@ function closePlaylistDrawer() {
 function playRandomShowFromDrawer(playlistIndex) {
   const playlist = homePlaylistsCache[playlistIndex];
   if (!playlist?.shows?.length) return;
-  // Crunchyroll Play must go through playPlaylist so the armed handoff is written.
+  // Crunchyroll / Tubi Play must go through playPlaylist so the armed handoff is written
+  // (playlist.service stamped at create — do not fall through to Max launch).
   if (
     (playlist.service || '') === 'crunchyroll'
     || (playlist.shows || []).some(s => s.crunchyrollId || s.service === 'crunchyroll')
+    || (playlist.service || '') === 'tubi'
+    || (playlist.shows || []).some(s => s.tubiId || s.service === 'tubi')
   ) {
     void playPlaylist(playlistIndex);
     return;
@@ -3517,9 +3520,12 @@ function handoffActivePlaylistToExtension(payload){
 async function playPlaylist(pi){
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(!loggedIn){showToast('You must sign in to use this feature.');return;}
-  const p=playlists[pi];
+  // Resolve from the in-memory list the UI used (home drawer may index homePlaylistsCache).
+  const p = playlists[pi] || (Array.isArray(homePlaylistsCache) ? homePlaylistsCache[pi] : null);
+  if (!p) { showToast('PLAYLIST NOT FOUND'); return; }
   if(!(p.shows||[]).length&&!(p.episodes||[]).length){showToast('NOTHING IN PLAYLIST');return;}
-  if ((p.service || 'max') === 'tubi' || (p.shows || []).some(s => s.tubiId)) {
+  // Route by the playlist's own service field (stamped at create), not the connected service.
+  if ((p.service || '') === 'tubi' || (p.shows || []).some(s => s.tubiId || s.service === 'tubi')) {
     const tubiShows = (p.shows || []).filter(s => s.tubiId);
     if (!tubiShows.length) { showToast('NO TUBI SHOWS IN PLAYLIST'); return; }
     const pickShow = tubiShows[Math.floor(Math.random() * tubiShows.length)];
@@ -3575,7 +3581,7 @@ async function playPlaylist(pi){
     window.open(seriesUrl, '_blank');
     return;
   }
-  if ((p.service || 'max') === 'crunchyroll' || (p.shows || []).some(s => s.crunchyrollId)) {
+  if ((p.service || '') === 'crunchyroll' || (p.shows || []).some(s => s.crunchyrollId || s.service === 'crunchyroll')) {
     const crunchyShows = (p.shows || []).filter(s => s.crunchyrollId || s.service === 'crunchyroll');
     if (!crunchyShows.length) { showToast('NO CRUNCHYROLL SHOWS IN PLAYLIST'); return; }
     const pickShow = crunchyShows[Math.floor(Math.random() * crunchyShows.length)];
