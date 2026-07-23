@@ -1697,10 +1697,6 @@ function renderPlaylistCreateSection() {
 }
 
 function renderYourShowsAddButton() {
-  // Tubi Add-to-Your-Shows reset — button stays visible but disabled until rebuilt.
-  if (IS_TUBI) {
-    return `<button type="button" class="shufflr-pl-your-shows-btn" data-pl-action="add-your-shows" disabled title="Coming soon">+ Add to Your Shows</button>`;
-  }
   return `<button type="button" class="shufflr-pl-your-shows-btn" data-pl-action="add-your-shows">+ Add to Your Shows</button>`;
 }
 
@@ -2208,8 +2204,40 @@ async function writeYourShowsToStorage(shows, { syncToCloud = true } = {}) {
 async function addCurrentShowToYourShows() {
   if (!isChromeContextValid()) return;
 
-  // Tubi Add-to-Your-Shows reset — no-op until rebuilt (Max/CR unchanged).
-  if (IS_TUBI) return;
+  if (IS_TUBI) {
+    // Series page: /series/{id} from URL. Watch page: same resolver as episode collect
+    // (React Query page data) — never a title-slug guess.
+    const tubiId = getCurrentTubiSeriesId();
+    if (!tubiId) {
+      showToast('Could not find show ID');
+      return;
+    }
+    const title = getTubiShowTitle() || 'Unknown Show';
+    const { shows: existingShows, cloudReadSucceeded } = await readYourShowsPreferCloud();
+    const shows = Array.isArray(existingShows) ? [...existingShows] : [];
+    const alreadyAdded = shows.some(show => String(show.tubiId) === String(tubiId));
+    if (alreadyAdded) {
+      showToast('Already in Your Shows');
+      return;
+    }
+    const tubiSeriesUrl = getCurrentTubiSeriesUrl(tubiId);
+    shows.push({
+      title,
+      tubiId,
+      tubiSeriesUrl,
+      service: 'tubi',
+    });
+    // Only sync to cloud when we successfully read the full library first —
+    // never overwrite cloud with a sparse local-only append.
+    if (cloudReadSucceeded) {
+      await writeYourShowsToStorage(shows);
+    } else {
+      console.warn('[Shufflr] Tubi Add: cloud read failed, adding locally only — will not overwrite cloud');
+      await writeYourShowsToStorage(shows, { syncToCloud: false });
+    }
+    showToast(`Added ${title} to Your Shows`);
+    return;
+  }
 
   if (isCrunchyroll) {
     const crunchyrollId = getCurrentCrunchyrollSeriesId();
@@ -4322,7 +4350,7 @@ function onPlaylistDropdownClick(event) {
   const yourShowsBtn = event.target.closest('[data-pl-action="add-your-shows"]');
   if (yourShowsBtn) {
     event.preventDefault();
-    if (IS_TUBI || yourShowsBtn.disabled) return;
+    if (yourShowsBtn.disabled) return;
     addCurrentShowToYourShows();
     return;
   }
