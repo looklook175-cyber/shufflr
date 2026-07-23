@@ -128,6 +128,8 @@ const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
 const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
 /** Episode video id Shufflr is about to land on (sessionStorage — survives full loads). */
 const TUBI_EXPECTED_LANDING_KEY = 'shufflr_tubi_expected_landing';
+/** Ordered mode: accept the next same-show episode landing after Tubi's own Play/resume click. */
+const TUBI_ORDERED_ACCEPT_LANDING_KEY = 'shufflr_tubi_ordered_accept_landing';
 const TUBI_WATCHER_ID_RETRY_MS = 400;
 const TUBI_WATCHER_ID_MAX_RETRIES = 5;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
@@ -3886,6 +3888,28 @@ async function playTubiPlaylistFromDropdown(playlistIndex) {
   armedPlaylistCached = true;
   if (!isChromeContextValid()) return;
   updateTubiShuffleUI(playlist.name || 'Playlist');
+
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+
+  // Ordered Episodes: land on series page and press Tubi's own Play/resume (no episode collect).
+  if (settings.orderedEpisodes) {
+    markTubiOrderedAutoplayPending(showId);
+    setTubiActiveShuffleSeriesId(showId);
+    const currentId = getCurrentTubiSeriesId();
+    if (isTubiSeriesPage() && currentId && String(currentId) === showId) {
+      await maybeAutoClickTubiSeriesPlayOrResume();
+      return;
+    }
+    showToast(`Opening: ${(pickShow.title || pickShow.name || '').slice(0, 24)}`);
+    console.log(`[Shufflr] Dropdown Tubi ordered play → ${seriesUrl}`);
+    await shufflrNavigateTo(seriesUrl, {
+      mode: 'user',
+      source: 'tubi-dropdown-ordered-play',
+      beforeNavigate: () => captureFullscreenBeforeShufflrNavigation(),
+    });
+    return;
+  }
 
   // Already on this show's series page — collect/pick/navigate in place (Phase A path).
   const currentId = getCurrentTubiSeriesId();
@@ -8578,6 +8602,264 @@ function getTubiSeriesUrlFromPlaylistShow(show) {
 }
 
 /**
+ * Tubi series-page CTA: Continue Watching / Resume / "Play S05:E01" / Play.
+ * Prefers resume-style labels so Tubi itself picks the correct next episode.
+ */
+function findTubiSeriesPlayOrResumeButton() {
+  const candidates = document.querySelectorAll('button, a, a[role="button"], [role="button"]');
+  let best = null;
+  let bestPriority = 0;
+  for (const el of candidates) {
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+    const raw = `${el.textContent || ''} ${el.getAttribute('aria-label') || ''}`;
+    const text = raw.replace(/\s+/g, ' ').trim();
+    if (!text || text.length > 80) continue;
+    const lower = text.toLowerCase();
+    if (
+      lower.includes('my list')
+      || lower.includes('trailer')
+      || lower.includes('share')
+      || lower.includes('season')
+    ) continue;
+
+    let priority = 0;
+    if (/continue watching/i.test(text)) priority = 4;
+    else if (/\bresume\b/i.test(text)) priority = 3;
+    else if (/^continue\b/i.test(text)) priority = 3;
+    else if (/^play\s*s\s*\d+\s*:\s*e\s*\d+/i.test(text) || /^play\s+s\d+/i.test(text)) priority = 2;
+    else if (/^play\b/i.test(text)) priority = 1;
+    else continue;
+
+    if (priority > bestPriority) {
+      bestPriority = priority;
+      best = el;
+    }
+  }
+  return best;
+}
+
+function markTubiOrderedAutoplayPending(showId) {
+  try {
+    sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
+    if (showId) sessionStorage.setItem(TUBI_ORDERED_ACCEPT_LANDING_KEY, String(showId));
+  } catch { /* ignore */ }
+}
+
+function consumeTubiOrderedAcceptLanding(pageSeriesId) {
+  try {
+    const accepted = sessionStorage.getItem(TUBI_ORDERED_ACCEPT_LANDING_KEY);
+    if (!accepted) return false;
+    if (pageSeriesId && String(accepted) !== String(pageSeriesId)) return false;
+    sessionStorage.removeItem(TUBI_ORDERED_ACCEPT_LANDING_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ordered Episodes: after landing on a series page, click Tubi's own Play/resume CTA.
+ * Mirrors Max's maybeAutoClickShowPageResume — Tubi decides which episode to start.
+ */
+async function maybeAutoClickTubiSeriesPlayOrResume() {
+  if (!isChromeContextValid() || !IS_TUBI) return false;
+  if (showPageAutoplayPollTimer) return false;
+  if (!isTubiSeriesPage()) return false;
+  if (sessionStorage.getItem(SHUFFLR_AUTOPLAY_PENDING_KEY) !== 'true') return false;
+
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  if (!settings.orderedEpisodes) return false;
+
+  const active = await getActivePlaylistFromStorage();
+  if (!isTubiArmedPayload(active) || !isArmedPlaylistOwnedByThisTab(active)) return false;
+
+  sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
+
+  const pageId = getTubiShowIdFromUrl();
+  if (isTubiReliableSeriesId(pageId)) {
+    setTubiActiveShuffleSeriesId(pageId);
+    try {
+      sessionStorage.setItem(TUBI_ORDERED_ACCEPT_LANDING_KEY, String(pageId));
+    } catch { /* ignore */ }
+  }
+
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  ensureTubiUpNextSuppressor();
+  updateTubiShuffleUI(active.playlistName || getTubiShowTitle());
+
+  const startedAt = Date.now();
+  const maxMs = 8000;
+
+  return await new Promise(resolve => {
+    showPageAutoplayPollTimer = setInterval(() => {
+      if (!isChromeContextValid()) {
+        clearInterval(showPageAutoplayPollTimer);
+        showPageAutoplayPollTimer = null;
+        resolve(false);
+        return;
+      }
+
+      const button = findTubiSeriesPlayOrResumeButton();
+      if (button) {
+        clearInterval(showPageAutoplayPollTimer);
+        showPageAutoplayPollTimer = null;
+        console.log('[Shufflr] Tubi ordered: clicking series Play/resume CTA');
+        try {
+          button.click();
+        } catch { /* ignore */ }
+        resolve(true);
+        return;
+      }
+
+      if (Date.now() - startedAt >= maxMs) {
+        clearInterval(showPageAutoplayPollTimer);
+        showPageAutoplayPollTimer = null;
+        console.log('[Shufflr] Tubi ordered: Play/resume CTA not found within timeout');
+        resolve(false);
+      }
+    }, 300);
+  });
+}
+
+/**
+ * Ordered mode: persist show round-robin only — no episode URL / playedByShow episode tracking.
+ * Writes both active handoff and episode-state so round resets survive navigations.
+ */
+async function saveTubiOrderedShowRotationState(
+  active,
+  pickShow,
+  lastPlayedShow,
+  roundPlayedShows,
+  nextEpisodeIndexByShow = {},
+  playedByShow = null
+) {
+  if (!isChromeContextValid()) return active;
+  const showId = String(pickShow.tubiId || pickShow.id || lastPlayedShow);
+  const title = pickShow.title || pickShow.name || '';
+  const seriesUrl = getTubiSeriesUrlFromPlaylistShow(pickShow) || active.currentEpisodeUrl || null;
+  const createdAt = active.createdAt || getArmedSessionCreatedAt(active) || Date.now();
+  const played = playedByShow != null
+    ? serializePlayedByShow(playedByShow)
+    : (active.playedByShow && typeof active.playedByShow === 'object' ? active.playedByShow : {});
+  const roundSerialized = serializeRoundPlayedShows(roundPlayedShows);
+  const last = String(lastPlayedShow || showId);
+  const indexes = { ...(nextEpisodeIndexByShow || {}) };
+  const activePayload = {
+    ...active,
+    armed: true,
+    selectedService: 'tubi',
+    shows: [...(active.shows || [])],
+    episodes: [...(active.episodes || [])],
+    playlistName: active.playlistName || '',
+    playlistIndex: active.playlistIndex ?? 0,
+    ownerTabId: active.ownerTabId ?? getShufflrTabId(),
+    createdAt,
+    currentShow: {
+      showId,
+      showName: title,
+      tubiId: showId,
+    },
+    currentEpisode: {
+      showId,
+      showName: title,
+      seasonNum: 0,
+      episode_number: 0,
+      name: title,
+      isMovie: false,
+      id: showId,
+      alternateId: null,
+    },
+    currentEpisodeUrl: seriesUrl,
+    playedByShow: played,
+    lastPlayedShow: last,
+    roundPlayedShows: roundSerialized,
+    nextEpisodeIndexByShow: indexes,
+  };
+  delete activePayload.pendingFirstShow;
+  delete activePayload.pendingFirstShowId;
+  const episodeState = {
+    playedByShow: played,
+    lastPlayedShow: last,
+    roundPlayedShows: roundSerialized,
+    nextEpisodeIndexByShow: indexes,
+    playlistName: activePayload.playlistName || '',
+    playlistIndex: activePayload.playlistIndex ?? 0,
+  };
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
+    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
+  });
+  return activePayload;
+}
+
+/** Ordered Episodes: round-robin shows → series page → Tubi's own Play/resume. */
+async function navigateToTubiOrderedPlaylistShow(
+  active,
+  pickShow,
+  roundPlayedShows,
+  nextEpisodeIndexByShow,
+  playedByShow,
+  source = 'episode-end',
+  options = {}
+) {
+  if (!isChromeContextValid()) return;
+  const showId = String(pickShow.tubiId);
+  const title = pickShow.title || pickShow.name || showId;
+  const seriesUrl = getTubiSeriesUrlFromPlaylistShow(pickShow);
+  if (!seriesUrl) {
+    console.log(`[Shufflr] Tubi ordered pick ${title} has no series URL — excluding`);
+    await shuffleFromActiveTubiPlaylist(active, source, {
+      excludeShowIds: new Set([...(options.excludeShowIds || []), showId]),
+    });
+    return;
+  }
+
+  roundPlayedShows.add(showId);
+  const updated = await saveTubiOrderedShowRotationState(
+    active,
+    pickShow,
+    showId,
+    roundPlayedShows,
+    nextEpisodeIndexByShow,
+    playedByShow
+  );
+
+  setTubiActiveShuffleSeriesId(showId);
+  shufflrActive = true;
+  armedPlaylistCached = true;
+  ensureTubiUpNextSuppressor();
+  updateTubiShuffleUI(updated.playlistName || title);
+  showToast(`Playing: ${title}`);
+  console.log(`[Shufflr] Tubi ordered playlist (${source}): ${title} → series Play/resume`);
+
+  markTubiOrderedAutoplayPending(showId);
+
+  const currentId = getCurrentTubiSeriesId();
+  if (isTubiSeriesPage() && currentId && String(currentId) === showId) {
+    await maybeAutoClickTubiSeriesPlayOrResume();
+    return;
+  }
+
+  const isFirstPlay = String(source).includes('play-first')
+    || String(source).includes('dropdown-play')
+    || String(source).includes('standalone-launch');
+  await shufflrNavigateTo(seriesUrl, {
+    mode: options.mode || (isFirstPlay ? 'user' : 'auto'),
+    source: `tubi-ordered-${source}`,
+    bypassCooldown: source === 'cop' || !isFirstPlay,
+    beforeNavigate: () => {
+      tubiEpisodeEndTriggered = true;
+      captureFullscreenBeforeShufflrNavigation();
+    },
+  });
+  setTimeout(() => {
+    tubiEpisodeEndTriggered = false;
+  }, 3000);
+}
+
+/**
  * Arm the synthetic Your Shows ALL session (same shape episode-end expects).
  * Does not navigate — caller picks the first episode.
  */
@@ -8641,6 +8923,10 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
     return;
   }
 
+  const settings = await readShuffleSettings();
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+  const useOrdered = !!settings.orderedEpisodes;
+
   let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
     await loadTubiPlaylistPlayState(active);
 
@@ -8669,6 +8955,20 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
     await shuffleFromActiveTubiPlaylist(active, source, {
       excludeShowIds: new Set([...excludeShowIds, showId]),
     });
+    return;
+  }
+
+  // Ordered Episodes: show round-robin only → series page → Tubi's own Play/resume.
+  if (useOrdered) {
+    await navigateToTubiOrderedPlaylistShow(
+      active,
+      pickShow,
+      roundPlayedShows,
+      nextEpisodeIndexByShow,
+      playedByShow,
+      source,
+      { excludeShowIds, mode: options.mode }
+    );
     return;
   }
 
@@ -8866,6 +9166,16 @@ async function handleTubiShuffleCop(reason = 'url-change') {
   const currentEp = getTubiEpisodeIdFromUrl();
   if (expected && currentEp && String(expected) === String(currentEp)) {
     consumeTubiExpectedLanding();
+    markTubiLandingVerifiedThisPageLoad();
+    return false;
+  }
+
+  // Ordered mode: Tubi's Play/resume click lands on an episode we didn't pre-mark.
+  const pageSeriesIdEarly = getTubiShowIdFromUrl();
+  if (isTubiEpisodePage() && consumeTubiOrderedAcceptLanding(pageSeriesIdEarly)) {
+    if (isTubiReliableSeriesId(pageSeriesIdEarly)) {
+      setTubiActiveShuffleSeriesId(pageSeriesIdEarly);
+    }
     markTubiLandingVerifiedThisPageLoad();
     return false;
   }
@@ -9112,7 +9422,18 @@ async function saveTubiPlaylistShuffleState(
   };
   delete activePayload.pendingFirstShow;
   delete activePayload.pendingFirstShowId;
-  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload });
+  const episodeState = {
+    playedByShow: serializePlayedByShow(playedByShow),
+    lastPlayedShow: String(lastPlayedShow || showId),
+    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
+    nextEpisodeIndexByShow: { ...(nextEpisodeIndexByShow || {}) },
+    playlistName: activePayload.playlistName || '',
+    playlistIndex: activePayload.playlistIndex ?? 0,
+  };
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
+    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
+  });
   return activePayload;
 }
 
@@ -9220,6 +9541,21 @@ async function maybeResumeTubiPendingCollect(activeOverride = null) {
 
   window.__shufflrTubiPendingResume = true;
   try {
+    const settings = await readShuffleSettings();
+    orderedEpisodesCached = !!settings.orderedEpisodes;
+    // Ordered Episodes: do not collect/pick episodes — click Tubi's Play/resume CTA instead.
+    if (settings.orderedEpisodes) {
+      active = await clearTubiPendingFirstShowFlag(active);
+      setTubiActiveShuffleSeriesId(currentId);
+      shufflrActive = true;
+      armedPlaylistCached = true;
+      ensureTubiUpNextSuppressor();
+      updateTubiShuffleUI(active.playlistName || getTubiShowTitle());
+      markTubiOrderedAutoplayPending(currentId);
+      console.log(`[Shufflr] Tubi ordered pending → series Play/resume (${currentId})`);
+      return await maybeAutoClickTubiSeriesPlayOrResume();
+    }
+
     // Mid-session hops (Phase B) already have an active shuffle session → auto.
     // Fresh web Play landing does not → user-mode first play.
     const source = isTubiShuffleActive() ? 'pending-collect' : 'play-first-show';
@@ -9406,6 +9742,10 @@ async function restoreTubiShuffleSession() {
   if (isTubiSeriesPage() && isTubiArmedPayload(active) && isArmedPlaylistOwnedByThisTab(active)) {
     await maybeResumeTubiPendingCollect(active);
     active = await getActivePlaylistFromStorage();
+    // Ordered autoplay pending (dropdown / episode-end hop) — click Tubi's Play/resume.
+    if (sessionStorage.getItem(SHUFFLR_AUTOPLAY_PENDING_KEY) === 'true') {
+      await maybeAutoClickTubiSeriesPlayOrResume();
+    }
   }
 
   // Standalone web launch auto-start — only when not already in an owned armed playlist.
@@ -9437,16 +9777,24 @@ async function restoreTubiShuffleSession() {
   // re-interpret "marker already consumed" as a foreign Tubi navigation.
   // Cop only when a single-show session is active (owner sets it on auto-start).
   if (isTubiShuffleActive() && !tubiLandingVerifiedThisPageLoad) {
-    const expected = peekTubiExpectedLanding();
-    const currentEp = getTubiEpisodeIdFromUrl();
-    if (expected && currentEp && String(expected) === String(currentEp)) {
-      consumeTubiExpectedLanding();
+    const orderedAccepted = isTubiEpisodePage()
+      && consumeTubiOrderedAcceptLanding(getTubiShowIdFromUrl());
+    if (orderedAccepted) {
+      const pageId = getTubiShowIdFromUrl();
+      if (isTubiReliableSeriesId(pageId)) setTubiActiveShuffleSeriesId(pageId);
       markTubiLandingVerifiedThisPageLoad();
     } else {
-      // First evaluation only: absent or mismatched marker → potentially foreign.
-      // Set verified before the async cop so a concurrent sync restore cannot re-enter.
-      markTubiLandingVerifiedThisPageLoad();
-      void handleTubiShuffleCop('landing');
+      const expected = peekTubiExpectedLanding();
+      const currentEp = getTubiEpisodeIdFromUrl();
+      if (expected && currentEp && String(expected) === String(currentEp)) {
+        consumeTubiExpectedLanding();
+        markTubiLandingVerifiedThisPageLoad();
+      } else {
+        // First evaluation only: absent or mismatched marker → potentially foreign.
+        // Set verified before the async cop so a concurrent sync restore cannot re-enter.
+        markTubiLandingVerifiedThisPageLoad();
+        void handleTubiShuffleCop('landing');
+      }
     }
   }
 
@@ -9734,7 +10082,9 @@ if (IS_TUBI) {
     // Run as soon as the document can host checks — no arbitrary 800ms landing delay.
     const runRestore = () => {
       if (!isChromeContextValid() || !IS_TUBI) return;
-      void restoreTubiShuffleSession();
+      void restoreTubiShuffleSession().then(() => {
+        void maybeAutoClickTubiSeriesPlayOrResume();
+      });
     };
     if (document.body) {
       runRestore();
