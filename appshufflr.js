@@ -2858,15 +2858,6 @@ function getCrunchyrollSeriesUrlFromShow(show) {
   return null;
 }
 
-function getTubiSeriesUrlFromShow(show) {
-  if (!show) return null;
-  if (show.tubiSeriesUrl) return show.tubiSeriesUrl;
-  if (show.tubiId) {
-    return `https://tubitv.com/series/${String(show.tubiId)}`;
-  }
-  return null;
-}
-
 function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   const launchUrl = getCrunchyrollSeriesUrlFromShow(show);
   if (!launchUrl) {
@@ -2879,25 +2870,11 @@ function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   return true;
 }
 
-async function launchTubiShowFromWeb(show, launchIntent = 'mode') {
-  const launchUrl = getTubiSeriesUrlFromShow(show);
-  if (!launchUrl) {
-    showToast('NO TUBI URL');
-    return false;
-  }
-  showToast('OPENING: ' + (show.title || show.name || '').toUpperCase().slice(0, 18));
-  // Await durable storage write before opening — same pattern as playlist Play handoff.
-  await setStandaloneLaunchViaBridge(launchUrl, null, null, launchIntent);
-  window.open(launchUrl, '_blank');
-  return true;
-}
-
 async function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const show = playlists[playlistIndex]?.shows?.[showIndex];
   if (!show) return;
   if (show.tubiId || show.service === 'tubi') {
-    // Power-button pick click-through — follow global SINGLE/ALL mode.
-    await launchTubiShowFromWeb(show, 'mode');
+    // Tubi power-button standalone launch reset — no-op until rebuilt.
     return;
   }
   if (show.crunchyrollId || show.service === 'crunchyroll') {
@@ -4057,8 +4034,8 @@ async function openYourShowPopup(pi,si,clickedCard){
 async function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
   if (show?.tubiId || show?.service === 'tubi') {
+    // Tubi card Play / power-button standalone launch reset — no-op until rebuilt.
     closeYourShowPopup();
-    await launchTubiShowFromWeb(show, launchIntent);
     return;
   }
   if (show?.crunchyrollId || show?.service === 'crunchyroll') {
