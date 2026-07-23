@@ -55,6 +55,19 @@
       "run_at": "document_idle"
     },
     {
+      "matches": [
+        "https://play.max.com/*",
+        "https://www.max.com/*",
+        "https://play.hbomax.com/*",
+        "https://www.hbomax.com/*",
+        "https://tubitv.com/*",
+        "https://www.tubitv.com/*",
+        "*://*.crunchyroll.com/*"
+      ],
+      "js": ["cloud-storage-sync.js"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["https://shufflr-app.netlify.app/*"],
       "js": ["content.js", "bridge.js"],
       "run_at": "document_idle"
