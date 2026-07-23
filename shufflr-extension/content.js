@@ -9036,17 +9036,32 @@ async function shuffleFromActiveTubiPlaylist(activePayload, source = 'episode-en
   // Cold cache — write pending marker and hop to the series page to collect.
   console.log(`[Shufflr] Tubi playlist pick ${title} not cached — hopping to series page`);
   roundPlayedShows.add(showId);
+  const indexes = { ...(nextEpisodeIndexByShow || {}) };
+  const playedSerialized = serializePlayedByShow(playedByShow);
+  const roundSerialized = serializeRoundPlayedShows(roundPlayedShows);
   const updated = {
     ...active,
     pendingFirstShow: true,
     pendingFirstShowId: showId,
     currentEpisodeUrl: seriesUrl,
     lastPlayedShow: showId,
-    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
-    playedByShow: serializePlayedByShow(playedByShow),
-    nextEpisodeIndexByShow: { ...(nextEpisodeIndexByShow || {}) },
+    roundPlayedShows: roundSerialized,
+    playedByShow: playedSerialized,
+    nextEpisodeIndexByShow: indexes,
   };
-  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
+  // Dual-write round state (same shape as saveTubiPlaylistShuffleState / CR).
+  const episodeState = {
+    playedByShow: playedSerialized,
+    lastPlayedShow: showId,
+    roundPlayedShows: roundSerialized,
+    nextEpisodeIndexByShow: indexes,
+    playlistName: updated.playlistName || '',
+    playlistIndex: updated.playlistIndex ?? 0,
+  };
+  await chromeStorageLocalSet({
+    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated,
+    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
+  });
   setTubiActiveShuffleSeriesId(showId);
   shufflrActive = true;
   armedPlaylistCached = true;
@@ -9342,17 +9357,19 @@ async function loadTubiPlaylistPlayState(active) {
   if (!(roundPlayedShows instanceof Set)) {
     roundPlayedShows = deserializeRoundPlayedShows(roundPlayedShows);
   }
-  if (!lastPlayedShow && active.lastPlayedShow) {
-    lastPlayedShow = String(active.lastPlayedShow);
-  }
-  if ((!roundPlayedShows || roundPlayedShows.size === 0) && active.roundPlayedShows) {
-    roundPlayedShows = deserializeRoundPlayedShows(active.roundPlayedShows);
-  }
   if (
     (!nextEpisodeIndexByShow || !Object.keys(nextEpisodeIndexByShow).length)
     && active.nextEpisodeIndexByShow
   ) {
     nextEpisodeIndexByShow = { ...active.nextEpisodeIndexByShow };
+  }
+  // Prefer active handoff when present (mirrors playedByShow) so a cleared/updated
+  // round on the handoff wins over a stale shufflr_episode_state snapshot.
+  if (active.roundPlayedShows != null) {
+    roundPlayedShows = deserializeRoundPlayedShows(active.roundPlayedShows);
+  }
+  if (active.lastPlayedShow) {
+    lastPlayedShow = String(active.lastPlayedShow);
   }
   // Fresh Play handoffs ship empty playedByShow — prefer that over stale playlist storage.
   if (active.playedByShow && typeof active.playedByShow === 'object') {
@@ -9387,8 +9404,12 @@ async function saveTubiPlaylistShuffleState(
 ) {
   if (!isChromeContextValid()) return active;
   const showId = String(pickShow.tubiId || pickShow.id || lastPlayedShow);
+  const indexes = { ...(nextEpisodeIndexByShow || {}) };
   const createdAt = active.createdAt || getArmedSessionCreatedAt(active) || Date.now();
   const epId = tubiEpisodePlayKey(pickEp);
+  const last = String(lastPlayedShow || showId);
+  const roundSerialized = serializeRoundPlayedShows(roundPlayedShows);
+  const playedSerialized = serializePlayedByShow(playedByShow);
   const activePayload = {
     ...active,
     armed: true,
@@ -9415,20 +9436,22 @@ async function saveTubiPlaylistShuffleState(
       alternateId: null,
     },
     currentEpisodeUrl: pickEp.url || active.currentEpisodeUrl || null,
-    playedByShow: serializePlayedByShow(playedByShow),
-    lastPlayedShow: String(lastPlayedShow || showId),
-    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
-    nextEpisodeIndexByShow: { ...(nextEpisodeIndexByShow || {}) },
+    playedByShow: playedSerialized,
+    lastPlayedShow: last,
+    roundPlayedShows: roundSerialized,
+    nextEpisodeIndexByShow: indexes,
   };
   delete activePayload.pendingFirstShow;
   delete activePayload.pendingFirstShowId;
+  // Mirror saveCrunchyrollPlaylistShuffleState: keep episode-state in sync with the handoff
+  // so loadTubiPlaylistPlayState does not keep a stale Play-seeded round forever.
   const episodeState = {
-    playedByShow: serializePlayedByShow(playedByShow),
-    lastPlayedShow: String(lastPlayedShow || showId),
-    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
-    nextEpisodeIndexByShow: { ...(nextEpisodeIndexByShow || {}) },
-    playlistName: activePayload.playlistName || '',
-    playlistIndex: activePayload.playlistIndex ?? 0,
+    playedByShow: playedSerialized,
+    lastPlayedShow: last,
+    roundPlayedShows: roundSerialized,
+    nextEpisodeIndexByShow: indexes,
+    playlistName: active.playlistName || '',
+    playlistIndex: active.playlistIndex ?? 0,
   };
   await chromeStorageLocalSet({
     [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
