@@ -657,6 +657,15 @@ function installWebAppHandoffBridge() {
       return;
     }
 
+    if (event.data?.type === 'SHUFFLR_SYNC_YOUR_SHOWS') {
+      if (!isChromeContextValid()) return;
+      const shows = Array.isArray(event.data.shows) ? event.data.shows : [];
+      void chromeStorageLocalSet({ [SHUFFLR_YOUR_SHOWS_KEY]: shows }).then(() => {
+        console.log('[Shufflr] Your Shows synced to chrome.storage.local:', shows.length);
+      });
+      return;
+    }
+
     if (event.data?.type === 'SHUFFLR_SHUFFLE_SETTINGS') {
       if (!isChromeContextValid()) return;
       void applyShuffleSettingsFromWebApp(event.data.settings || {});
@@ -5337,16 +5346,36 @@ async function getStoredAuthSession() {
 }
 
 // Refresh the extension's Supabase access token after sleep when it has expired.
+// On refresh failure, keep returning a usable access token rather than dropping the
+// session — cloud Your Shows reads otherwise silently fall back to a sparse local copy.
 async function getValidAuthSession() {
   const session = await getStoredAuthSession();
-  if (!session?.accessToken || !session?.userId) return null;
+  if (!session?.accessToken || !session?.userId) {
+    console.log('[Shufflr] Auth session missing — no accessToken/userId in chrome.storage.local');
+    return null;
+  }
 
   const expiresAtMs = session.expiresAt ? Number(session.expiresAt) * 1000 : 0;
-  const expiringSoon = !expiresAtMs || Date.now() >= expiresAtMs - 60_000;
+  const now = Date.now();
+  const hardExpired = !!(expiresAtMs && now >= expiresAtMs);
+  const expiringSoon = !expiresAtMs || now >= expiresAtMs - 60_000;
   if (!expiringSoon) return session;
 
   const refreshToken = session.refreshToken || session.refresh_token;
-  if (!refreshToken) return session;
+  if (!refreshToken) {
+    console.log(
+      hardExpired
+        ? '[Shufflr] Auth session expired and no refresh token — trying existing access token anyway'
+        : '[Shufflr] Auth session expiring soon with no refresh token — using existing access token'
+    );
+    return session;
+  }
+
+  console.log(
+    hardExpired
+      ? '[Shufflr] Auth session expired — attempting refresh'
+      : '[Shufflr] Auth session expiring soon — attempting refresh'
+  );
 
   try {
     const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
@@ -5357,9 +5386,20 @@ async function getValidAuthSession() {
       },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn(
+        '[Shufflr] Auth refresh failed:',
+        response.status,
+        '— keeping existing access token for cloud reads'
+      );
+      return session;
+    }
 
     const data = await response.json();
+    if (!data?.access_token) {
+      console.warn('[Shufflr] Auth refresh returned no access_token — keeping existing session');
+      return session;
+    }
     const updated = {
       userId: session.userId,
       accessToken: data.access_token,
@@ -5367,10 +5407,11 @@ async function getValidAuthSession() {
       expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
     };
     await storageLocalSet(SHUFFLR_SUPABASE_SESSION_KEY, updated);
+    console.log('[Shufflr] Auth session refreshed successfully');
     return updated;
   } catch (err) {
-    console.error('[Shufflr] Supabase session refresh failed:', err);
-    return null;
+    console.error('[Shufflr] Auth refresh error — keeping existing access token:', err);
+    return session;
   }
 }
 

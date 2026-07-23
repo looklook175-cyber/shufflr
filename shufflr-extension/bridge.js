@@ -3,6 +3,7 @@
 
 (function () {
   const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
+  const SHUFFLR_YOUR_SHOWS_KEY = 'shufflr_your_shows';
   const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
 
   function syncSupabaseSessionToExtension() {
@@ -85,22 +86,62 @@
     }
   }
 
+  function syncYourShowsToExtensionStorage(shows) {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.runtime?.id) return;
+    const list = Array.isArray(shows) ? shows : [];
+    try {
+      chrome.storage.local.set({ [SHUFFLR_YOUR_SHOWS_KEY]: list }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('[Shufflr] bridge.js — Your Shows sync skipped:', chrome.runtime.lastError.message);
+          return;
+        }
+        console.log('[Shufflr] bridge.js — synced Your Shows to extension:', list.length);
+      });
+    } catch (err) {
+      console.error('[Shufflr] bridge.js — Your Shows sync failed:', err);
+    }
+  }
+
+  function syncYourShowsFromLocalStorage() {
+    try {
+      const raw = localStorage.getItem(SHUFFLR_YOUR_SHOWS_KEY);
+      if (!raw) return;
+      const shows = JSON.parse(raw);
+      if (!Array.isArray(shows) || !shows.length) return;
+      syncYourShowsToExtensionStorage(shows);
+    } catch (err) {
+      console.error('[Shufflr] bridge.js — Your Shows localStorage read failed:', err);
+    }
+  }
+
   function scheduleSupabaseSessionSyncOnPageLoad() {
-    syncSupabaseSessionToExtension();
-    window.addEventListener('load', syncSupabaseSessionToExtension);
-    window.addEventListener('pageshow', syncSupabaseSessionToExtension);
+    const syncAll = () => {
+      syncSupabaseSessionToExtension();
+      syncYourShowsFromLocalStorage();
+    };
+    syncAll();
+    window.addEventListener('load', syncAll);
+    window.addEventListener('pageshow', syncAll);
+    window.addEventListener('focus', syncAll);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        syncSupabaseSessionToExtension();
+        syncAll();
       }
     });
     window.addEventListener('storage', (event) => {
       if (event.key === SHUFFLR_SUPABASE_SESSION_KEY) {
         syncSupabaseSessionToExtension();
       }
+      if (event.key === SHUFFLR_YOUR_SHOWS_KEY) {
+        syncYourShowsFromLocalStorage();
+      }
     });
-    setTimeout(syncSupabaseSessionToExtension, 500);
-    setTimeout(syncSupabaseSessionToExtension, 2000);
+    setTimeout(syncAll, 500);
+    setTimeout(syncAll, 2000);
+    // Keep session + Your Shows warm while the web app tab stays open.
+    setInterval(() => {
+      if (document.visibilityState === 'visible') syncAll();
+    }, 5 * 60 * 1000);
   }
 
   scheduleSupabaseSessionSyncOnPageLoad();
@@ -152,6 +193,10 @@
     }
     if (event.data?.type === 'SHUFFLR_SAVE_PLAYLISTS') {
       chrome.storage.local.set({ shufflr_playlists: event.data.playlists || [] });
+      return;
+    }
+    if (event.data?.type === 'SHUFFLR_SYNC_YOUR_SHOWS' || event.data?.type === 'SHUFFLR_SAVE_YOUR_SHOWS') {
+      syncYourShowsToExtensionStorage(event.data.shows);
       return;
     }
     if (event.data?.type === 'SHUFFLR_SHUFFLE_SETTINGS') {

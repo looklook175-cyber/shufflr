@@ -609,6 +609,25 @@ function saveSupabaseSessionForExtension(sessionPayload){
   window.postMessage({type:'SHUFFLR_SUPABASE_SESSION_SYNC',source:'shufflr-web'},'*');
 }
 
+// Push full Your Shows library into extension chrome.storage so ALL-mode
+// fallback is the real library, not only in-page Adds.
+function syncYourShowsToExtension(shows){
+  const list=Array.isArray(shows)?shows:[];
+  try{
+    localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY,JSON.stringify(list));
+  }catch{}
+  window.postMessage({
+    type:'SHUFFLR_SYNC_YOUR_SHOWS',
+    source:'shufflr-web',
+    shows:list,
+  },'*');
+  try{
+    if(typeof chrome!=='undefined'&&chrome.storage?.local){
+      chrome.storage.local.set({[SHUFFLR_YOUR_SHOWS_KEY]:list});
+    }
+  }catch{}
+}
+
 window.addEventListener('message',(event)=>{
   if(event.source!==window)return;
   if(event.data?.source!=='shufflr-web')return;
@@ -4072,7 +4091,7 @@ async function cascadeDeleteShowFromYourShowsLibrary(show) {
 
   const stored = readLocalYourShows();
   const filtered = stored.filter(s => !libraryShowsMatchForDelete(s, show));
-  localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(filtered));
+  syncYourShowsToExtension(filtered);
   if (typeof window.shufflrSaveYourShowsToCloud === 'function') {
     await window.shufflrSaveYourShowsToCloud(filtered);
   }
@@ -4780,6 +4799,7 @@ async function renderHomeScreen(navType){
     try {
       localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(mergedYourShows));
     } catch {}
+    syncYourShowsToExtension(mergedYourShows);
     const connectedService = localStorage.getItem('shufflr_service') || 'max';
     filteredYourShows = mergedYourShows.filter(show => showBelongsToConnectedService(show, connectedService));
   }

@@ -15,6 +15,29 @@ async function persistAuthSessionForExtension(session) {
       }
     : null
 
+  // Extension content scripts read shufflr_supabase_session (not shufflr_auth_session).
+  const extensionSession = session?.user?.id && session?.access_token
+    ? {
+        userId: session.user.id,
+        accessToken: session.access_token,
+        refreshToken: session.refresh_token || null,
+        expiresAt: session.expires_at || null,
+      }
+    : null
+
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await new Promise(resolve => {
+        if (extensionSession) {
+          chrome.storage.local.set({ shufflr_supabase_session: extensionSession }, resolve)
+        } else {
+          chrome.storage.local.remove('shufflr_supabase_session', resolve)
+        }
+      })
+    }
+  } catch {}
+
+  // Also keep legacy key for any older readers, then postMessage for the bridge.
   try {
     if (typeof chrome !== 'undefined' && chrome.storage?.local) {
       await new Promise(resolve => {
@@ -189,6 +212,17 @@ async function loadYourShowsFromCloud(userId) {
   const cloudShows = Array.isArray(data?.shows) ? data.shows : []
   const merged = mergeYourShowsLists(readLocalYourShows(), cloudShows)
   localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY, JSON.stringify(merged))
+  // Push full library snapshot into extension storage (ALL-mode fallback).
+  window.postMessage({
+    type: 'SHUFFLR_SYNC_YOUR_SHOWS',
+    source: 'shufflr-web',
+    shows: merged,
+  }, '*')
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      chrome.storage.local.set({ [SHUFFLR_YOUR_SHOWS_KEY]: merged })
+    }
+  } catch {}
   return merged
 }
 
@@ -349,10 +383,16 @@ window.shufflrGetYourShowsFromCloud = async () => {
 window.shufflrSaveYourShowsToCloud = async (shows) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
+  const list = Array.isArray(shows) ? shows : []
   try {
     await supabase
       .from('your_shows')
-      .upsert({ user_id: user.id, shows: Array.isArray(shows) ? shows : [] }, { onConflict: 'user_id' });
+      .upsert({ user_id: user.id, shows: list }, { onConflict: 'user_id' });
+    window.postMessage({
+      type: 'SHUFFLR_SYNC_YOUR_SHOWS',
+      source: 'shufflr-web',
+      shows: list,
+    }, '*')
   } catch (e) {
     console.error('[Shufflr] Failed to save Your Shows to cloud:', e);
   }
@@ -367,7 +407,11 @@ async function refreshSessionIfStale() {
 
   const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0
   const expiringSoon = !expiresAtMs || Date.now() >= expiresAtMs - 60_000
-  if (!expiringSoon) return session
+  if (!expiringSoon) {
+    // Keep extension chrome.storage warm even when no refresh is needed.
+    await persistAuthSessionForExtension(session)
+    return session
+  }
 
   const { data, error } = await supabase.auth.refreshSession()
   if (error || !data.session) {
@@ -376,6 +420,8 @@ async function refreshSessionIfStale() {
       await supabase.auth.signOut()
       return null
     }
+    // Still usable — re-push so extension storage stays current.
+    await persistAuthSessionForExtension(session)
     return session
   }
 
