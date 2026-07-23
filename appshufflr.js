@@ -1061,7 +1061,7 @@ async function onNowPlayingShuffleClick(){
   renderNowPlayingCard();
 }
 
-function onNowPlayingShufflePosterClick(){
+async function onNowPlayingShufflePosterClick(){
   if(!isNowPlayingShuffleActive())return;
   if(nowPlayingShufflePlaylistIndex===-1){
     const show=nowPlayingShufflePickedShow;
@@ -1074,11 +1074,11 @@ function onNowPlayingShufflePosterClick(){
       maxId:getShowMaxId(show),
     };
     // Power-button pick — follow global mode (not card Play single-intent).
-    launchYourShowPopupShuffle('mode');
+    await launchYourShowPopupShuffle('mode');
     return;
   }
   if(nowPlayingShufflePlaylistIndex==null||nowPlayingShuffleShowIndex==null)return;
-  launchShowStandaloneFromNowPlaying(nowPlayingShufflePlaylistIndex,nowPlayingShuffleShowIndex);
+  await launchShowStandaloneFromNowPlaying(nowPlayingShufflePlaylistIndex,nowPlayingShuffleShowIndex);
 }
 
 function installNowPlayingShufflePosterClick(){
@@ -2776,14 +2776,45 @@ function setActivePlaylistViaBridge(playlist, launchUrl) {
   }, '*');
 }
 
+/**
+ * Write standalone launch keys and resolve only after chrome.storage.local.set finishes
+ * (same durability as handoffActivePlaylistToExtension). Also posts to the bridge for
+ * pages where chrome.storage is unavailable to the page world.
+ */
 function setStandaloneLaunchViaBridge(launchUrl, maxId = null, blockedSeasons = null, launchIntent = 'mode') {
-  window.postMessage({
-    type: 'SHUFFLR_LAUNCH_STANDALONE_SHOW',
-    launchUrl,
-    maxId: maxId || null,
-    blockedSeasons: Array.isArray(blockedSeasons) ? blockedSeasons : null,
-    launchIntent: launchIntent === 'single' ? 'single' : 'mode',
-  }, '*');
+  return new Promise(resolve => {
+    const intent = launchIntent === 'single' ? 'single' : 'mode';
+    const payload = {
+      shufflr_launch_show_url: launchUrl,
+      shufflr_launch_standalone: true,
+      shufflr_launch_intent: intent,
+      shufflr_launch_standalone_at: Date.now(),
+    };
+    if (maxId && Array.isArray(blockedSeasons)) {
+      payload[`shufflr_blocked_seasons_${maxId}`] = blockedSeasons;
+    }
+    const notifyBridge = () => {
+      window.postMessage({
+        type: 'SHUFFLR_LAUNCH_STANDALONE_SHOW',
+        launchUrl,
+        maxId: maxId || null,
+        blockedSeasons: Array.isArray(blockedSeasons) ? blockedSeasons : null,
+        launchIntent: intent,
+      }, '*');
+    };
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set(payload, () => {
+          notifyBridge();
+          resolve();
+        });
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    // No page-world chrome.storage — bridge postMessage + brief settle before open.
+    notifyBridge();
+    setTimeout(resolve, 150);
+  });
 }
 
 function showBelongsToConnectedService(show, connectedService = null) {
@@ -2829,24 +2860,25 @@ function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   return true;
 }
 
-function launchTubiShowFromWeb(show, launchIntent = 'mode') {
+async function launchTubiShowFromWeb(show, launchIntent = 'mode') {
   const launchUrl = getTubiSeriesUrlFromShow(show);
   if (!launchUrl) {
     showToast('NO TUBI URL');
     return false;
   }
   showToast('OPENING: ' + (show.title || show.name || '').toUpperCase().slice(0, 18));
-  setStandaloneLaunchViaBridge(launchUrl, null, null, launchIntent);
+  // Await durable storage write before opening — same pattern as playlist Play handoff.
+  await setStandaloneLaunchViaBridge(launchUrl, null, null, launchIntent);
   window.open(launchUrl, '_blank');
   return true;
 }
 
-function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
+async function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const show = playlists[playlistIndex]?.shows?.[showIndex];
   if (!show) return;
   if (show.tubiId || show.service === 'tubi') {
     // Power-button pick click-through — follow global SINGLE/ALL mode.
-    launchTubiShowFromWeb(show, 'mode');
+    await launchTubiShowFromWeb(show, 'mode');
     return;
   }
   if (show.crunchyrollId || show.service === 'crunchyroll') {
@@ -4003,11 +4035,11 @@ async function openYourShowPopup(pi,si,clickedCard){
   positionYourShowPopup(pi,si);
 }
 
-function launchYourShowPopupShuffle(launchIntent = 'single'){
+async function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
   if (show?.tubiId || show?.service === 'tubi') {
     closeYourShowPopup();
-    launchTubiShowFromWeb(show, launchIntent);
+    await launchTubiShowFromWeb(show, launchIntent);
     return;
   }
   if (show?.crunchyrollId || show?.service === 'crunchyroll') {

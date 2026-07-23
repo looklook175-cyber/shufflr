@@ -9651,13 +9651,11 @@ function tubiLaunchUrlMatchesCurrentSeries(launchUrl) {
 }
 
 /**
- * Detect + consume a fresh standalone web launch targeting this series page.
- * Returns { seriesId, launchUrl, launchIntent } or null.
+ * Peek standalone launch keys for this series page (does not consume).
+ * Returns { launchUrl, launchIntent, launchedAt }, { expired: true }, or null.
  */
-async function consumeTubiStandaloneLaunchIfMatching() {
-  if (!isChromeContextValid() || !isTubiSeriesPage()) return null;
-  if (window.__shufflrTubiStandaloneLaunchConsumed) return null;
-
+async function peekTubiStandaloneLaunchStorage() {
+  if (!isChromeContextValid()) return null;
   const result = await chrome.storage.local.get([
     SHUFFLR_LAUNCH_SHOW_URL_KEY,
     SHUFFLR_LAUNCH_STANDALONE_KEY,
@@ -9673,25 +9671,70 @@ async function consumeTubiStandaloneLaunchIfMatching() {
   if (!Number.isFinite(launchedAt) || launchedAt <= 0) {
     launchedAt = Date.now();
   } else if (Date.now() - launchedAt > STANDALONE_LAUNCH_MAX_AGE_MS) {
+    return { expired: true };
+  }
+
+  const launchIntent = result[SHUFFLR_LAUNCH_INTENT_KEY] === 'single' ? 'single' : 'mode';
+  return { launchUrl, launchIntent, launchedAt };
+}
+
+async function waitForTubiStandaloneLaunchKeys(maxMs = 2000, intervalMs = 150) {
+  const started = Date.now();
+  let first = await peekTubiStandaloneLaunchStorage();
+  if (first?.expired) {
     console.log('[Shufflr] Standalone launch expired — clearing');
     await clearTubiStandaloneLaunchKeys();
     return null;
   }
+  if (first?.launchUrl) return first;
 
-  const launchIntent = result[SHUFFLR_LAUNCH_INTENT_KEY] === 'single' ? 'single' : 'mode';
+  // No keys yet — only poll on fresh navigations (covers the open-tab race).
+  // Skip a multi-second stall on later restore/inject passes of a series page.
+  if (typeof performance !== 'undefined' && performance.now() > maxMs + 500) {
+    return null;
+  }
+
+  while (Date.now() - started < maxMs) {
+    await wait(intervalMs);
+    if (!isChromeContextValid() || !isTubiSeriesPage()) return null;
+    const next = await peekTubiStandaloneLaunchStorage();
+    if (next?.expired) {
+      console.log('[Shufflr] Standalone launch expired — clearing');
+      await clearTubiStandaloneLaunchKeys();
+      return null;
+    }
+    if (next?.launchUrl) return next;
+  }
+  return null;
+}
+
+/**
+ * Detect + consume a fresh standalone web launch targeting this series page.
+ * Returns { seriesId, launchUrl, launchIntent } or null.
+ */
+async function consumeTubiStandaloneLaunchIfMatching() {
+  if (!isChromeContextValid() || !isTubiSeriesPage()) return null;
+  if (window.__shufflrTubiStandaloneLaunchConsumed) return null;
+
+  const matched = await waitForTubiStandaloneLaunchKeys(2000, 150);
+  if (!matched?.launchUrl) return null;
+
+  const seriesId = getCurrentTubiSeriesId();
+  if (!seriesId) return null;
 
   window.__shufflrTubiStandaloneLaunchConsumed = true;
   await clearTubiStandaloneLaunchKeys();
 
-  const seriesId = getCurrentTubiSeriesId();
-  if (!seriesId) return null;
-  console.log('[Shufflr] Consumed Tubi standalone launch for series', seriesId, `(intent=${launchIntent})`);
-  return { seriesId, launchUrl, launchIntent };
+  console.log(
+    '[Shufflr] Consumed Tubi standalone launch for series',
+    seriesId,
+    `(intent=${matched.launchIntent})`
+  );
+  return { seriesId, launchUrl: matched.launchUrl, launchIntent: matched.launchIntent };
 }
 
 /**
- * Auto-start after a web-app standalone launch. Playlist armed flows take priority
- * (caller should skip when this tab already owns an armed playlist).
+ * Auto-start after a web-app standalone launch.
  */
 async function maybeAutoStartTubiStandaloneLaunch() {
   if (!isChromeContextValid() || !isTubiSeriesPage()) return false;
@@ -9760,6 +9803,28 @@ async function restoreTubiShuffleSession() {
   // Claim immediately on a matching fresh unclaimed Tubi handoff — before other readers.
   if (isTubiArmedPayload(active)) {
     active = await maybeClaimUnownedTubiArmedHandoff(active);
+  }
+
+  // Fresh standalone launch for THIS show: wait briefly for keys, then beat a leftover
+  // armed playlist that is not targeting this page (user explicitly asked to play this show).
+  if (isTubiSeriesPage() && !window.__shufflrTubiStandaloneLaunchConsumed) {
+    const pendingStandalone = await waitForTubiStandaloneLaunchKeys(2000, 150);
+    if (pendingStandalone?.launchUrl) {
+      const ownedArmed = isTubiArmedPayload(active) && isArmedPlaylistOwnedByThisTab(active);
+      if (ownedArmed && tubiArmedHandoffTargetsThisShow(active)) {
+        // Real playlist Play for this show wins — drop competing standalone keys.
+        await clearTubiStandaloneLaunchKeys();
+      } else {
+        if (ownedArmed && !tubiArmedHandoffTargetsThisShow(active)) {
+          console.log('[Shufflr] Tubi standalone launch takes priority over stale armed playlist');
+          await clearActivePlaylist();
+          active = null;
+        }
+        const started = await maybeAutoStartTubiStandaloneLaunch();
+        if (started) return true;
+        active = await getActivePlaylistFromStorage();
+      }
+    }
   }
 
   if (isTubiSeriesPage() && isTubiArmedPayload(active) && isArmedPlaylistOwnedByThisTab(active)) {
