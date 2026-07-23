@@ -2169,16 +2169,28 @@ async function refreshYourShowsFromCloudIfPossible() {
   }
 }
 
+/**
+ * Prefer cloud Your Shows when the fetch succeeds (including an empty list).
+ * cloudReadSucceeded is false only on genuine failure (no auth, network, bad response)
+ * — distinct from a successful cloud read that returned [].
+ */
 async function readYourShowsPreferCloud() {
   const cloudShows = await refreshYourShowsFromCloudIfPossible();
-  if (cloudShows !== null) return cloudShows;
-  return readYourShowsFromStorage();
+  if (cloudShows !== null) {
+    return { shows: cloudShows, cloudReadSucceeded: true };
+  }
+  return {
+    shows: await readYourShowsFromStorage(),
+    cloudReadSucceeded: false,
+  };
 }
 
-async function writeYourShowsToStorage(shows) {
+async function writeYourShowsToStorage(shows, { syncToCloud = true } = {}) {
   if (!isChromeContextValid()) return;
   await chromeStorageLocalSet({ [SHUFFLR_YOUR_SHOWS_KEY]: shows });
-  void syncYourShowsToSupabaseFromExtension(shows);
+  if (syncToCloud) {
+    void syncYourShowsToSupabaseFromExtension(shows);
+  }
 }
 
 async function addCurrentShowToYourShows() {
@@ -2191,7 +2203,8 @@ async function addCurrentShowToYourShows() {
       return;
     }
     const title = getTubiShowTitle() || 'Unknown Show';
-    const shows = await readYourShowsPreferCloud();
+    const { shows: existingShows, cloudReadSucceeded } = await readYourShowsPreferCloud();
+    const shows = Array.isArray(existingShows) ? [...existingShows] : [];
     const alreadyAdded = shows.some(show => String(show.tubiId) === String(tubiId));
     if (alreadyAdded) {
       showToast('Already in Your Shows');
@@ -2204,7 +2217,12 @@ async function addCurrentShowToYourShows() {
       tubiSeriesUrl,
       service: 'tubi',
     });
-    await writeYourShowsToStorage(shows);
+    if (cloudReadSucceeded) {
+      await writeYourShowsToStorage(shows);
+    } else {
+      console.warn('[Shufflr] Tubi Add: cloud read failed, adding locally only — will not overwrite cloud');
+      await writeYourShowsToStorage(shows, { syncToCloud: false });
+    }
     showToast(`Added ${title} to Your Shows`);
     return;
   }
@@ -2216,7 +2234,8 @@ async function addCurrentShowToYourShows() {
       return;
     }
     const title = getCrunchyrollShowTitle() || 'Unknown Show';
-    const shows = await readYourShowsPreferCloud();
+    const { shows: existingShows } = await readYourShowsPreferCloud();
+    const shows = Array.isArray(existingShows) ? [...existingShows] : [];
     const alreadyAdded = shows.some(show => show.crunchyrollId === crunchyrollId);
     if (alreadyAdded) {
       showToast('Already in Your Shows');
@@ -2241,7 +2260,8 @@ async function addCurrentShowToYourShows() {
   }
 
   const title = getCurrentShowTitle();
-  const shows = await readYourShowsPreferCloud();
+  const { shows: existingShows } = await readYourShowsPreferCloud();
+  const shows = Array.isArray(existingShows) ? [...existingShows] : [];
   const alreadyAdded = shows.some(show => (
     show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
   ));
@@ -3487,7 +3507,7 @@ function collectYourShowsFromLists(playlists, standaloneShows = []) {
 }
 
 async function getYourShowsFromPlaylists(playlists) {
-  const standaloneShows = await readYourShowsPreferCloud();
+  const { shows: standaloneShows } = await readYourShowsPreferCloud();
   return collectYourShowsFromLists(playlists, standaloneShows);
 }
 
@@ -8866,7 +8886,8 @@ async function navigateToTubiOrderedPlaylistShow(
 async function armTubiYourShowsAllModeSession(options = {}) {
   if (!isChromeContextValid()) return null;
 
-  const yourShows = (await readYourShowsPreferCloud()).filter(show => show?.tubiId);
+  const { shows: libraryShows } = await readYourShowsPreferCloud();
+  const yourShows = (libraryShows || []).filter(show => show?.tubiId);
   if (!yourShows.length) return null;
 
   const prior = await getActivePlaylistFromStorage();
@@ -11409,7 +11430,8 @@ async function shuffleFromCrunchyrollYourShowsAllMode(source = 'episode-end') {
 async function armCrunchyrollYourShowsAllModeSession(options = {}) {
   if (!isChromeContextValid()) return null;
 
-  const yourShows = (await readYourShowsPreferCloud()).filter(show => show?.crunchyrollId);
+  const { shows: libraryShows } = await readYourShowsPreferCloud();
+  const yourShows = (libraryShows || []).filter(show => show?.crunchyrollId);
   if (!yourShows.length) return null;
 
   const prior = await getActivePlaylistFromStorage();
