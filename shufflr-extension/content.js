@@ -7871,6 +7871,27 @@ function isTubiShuffleActiveForShow(seriesId) {
   return String(activeSeriesId) === String(seriesId);
 }
 
+/**
+ * Single-show session id for toggle ON and power-button pin.
+ * Prefer the pin when it matches the active session so episode-end / watcher
+ * stay on that show even if the watch-page series resolver disagrees.
+ */
+function getTubiSingleShowSessionId() {
+  const activeId = getTubiActiveShuffleSeriesId();
+  const pin = getTubiSessionPin();
+  if (pin && isTubiReliableSeriesId(pin) && (!activeId || String(pin) === String(activeId))) {
+    return String(pin);
+  }
+  if (isTubiReliableSeriesId(activeId)) return String(activeId);
+  return null;
+}
+
+function isTubiPinnedSingleShowSession() {
+  const pin = getTubiSessionPin();
+  const sessionId = getTubiSingleShowSessionId();
+  return !!(pin && sessionId && String(pin) === String(sessionId));
+}
+
 function getTubiEpisodeIdFromUrl(url = location.href) {
   try {
     const match = new URL(url, location.origin).pathname.match(/\/tv-shows\/(\d+)/);
@@ -8552,18 +8573,24 @@ function installTubiEpisodeEndWatcher() {
   ensureTubiVideoSwapObserver();
   ensureTubiUpNextSuppressor();
 
+  const sessionShowId = getTubiSingleShowSessionId();
   let showId = getTubiShowIdFromUrl();
   if (isTubiUnresolvedSeriesId(showId)) {
-    const activeId = getTubiActiveShuffleSeriesId();
-    if (isTubiReliableSeriesId(activeId)) {
-      showId = activeId;
+    if (isTubiReliableSeriesId(sessionShowId)) {
+      showId = sessionShowId;
     } else {
       scheduleTubiWatcherIdRetry();
       return;
     }
   }
 
-  if (!isTubiShuffleActiveForShow(showId)) return;
+  // Power-button pin: same watcher as manual toggle ON — use the session show id
+  // even when the watch page's series resolver briefly returns something else.
+  if (isTubiPinnedSingleShowSession()) {
+    showId = sessionShowId;
+  } else if (!isTubiShuffleActiveForShow(showId)) {
+    return;
+  }
   clearTubiWatcherIdRetry();
   tubiWatcherIdRetryCount = 0;
 
@@ -8620,6 +8647,10 @@ async function navigateToRandomTubiEpisodeForCurrentShow(source = 'episode-end')
   let showId = getTubiShowIdFromUrl();
   if (isTubiUnresolvedSeriesId(showId)) {
     showId = getTubiActiveShuffleSeriesId();
+  }
+  // Pinned power-button / card Play session: always shuffle that one show.
+  if (isTubiPinnedSingleShowSession()) {
+    showId = getTubiSingleShowSessionId();
   }
   if (!isTubiReliableSeriesId(showId) || !isTubiShuffleActiveForShow(showId)) return;
 
@@ -9119,12 +9150,7 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
     return;
   }
 
-  // Power-button / card Play pin: stay on that show (not roaming).
-  if (isTubiSessionPinnedToCurrentShow()) {
-    await navigateToRandomTubiEpisodeForCurrentShow(source);
-    return;
-  }
-
+  // Single-show session (manual toggle OR power-button pin): same episode-end path.
   await navigateToRandomTubiEpisodeForCurrentShow(source);
 }
 
@@ -9816,6 +9842,16 @@ async function restoreTubiShuffleSession() {
     console.log('[Shufflr] armed playlist ignored — owned by another tab (or unclaimed)');
   }
 
+  // Power-button pin without active key — re-arm the same single-show session
+  // the manual toggle uses (watcher, Up Next, cop all key off TUBI_SHUFFLE_ACTIVE).
+  if (!isTubiShuffleActive() && !armedOwned) {
+    const pin = getTubiSessionPin();
+    if (pin && isTubiReliableSeriesId(pin)) {
+      setTubiActiveShuffleSeriesId(pin);
+      console.log('[Shufflr] Re-armed Tubi single-show session from standalone pin', pin);
+    }
+  }
+
   // Not-owner tabs behave exactly as if nothing is armed.
   if (!isTubiShuffleActive() && !armedOwned) {
     shufflrActive = false;
@@ -9898,10 +9934,19 @@ async function startTubiShuffle() {
     showId = null;
     await wait(500);
   }
+  // Power-button pin can identify the show before the page resolver is ready.
+  if (!isTubiReliableSeriesId(showId)) {
+    const pin = getTubiSessionPin();
+    if (pin && isTubiReliableSeriesId(pin)) showId = String(pin);
+  }
   if (!isTubiReliableSeriesId(showId)) {
     showToast('Could not identify this show.');
     return;
   }
+
+  // Persist active session before reload hydrate so landing restore installs the
+  // same episode-end watcher / Up Next / cop path as a manual toggle ON.
+  setTubiActiveShuffleSeriesId(showId);
 
   // One reload to hydrate React Query / episode list (Tubi SPA often needs it).
   if (sessionStorage.getItem(TUBI_PENDING_KEY) !== 'reloaded') {
