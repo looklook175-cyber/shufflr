@@ -128,8 +128,17 @@ const TUBI_SHUFFLE_ACTIVE_KEY = 'shufflr_tubi_shuffle_active';
 const TUBI_PENDING_KEY = 'shufflr_tubi_pending_shuffle';
 /** Episode video id Shufflr is about to land on (sessionStorage — survives full loads). */
 const TUBI_EXPECTED_LANDING_KEY = 'shufflr_tubi_expected_landing';
+/**
+ * Ordered playlist Play/resume: expected-landing sentinel meaning "whatever episode
+ * Tubi's own CTA opens is ours." Replaced with the concrete episode id on settle.
+ */
+const TUBI_EXPECTED_ORDERED_ANY = '*';
 /** Ordered mode: accept the next same-show episode landing after Tubi's own Play/resume click. */
 const TUBI_ORDERED_ACCEPT_LANDING_KEY = 'shufflr_tubi_ordered_accept_landing';
+/** Deferred round-robin commit until ordered episode landing settles. */
+const TUBI_ORDERED_PENDING_ROTATION_KEY = 'shufflr_tubi_ordered_pending_rotation';
+/** Concrete episode id pinned after ordered settle (survives slug rewrites; cleared on next hop/stop). */
+const TUBI_ORDERED_PINNED_EP_KEY = 'shufflr_tubi_ordered_pinned_ep';
 const TUBI_WATCHER_ID_RETRY_MS = 400;
 const TUBI_WATCHER_ID_MAX_RETRIES = 5;
 const CRUNCHYROLL_EPISODE_CACHE_PREFIX = 'shufflr_crunchyroll_episodes_';
@@ -8736,10 +8745,124 @@ function findTubiSeriesPlayOrResumeButton() {
 }
 
 function markTubiOrderedAutoplayPending(showId) {
+  clearTubiOrderedPinnedEpisode();
   try {
     sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
     if (showId) sessionStorage.setItem(TUBI_ORDERED_ACCEPT_LANDING_KEY, String(showId));
   } catch { /* ignore */ }
+}
+
+function clearTubiOrderedPinnedEpisode() {
+  try { sessionStorage.removeItem(TUBI_ORDERED_PINNED_EP_KEY); } catch { /* ignore */ }
+}
+
+function clearTubiOrderedPendingRotation() {
+  try { sessionStorage.removeItem(TUBI_ORDERED_PENDING_ROTATION_KEY); } catch { /* ignore */ }
+}
+
+function getTubiOrderedPinnedEpisode() {
+  try {
+    return sessionStorage.getItem(TUBI_ORDERED_PINNED_EP_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function stashTubiOrderedPendingRotation(
+  pickShow,
+  roundPlayedShows,
+  nextEpisodeIndexByShow,
+  playedByShow
+) {
+  try {
+    sessionStorage.setItem(TUBI_ORDERED_PENDING_ROTATION_KEY, JSON.stringify({
+      showId: String(pickShow.tubiId),
+      title: pickShow.title || pickShow.name || '',
+      tubiSeriesUrl: getTubiSeriesUrlFromPlaylistShow(pickShow),
+      roundPlayedShowIds: [...(roundPlayedShows || [])].map(String),
+      nextEpisodeIndexByShow: nextEpisodeIndexByShow || {},
+      playedByShow: playedByShow != null ? serializePlayedByShow(playedByShow) : null,
+    }));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Commit deferred ordered round-robin only after the episode landing is confirmed.
+ * No-op when there is no pending stash (e.g. dropdown already persisted rotation).
+ */
+async function commitTubiOrderedPendingRotationIfAny() {
+  let raw;
+  try {
+    raw = sessionStorage.getItem(TUBI_ORDERED_PENDING_ROTATION_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  let pending;
+  try {
+    pending = JSON.parse(raw);
+  } catch {
+    clearTubiOrderedPendingRotation();
+    return null;
+  }
+  clearTubiOrderedPendingRotation();
+
+  if (!isChromeContextValid()) return null;
+  const active = await getActivePlaylistFromStorage();
+  if (!isTubiArmedPayload(active) || !isArmedPlaylistOwnedByThisTab(active)) return null;
+
+  const showId = String(pending.showId || '');
+  if (!showId) return null;
+
+  const pickShow = getTubiPlaylistShows(active).find(s => String(s.tubiId) === showId) || {
+    tubiId: showId,
+    title: pending.title,
+    name: pending.title,
+    tubiSeriesUrl: pending.tubiSeriesUrl,
+  };
+
+  const roundPlayedShows = new Set((pending.roundPlayedShowIds || []).map(String));
+  roundPlayedShows.add(showId);
+
+  let playedByShow = pending.playedByShow != null
+    ? deserializePlayedByShow(pending.playedByShow)
+    : null;
+  if (!playedByShow) {
+    const state = await loadTubiPlaylistPlayState(active);
+    playedByShow = state.playedByShow;
+  }
+
+  setTubiActiveShuffleSeriesId(showId);
+  return await saveTubiOrderedShowRotationState(
+    active,
+    pickShow,
+    showId,
+    roundPlayedShows,
+    pending.nextEpisodeIndexByShow || {},
+    playedByShow
+  );
+}
+
+/**
+ * Ordered episode landing settled — pin concrete expected episode (so the cop
+ * stands down on slug rewrites) and commit deferred round-robin advance.
+ */
+function settleTubiOrderedPlaylistEpisodeLanding(pageSeriesId) {
+  const currentEp = getTubiEpisodeIdFromUrl();
+  if (currentEp) {
+    markTubiExpectedLanding(currentEp);
+    try {
+      sessionStorage.setItem(TUBI_ORDERED_PINNED_EP_KEY, String(currentEp));
+    } catch { /* ignore */ }
+  }
+  try {
+    sessionStorage.removeItem(TUBI_ORDERED_ACCEPT_LANDING_KEY);
+  } catch { /* ignore */ }
+  if (isTubiReliableSeriesId(pageSeriesId)) {
+    setTubiActiveShuffleSeriesId(pageSeriesId);
+  }
+  void commitTubiOrderedPendingRotationIfAny();
 }
 
 function consumeTubiOrderedAcceptLanding(pageSeriesId) {
@@ -8771,16 +8894,6 @@ async function maybeAutoClickTubiSeriesPlayOrResume() {
   const active = await getActivePlaylistFromStorage();
   if (!isTubiArmedPayload(active) || !isArmedPlaylistOwnedByThisTab(active)) return false;
 
-  sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
-
-  const pageId = getTubiShowIdFromUrl();
-  if (isTubiReliableSeriesId(pageId)) {
-    setTubiActiveShuffleSeriesId(pageId);
-    try {
-      sessionStorage.setItem(TUBI_ORDERED_ACCEPT_LANDING_KEY, String(pageId));
-    } catch { /* ignore */ }
-  }
-
   shufflrActive = true;
   armedPlaylistCached = true;
   ensureTubiUpNextSuppressor();
@@ -8802,6 +8915,20 @@ async function maybeAutoClickTubiSeriesPlayOrResume() {
       if (button) {
         clearInterval(showPageAutoplayPollTimer);
         showPageAutoplayPollTimer = null;
+
+        // Mark ours only as we trigger Tubi's CTA — episode id unknown until landing.
+        try {
+          sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
+        } catch { /* ignore */ }
+        const pageId = getTubiShowIdFromUrl();
+        if (isTubiReliableSeriesId(pageId)) {
+          setTubiActiveShuffleSeriesId(pageId);
+          try {
+            sessionStorage.setItem(TUBI_ORDERED_ACCEPT_LANDING_KEY, String(pageId));
+          } catch { /* ignore */ }
+        }
+        markTubiExpectedLanding(TUBI_EXPECTED_ORDERED_ANY);
+
         console.log('[Shufflr] Tubi ordered: clicking series Play/resume CTA');
         try {
           button.click();
@@ -8813,6 +8940,9 @@ async function maybeAutoClickTubiSeriesPlayOrResume() {
       if (Date.now() - startedAt >= maxMs) {
         clearInterval(showPageAutoplayPollTimer);
         showPageAutoplayPollTimer = null;
+        try {
+          sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
+        } catch { /* ignore */ }
         console.log('[Shufflr] Tubi ordered: Play/resume CTA not found within timeout');
         resolve(false);
       }
@@ -8913,21 +9043,19 @@ async function navigateToTubiOrderedPlaylistShow(
     return;
   }
 
-  roundPlayedShows.add(showId);
-  const updated = await saveTubiOrderedShowRotationState(
-    active,
+  // Defer round-robin commit until the episode landing settles (Play click → watch page).
+  clearTubiOrderedPinnedEpisode();
+  stashTubiOrderedPendingRotation(
     pickShow,
-    showId,
     roundPlayedShows,
     nextEpisodeIndexByShow,
     playedByShow
   );
 
-  setTubiActiveShuffleSeriesId(showId);
   shufflrActive = true;
   armedPlaylistCached = true;
   ensureTubiUpNextSuppressor();
-  updateTubiShuffleUI(updated.playlistName || title);
+  updateTubiShuffleUI(active.playlistName || title);
   showToast(`Playing: ${title}`);
   console.log(`[Shufflr] Tubi ordered playlist (${source}): ${title} → series Play/resume`);
 
@@ -9280,18 +9408,34 @@ async function handleTubiShuffleCop(reason = 'url-change') {
 
   const expected = peekTubiExpectedLanding();
   const currentEp = getTubiEpisodeIdFromUrl();
+
+  // Ordered Play/resume: sentinel = whatever episode Tubi opened is ours.
+  // Never treat as foreign while the sentinel is live (even before episode id parses).
+  if (expected === TUBI_EXPECTED_ORDERED_ANY && isTubiEpisodePage()) {
+    if (currentEp) {
+      settleTubiOrderedPlaylistEpisodeLanding(getTubiShowIdFromUrl());
+      markTubiLandingVerifiedThisPageLoad();
+    }
+    return false;
+  }
+
   if (expected && currentEp && String(expected) === String(currentEp)) {
+    // Ordered pin: keep expected so slug rewrites don't look foreign.
+    // Single-show / unordered still consume (unchanged).
+    const orderedPin = getTubiOrderedPinnedEpisode();
+    if (orderedPin && String(orderedPin) === String(currentEp)) {
+      markTubiLandingVerifiedThisPageLoad();
+      return false;
+    }
     consumeTubiExpectedLanding();
     markTubiLandingVerifiedThisPageLoad();
     return false;
   }
 
-  // Ordered mode: Tubi's Play/resume click lands on an episode we didn't pre-mark.
+  // Ordered mode backup: series accept key when sentinel wasn't set yet.
   const pageSeriesIdEarly = getTubiShowIdFromUrl();
   if (isTubiEpisodePage() && consumeTubiOrderedAcceptLanding(pageSeriesIdEarly)) {
-    if (isTubiReliableSeriesId(pageSeriesIdEarly)) {
-      setTubiActiveShuffleSeriesId(pageSeriesIdEarly);
-    }
+    settleTubiOrderedPlaylistEpisodeLanding(pageSeriesIdEarly);
     markTubiLandingVerifiedThisPageLoad();
     return false;
   }
@@ -10009,24 +10153,30 @@ async function restoreTubiShuffleSession() {
   // re-interpret "marker already consumed" as a foreign Tubi navigation.
   // Cop only when a single-show session is active (owner sets it on auto-start).
   if (isTubiShuffleActive() && !tubiLandingVerifiedThisPageLoad) {
-    const orderedAccepted = isTubiEpisodePage()
-      && consumeTubiOrderedAcceptLanding(getTubiShowIdFromUrl());
-    if (orderedAccepted) {
-      const pageId = getTubiShowIdFromUrl();
-      if (isTubiReliableSeriesId(pageId)) setTubiActiveShuffleSeriesId(pageId);
+    const expected = peekTubiExpectedLanding();
+    const currentEp = getTubiEpisodeIdFromUrl();
+    const pageId = getTubiShowIdFromUrl();
+
+    if (expected === TUBI_EXPECTED_ORDERED_ANY && isTubiEpisodePage()) {
+      if (currentEp) {
+        settleTubiOrderedPlaylistEpisodeLanding(pageId);
+        markTubiLandingVerifiedThisPageLoad();
+      }
+      // Wait for episode id — do not invoke foreign cop while sentinel is live.
+    } else if (isTubiEpisodePage() && consumeTubiOrderedAcceptLanding(pageId)) {
+      settleTubiOrderedPlaylistEpisodeLanding(pageId);
+      markTubiLandingVerifiedThisPageLoad();
+    } else if (expected && currentEp && String(expected) === String(currentEp)) {
+      const orderedPin = getTubiOrderedPinnedEpisode();
+      if (!(orderedPin && String(orderedPin) === String(currentEp))) {
+        consumeTubiExpectedLanding();
+      }
       markTubiLandingVerifiedThisPageLoad();
     } else {
-      const expected = peekTubiExpectedLanding();
-      const currentEp = getTubiEpisodeIdFromUrl();
-      if (expected && currentEp && String(expected) === String(currentEp)) {
-        consumeTubiExpectedLanding();
-        markTubiLandingVerifiedThisPageLoad();
-      } else {
-        // First evaluation only: absent or mismatched marker → potentially foreign.
-        // Set verified before the async cop so a concurrent sync restore cannot re-enter.
-        markTubiLandingVerifiedThisPageLoad();
-        void handleTubiShuffleCop('landing');
-      }
+      // First evaluation only: absent or mismatched marker → potentially foreign.
+      // Set verified before the async cop so a concurrent sync restore cannot re-enter.
+      markTubiLandingVerifiedThisPageLoad();
+      void handleTubiShuffleCop('landing');
     }
   }
 
@@ -10050,6 +10200,10 @@ async function stopTubiShuffle() {
   try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(TUBI_PENDING_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(TUBI_ORDERED_ACCEPT_LANDING_KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY); } catch { /* ignore */ }
+  clearTubiOrderedPinnedEpisode();
+  clearTubiOrderedPendingRotation();
   teardownTubiEpisodeEndWatcher();
   teardownTubiUpNextSuppressor();
   const active = await getActivePlaylistFromStorage();
