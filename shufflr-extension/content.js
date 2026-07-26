@@ -6481,25 +6481,42 @@ function getSeasonNumbersFromRoute(json) {
   if (!json) return null;
 
   const seasons = new Set();
+  let seasonCount = null;
   const items = [...(json.included || [])];
-  if (json.data) items.push(json.data);
+  if (Array.isArray(json.data)) items.push(...json.data);
+  else if (json.data) items.push(json.data);
 
+  // Collect fully first — do not early-return on seasonCount (that skipped explicit
+  // single-season entities when a count field appeared earlier in the payload).
   for (const item of items) {
     const type = (item.type || '').toLowerCase();
     const attrs = item.attributes || {};
 
-    if (type.includes('season') && attrs.seasonNumber != null) {
-      seasons.add(Number(attrs.seasonNumber));
+    if (type.includes('season') && attrs.seasonNumber != null && attrs.seasonNumber !== '') {
+      const n = Number(attrs.seasonNumber);
+      if (Number.isFinite(n)) seasons.add(n);
     }
 
     const count = attrs.seasonCount ?? attrs.numberOfSeasons ?? attrs.totalSeasons;
     if (count != null && Number(count) > 0) {
-      return Array.from({ length: Number(count) }, (_, i) => i + 1);
+      const c = Number(count);
+      if (Number.isFinite(c) && (seasonCount == null || c > seasonCount)) {
+        seasonCount = c;
+      }
     }
   }
 
-  if (!seasons.size) return null;
-  return Array.from(seasons).sort((a, b) => a - b);
+  // Prefer explicit season entities (one season → [1] or whatever CMS reports).
+  if (seasons.size) {
+    return Array.from(seasons).sort((a, b) => a - b);
+  }
+
+  // No season entities — synthesize 1..N (single-season → [1]).
+  if (seasonCount != null && seasonCount > 0) {
+    return Array.from({ length: seasonCount }, (_, i) => i + 1);
+  }
+
+  return null;
 }
 
 async function fetchShowRoute(showId) {
@@ -6524,7 +6541,10 @@ async function discoverSeasonNumbers(showId, cachedPayloads) {
   const routeJson = await fetchShowRoute(showId);
   const fromRoute = getSeasonNumbersFromRoute(routeJson);
   if (fromRoute?.length) {
-    console.log(`[Shufflr] Found ${fromRoute.length} season(s) from show route`);
+    // One season is enough — fetch that season the same as any other.
+    console.log(
+      `[Shufflr] Found ${fromRoute.length} season(s) from show route: [${fromRoute.join(', ')}]`
+    );
     return fromRoute;
   }
 
@@ -6544,8 +6564,14 @@ async function discoverSeasonNumbers(showId, cachedPayloads) {
   }
   found.sort((a, b) => a - b);
 
-  console.log(`[Shufflr] Probed ${found.length} season(s)`);
-  return found.length ? found : [1];
+  if (found.length) {
+    console.log(`[Shufflr] Probed ${found.length} season(s): [${found.join(', ')}]`);
+    return found;
+  }
+
+  // Route empty + probe empty — still attempt season 1 (typical single-season CMS shape).
+  console.log('[Shufflr] No seasons from route/probe — defaulting to season 1');
+  return [1];
 }
 
 // ── EPISODE CACHE (chrome.storage.local, 24h TTL) ─────────────────────────
@@ -6687,38 +6713,60 @@ async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
 
   const episodeDetails = [];
   const episodeSet = new Set();
-  payloads.forEach((payload, i) => {
-    parseMaxCmsEpisodesDetailed(payload, seasonNumbers[i], maxShowId).forEach(ep => {
+  const seasonsTried = [...seasonNumbers];
+
+  const ingestPayload = (payload, seasonNumber) => {
+    if (!payload) return;
+    parseMaxCmsEpisodesDetailed(payload, seasonNumber, maxShowId).forEach(ep => {
       const key = `${ep.seasonNum}-${ep.episode_number}`;
       if (episodeDetails.some(e => `${e.seasonNum}-${e.episode_number}` === key)) return;
       episodeDetails.push(ep);
       episodeSet.add(ep.watchUrl);
     });
     parseEpisodesFromCmsResponse(payload).forEach(url => episodeSet.add(url));
-  });
+  };
 
-  if (!episodeDetails.length) {
-    payloads.forEach(payload => {
+  const ingestVideosFallback = payloadList => {
+    if (episodeDetails.length) return;
+    payloadList.forEach(payload => {
       parseAllVideosFromCmsResponse(payload, maxShowId).forEach(video => {
         if (episodeDetails.some(ep => ep.alternateId === video.alternateId)) return;
         episodeDetails.push(video);
         if (video.watchUrl) episodeSet.add(video.watchUrl);
       });
     });
+  };
+
+  payloads.forEach((payload, i) => ingestPayload(payload, seasonNumbers[i]));
+  ingestVideosFallback(payloads);
+
+  // Single-season safety: if discovery omitted season 1 and nothing else yielded episodes, fetch it.
+  if (!episodeSet.size && !seasonNumbers.includes(1)) {
+    console.log('[Shufflr] API empty without season 1 in discovery — retrying season 1');
+    const season1Payload = await fetchExpressContent(maxShowId, 1);
+    seasonsTried.push(1);
+    ingestPayload(season1Payload, 1);
+    ingestVideosFallback([season1Payload]);
   }
 
   const episodes = Array.from(episodeSet);
   console.log(
     `[Shufflr] API collection done in ${Math.round(performance.now() - started)}ms — ` +
-    `${episodes.length} episodes across ${seasonNumbers.length} season(s)`
+    `${episodes.length} episodes across ${seasonsTried.length} season(s) [${seasonsTried.join(', ')}]`
   );
 
   if (episodes.length) {
     const routeJson = await fetchShowRoute(maxShowId);
     const resolvedName = getShowNameFromRouteJson(routeJson) || showName || null;
     await setCachedEpisodes(maxShowId, episodes, episodeDetails, resolvedName, tmdbId);
+    return episodes;
   }
-  return episodes.length ? episodes : null;
+
+  console.log(
+    `[Shufflr] API returned empty — CMS yielded no episodes for ${maxShowId} ` +
+    `(seasons tried: [${seasonsTried.join(', ')}])`
+  );
+  return null;
 }
 
 async function collectEpisodesViaApi(showPageUrl) {
@@ -6807,7 +6855,7 @@ async function shuffleToRandomEpisode(options = {}) {
   }
 
   if (!episodes?.length) {
-    console.log('[Shufflr] API empty/failed — falling back to show-page DOM scrape');
+    console.log('[Shufflr] API returned empty — falling back to show-page DOM scrape');
     sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage, navMode }));
     if (status) status.textContent = 'LOADING SHOW PAGE...';
 
@@ -6856,6 +6904,7 @@ async function handleShowPageShuffle() {
   console.log('[Shufflr] === handleShowPageShuffle: START (DOM fallback) ===');
 
   let episodes = null;
+  let apiReturnedEmpty = false;
   try {
     episodes = await collectEpisodesViaApi(pending.showPageUrl);
   } catch (err) {
@@ -6863,7 +6912,8 @@ async function handleShowPageShuffle() {
   }
 
   if (!episodes?.length) {
-    console.log('[Shufflr] Waiting for show page episode UI before DOM scrape...');
+    apiReturnedEmpty = true;
+    console.log('[Shufflr] API returned empty — waiting for show page episode UI before DOM scrape...');
     await waitForShowPageScrapeReady(3000);
     episodes = await collectEpisodesFromAllSeasons();
     if (episodes?.length) {
@@ -6875,6 +6925,10 @@ async function handleShowPageShuffle() {
   }
 
   if (!episodes?.length) {
+    console.log(
+      '[Shufflr] Genuinely no episodes exist (or none discoverable) — ' +
+      `API ${apiReturnedEmpty ? 'returned empty' : 'unavailable'} and DOM scrape returned none`
+    );
     showToast('Could not find episodes on show page.');
     shuffleInProgress = false;
     return false;
@@ -7244,7 +7298,18 @@ async function collectEpisodesFromAllSeasons() {
   };
 
   console.log('[Shufflr] Step 1: collecting episodes from default visible season...');
-  const defaultLinks = extractEpisodeLinksFromPage();
+  let defaultLinks = extractEpisodeLinksFromPage();
+  // Single-season pages often omit the dropdown and lazy-load watch links slightly later.
+  if (!defaultLinks.length) {
+    console.log('[Shufflr] Step 1: no watch links yet — polling for lazy-loaded episodes (up to 3s)...');
+    await waitForPollCondition(() => getEpisodeWatchHrefs().length > 0, 3000, 250);
+    defaultLinks = extractEpisodeLinksFromPage();
+    if (!defaultLinks.length) {
+      console.log('[Shufflr] DOM Step 1 found no links after retrying');
+    } else {
+      console.log(`[Shufflr] Step 1: lazy-load poll found ${defaultLinks.length} link(s)`);
+    }
+  }
   addLinks(defaultLinks, 'Step 1 default season');
   let lastSeasonLinks = defaultLinks;
 
@@ -7259,6 +7324,11 @@ async function collectEpisodesFromAllSeasons() {
 
   if (!dropdownReady) {
     console.log('[Shufflr] Step 3: SKIPPED — could not open season dropdown');
+    if (!allEpisodes.size) {
+      console.log(
+        '[Shufflr] DOM Step 1 found no links after retrying; no season dropdown available'
+      );
+    }
     console.log(`[Shufflr] Step 4: total unique episode count = ${allEpisodes.size}`);
     console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
     return Array.from(allEpisodes);
