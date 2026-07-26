@@ -1057,9 +1057,25 @@ function setNowPlayingCardSlotHtml(html){
 async function onNowPlayingShuffleClick(){
   const loggedIn=typeof window.shufflrIsLoggedIn==='function'?await window.shufflrIsLoggedIn():false;
   if(!loggedIn){showToast('You must sign in to use this feature.');return;}
-  const filteredYourShows=getServiceFilteredYourShowsForDrawer();
-  const allPlaylists=homePlaylistsCache.length?homePlaylistsCache:playlists;
-  const{items}=getActivePlaylistShowsForHome(allPlaylists,filteredYourShows);
+  const connectedService=localStorage.getItem('shufflr_service')||'max';
+  const mode=currentShuffleMode==='all'?'all':'single';
+  let items;
+  // Tubi ALL: pick from the full Your Shows library (cloud-prefer + tubiId), not playlists.
+  if(mode==='all'&&connectedService==='tubi'){
+    let cloud=[];
+    if(typeof window.shufflrGetYourShowsFromCloud==='function'){
+      try{cloud=await window.shufflrGetYourShowsFromCloud()||[];}catch{cloud=[];}
+    }
+    const merged=mergeYourShowsLists(readLocalYourShows(),Array.isArray(cloud)?cloud:[]);
+    try{localStorage.setItem(SHUFFLR_YOUR_SHOWS_KEY,JSON.stringify(merged));}catch{}
+    syncYourShowsToExtension(merged);
+    const tubiShows=merged.filter(s=>s?.tubiId&&!s.release_date);
+    items=tubiShows.map(show=>({show,playlistIndex:-1,showIndex:-1}));
+  }else{
+    const filteredYourShows=getServiceFilteredYourShowsForDrawer();
+    const allPlaylists=homePlaylistsCache.length?homePlaylistsCache:playlists;
+    ({items}=getActivePlaylistShowsForHome(allPlaylists,filteredYourShows));
+  }
   const hint=document.getElementById('now-playing-shuffle-hint');
   if(!items.length){
     if(hint){
@@ -4058,7 +4074,7 @@ async function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
   if (show?.tubiId || show?.service === 'tubi') {
     closeYourShowPopup();
-    // Power-button Now Playing poster uses intent 'mode' (SINGLE path this step).
+    // Power-button Now Playing poster uses intent 'mode' (extension follows SINGLE/ALL).
     await launchTubiShowFromWeb(show, launchIntent === 'single' ? 'single' : 'mode');
     return;
   }
