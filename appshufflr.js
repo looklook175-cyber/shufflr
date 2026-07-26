@@ -2858,6 +2858,15 @@ function getCrunchyrollSeriesUrlFromShow(show) {
   return null;
 }
 
+function getTubiSeriesUrlFromShow(show) {
+  if (!show) return null;
+  if (show.tubiSeriesUrl) return show.tubiSeriesUrl;
+  if (show.tubiId) {
+    return `https://tubitv.com/series/${String(show.tubiId)}`;
+  }
+  return null;
+}
+
 function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   const launchUrl = getCrunchyrollSeriesUrlFromShow(show);
   if (!launchUrl) {
@@ -2870,11 +2879,25 @@ function launchCrunchyrollShowFromWeb(show, launchIntent = 'mode') {
   return true;
 }
 
+async function launchTubiShowFromWeb(show, launchIntent = 'mode') {
+  const launchUrl = getTubiSeriesUrlFromShow(show);
+  if (!launchUrl) {
+    showToast('NO TUBI URL');
+    return false;
+  }
+  showToast('OPENING: ' + (show.title || show.name || '').toUpperCase().slice(0, 18));
+  // Await durable storage write before opening — avoids the open-tab race.
+  await setStandaloneLaunchViaBridge(launchUrl, null, null, launchIntent);
+  window.open(launchUrl, '_blank');
+  return true;
+}
+
 async function launchShowStandaloneFromNowPlaying(playlistIndex, showIndex) {
   const show = playlists[playlistIndex]?.shows?.[showIndex];
   if (!show) return;
   if (show.tubiId || show.service === 'tubi') {
-    // Tubi power-button standalone launch reset — no-op until rebuilt.
+    // Power-button pick click-through — SINGLE-mode path (intent mode).
+    await launchTubiShowFromWeb(show, 'mode');
     return;
   }
   if (show.crunchyrollId || show.service === 'crunchyroll') {
@@ -4034,8 +4057,9 @@ async function openYourShowPopup(pi,si,clickedCard){
 async function launchYourShowPopupShuffle(launchIntent = 'single'){
   const show = yourShowPopupContext?.show;
   if (show?.tubiId || show?.service === 'tubi') {
-    // Tubi card Play / power-button standalone launch reset — no-op until rebuilt.
     closeYourShowPopup();
+    // Power-button Now Playing poster uses intent 'mode' (SINGLE path this step).
+    await launchTubiShowFromWeb(show, launchIntent === 'single' ? 'single' : 'mode');
     return;
   }
   if (show?.crunchyrollId || show?.service === 'crunchyroll') {

@@ -1217,6 +1217,7 @@ async function disarmShufflrAfterErrorPage(serviceLabel) {
   }
 
   if (IS_TUBI) {
+    clearTubiSessionPin();
     try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
     try { sessionStorage.removeItem(TUBI_PENDING_KEY); } catch { /* ignore */ }
     try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
@@ -3861,6 +3862,7 @@ async function playTubiPlaylistFromDropdown(playlistIndex) {
 
   closePlaylistDropdown();
   getShufflrTabId();
+  clearTubiSessionPin();
 
   // Same handoff shape as web-app playPlaylist for Tubi; this tab claims ownership immediately.
   const enriched = tubiShows.map(s => ({
@@ -9117,6 +9119,12 @@ async function navigateToRandomTubiEpisode(source = 'episode-end') {
     return;
   }
 
+  // Power-button / card Play pin: stay on that show (not roaming).
+  if (isTubiSessionPinnedToCurrentShow()) {
+    await navigateToRandomTubiEpisodeForCurrentShow(source);
+    return;
+  }
+
   await navigateToRandomTubiEpisodeForCurrentShow(source);
 }
 
@@ -9568,6 +9576,179 @@ async function maybeResumeTubiPendingCollect(activeOverride = null) {
   }
 }
 
+async function clearTubiStandaloneLaunchKeys() {
+  if (!isChromeContextValid()) return;
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_AT_KEY);
+  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_INTENT_KEY);
+}
+
+function setTubiSessionPin(seriesId) {
+  if (!seriesId) {
+    clearTubiSessionPin();
+    return;
+  }
+  try {
+    sessionStorage.setItem(SHUFFLR_SESSION_PIN_KEY, String(seriesId));
+    const label = getTubiShowTitle() || String(seriesId);
+    console.log(`[Shufflr] Tubi session pinned to ${label}`);
+  } catch { /* ignore */ }
+}
+
+function clearTubiSessionPin() {
+  try {
+    sessionStorage.removeItem(SHUFFLR_SESSION_PIN_KEY);
+  } catch { /* ignore */ }
+}
+
+function getTubiSessionPin() {
+  try {
+    return sessionStorage.getItem(SHUFFLR_SESSION_PIN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when this tab is pinned to a specific show (power-button / card Play). */
+function isTubiSessionPinnedToCurrentShow() {
+  if (!IS_TUBI) return false;
+  const pin = getTubiSessionPin();
+  if (!pin) return false;
+  const currentId = getCurrentTubiSeriesId() || getTubiActiveShuffleSeriesId();
+  return !!(currentId && String(currentId) === String(pin));
+}
+
+function tubiLaunchUrlMatchesCurrentSeries(launchUrl) {
+  if (!launchUrl) return false;
+  try {
+    const launch = new URL(launchUrl, location.origin);
+    const launchSeries = launch.pathname.match(/\/series\/(\d+)/)?.[1];
+    const currentSeries = getCurrentTubiSeriesId();
+    if (launchSeries && currentSeries && String(launchSeries) === String(currentSeries)) {
+      return true;
+    }
+    const launchPath = launch.pathname.replace(/\/$/, '');
+    const currentPath = location.pathname.replace(/\/$/, '');
+    return !!(launchPath && currentPath && (
+      currentPath === launchPath || currentPath.startsWith(`${launchPath}/`)
+    ));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Peek standalone launch keys for this series page (does not consume).
+ * Returns { launchUrl, launchIntent, launchedAt }, { expired: true }, or null.
+ */
+async function peekTubiStandaloneLaunchStorage() {
+  if (!isChromeContextValid()) return null;
+  const result = await chrome.storage.local.get([
+    SHUFFLR_LAUNCH_SHOW_URL_KEY,
+    SHUFFLR_LAUNCH_STANDALONE_KEY,
+    SHUFFLR_LAUNCH_STANDALONE_AT_KEY,
+    SHUFFLR_LAUNCH_INTENT_KEY,
+  ]);
+  const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
+  const isStandalone = result[SHUFFLR_LAUNCH_STANDALONE_KEY] === true;
+  if (!isStandalone || !launchUrl) return null;
+  if (!tubiLaunchUrlMatchesCurrentSeries(launchUrl)) return null;
+
+  let launchedAt = Number(result[SHUFFLR_LAUNCH_STANDALONE_AT_KEY]);
+  if (!Number.isFinite(launchedAt) || launchedAt <= 0) {
+    launchedAt = Date.now();
+  } else if (Date.now() - launchedAt > STANDALONE_LAUNCH_MAX_AGE_MS) {
+    return { expired: true };
+  }
+
+  const launchIntent = result[SHUFFLR_LAUNCH_INTENT_KEY] === 'single' ? 'single' : 'mode';
+  return { launchUrl, launchIntent, launchedAt };
+}
+
+async function waitForTubiStandaloneLaunchKeys(maxMs = 2000, intervalMs = 150) {
+  const started = Date.now();
+  let first = await peekTubiStandaloneLaunchStorage();
+  if (first?.expired) {
+    console.log('[Shufflr] Standalone launch expired — clearing');
+    await clearTubiStandaloneLaunchKeys();
+    return null;
+  }
+  if (first?.launchUrl) return first;
+
+  // No keys yet — only poll on fresh navigations (covers the open-tab race).
+  // Skip a multi-second stall on later restore/inject passes of a series page.
+  if (typeof performance !== 'undefined' && performance.now() > maxMs + 500) {
+    return null;
+  }
+
+  while (Date.now() - started < maxMs) {
+    await wait(intervalMs);
+    if (!isChromeContextValid() || !isTubiSeriesPage()) return null;
+    const next = await peekTubiStandaloneLaunchStorage();
+    if (next?.expired) {
+      console.log('[Shufflr] Standalone launch expired — clearing');
+      await clearTubiStandaloneLaunchKeys();
+      return null;
+    }
+    if (next?.launchUrl) return next;
+  }
+  return null;
+}
+
+/**
+ * Detect + consume a fresh standalone web launch targeting this series page.
+ * Returns { seriesId, launchUrl, launchIntent } or null.
+ */
+async function consumeTubiStandaloneLaunchIfMatching() {
+  if (!isChromeContextValid() || !isTubiSeriesPage()) return null;
+  if (window.__shufflrTubiStandaloneLaunchConsumed) return null;
+
+  const matched = await waitForTubiStandaloneLaunchKeys(2000, 150);
+  if (!matched?.launchUrl) return null;
+
+  const seriesId = getCurrentTubiSeriesId();
+  if (!seriesId) return null;
+
+  window.__shufflrTubiStandaloneLaunchConsumed = true;
+  await clearTubiStandaloneLaunchKeys();
+
+  console.log(
+    '[Shufflr] Consumed Tubi standalone launch for series',
+    seriesId,
+    `(intent=${matched.launchIntent})`
+  );
+  return { seriesId, launchUrl: matched.launchUrl, launchIntent: matched.launchIntent };
+}
+
+/**
+ * Auto-start after a web-app standalone launch.
+ * SINGLE-mode rebuild: pin + single-show auto-start for both card Play (single)
+ * and power-button (mode). ALL pool is a later step — mode+ALL falls back to single.
+ */
+async function maybeAutoStartTubiStandaloneLaunch() {
+  if (!isChromeContextValid() || !isTubiSeriesPage()) return false;
+
+  const launch = await consumeTubiStandaloneLaunchIfMatching();
+  if (!launch?.seriesId) return false;
+
+  const settings = await readShuffleSettings();
+  shuffleModeCached = settings.shuffleMode;
+  orderedEpisodesCached = !!settings.orderedEpisodes;
+
+  // Pin so episode-end stays on this show (not roaming). ALL-specific pool comes later.
+  setTubiSessionPin(launch.seriesId);
+  if (launch.launchIntent === 'single') {
+    console.log('[Shufflr] Tubi standalone launch → pinned single-show auto-start');
+  } else if (settings.shuffleMode === 'all') {
+    console.log('[Shufflr] Tubi standalone launch → ALL not rebuilt yet; pinned single-show fallback');
+  } else {
+    console.log('[Shufflr] Tubi standalone launch → pinned single-show auto-start (mode)');
+  }
+  await startTubiShuffle();
+  return true;
+}
+
 async function restoreTubiShuffleSession() {
   if (!IS_TUBI) return false;
   // Ensure tab ID exists early; series-page auto-start claims ownership below.
@@ -9577,6 +9758,28 @@ async function restoreTubiShuffleSession() {
   // Claim immediately on a matching fresh unclaimed Tubi handoff — before other readers.
   if (isTubiArmedPayload(active)) {
     active = await maybeClaimUnownedTubiArmedHandoff(active);
+  }
+
+  // Fresh standalone launch for THIS show: wait briefly for keys, then beat a leftover
+  // armed playlist that is not targeting this page (user explicitly asked to play this show).
+  if (isTubiSeriesPage() && !window.__shufflrTubiStandaloneLaunchConsumed) {
+    const pendingStandalone = await waitForTubiStandaloneLaunchKeys(2000, 150);
+    if (pendingStandalone?.launchUrl) {
+      const ownedArmed = isTubiArmedPayload(active) && isArmedPlaylistOwnedByThisTab(active);
+      if (ownedArmed && tubiArmedHandoffTargetsThisShow(active)) {
+        // Real playlist Play for this show wins — drop competing standalone keys.
+        await clearTubiStandaloneLaunchKeys();
+      } else {
+        if (ownedArmed && !tubiArmedHandoffTargetsThisShow(active)) {
+          console.log('[Shufflr] Tubi standalone launch takes priority over stale armed playlist');
+          await clearActivePlaylist();
+          active = null;
+        }
+        const started = await maybeAutoStartTubiStandaloneLaunch();
+        if (started) return true;
+        active = await getActivePlaylistFromStorage();
+      }
+    }
   }
 
   // Clear leftover Your Shows ALL synthetic sessions (feature reset).
@@ -9597,6 +9800,13 @@ async function restoreTubiShuffleSession() {
     if (sessionStorage.getItem(SHUFFLR_AUTOPLAY_PENDING_KEY) === 'true') {
       await maybeAutoClickTubiSeriesPlayOrResume();
     }
+  }
+
+  // Standalone web launch auto-start — only when not already in an owned armed playlist.
+  if (isTubiSeriesPage() && !isArmedPlaylistOwnedByThisTab(active)) {
+    const started = await maybeAutoStartTubiStandaloneLaunch();
+    if (started) return true;
+    active = await getActivePlaylistFromStorage();
   }
 
   const armedOwned = isTubiArmedPayload(active) && isArmedPlaylistOwnedByThisTab(active);
@@ -9658,6 +9868,7 @@ async function restoreTubiShuffleSession() {
 
 async function stopTubiShuffle() {
   shufflrActive = false;
+  clearTubiSessionPin();
   try { sessionStorage.removeItem(TUBI_SHUFFLE_ACTIVE_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(TUBI_PENDING_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(TUBI_EXPECTED_LANDING_KEY); } catch { /* ignore */ }
