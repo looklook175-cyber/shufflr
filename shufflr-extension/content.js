@@ -9842,8 +9842,25 @@ async function restoreTubiShuffleSession() {
     console.log('[Shufflr] armed playlist ignored — owned by another tab (or unclaimed)');
   }
 
-  // Power-button pin without active key — re-arm the same single-show session
-  // the manual toggle uses (watcher, Up Next, cop all key off TUBI_SHUFFLE_ACTIVE).
+  // After the one PENDING hydrate reload: series page still has no episode.
+  // Continue real kickoff (collect/pick/navigate via startTubiShuffle) — do NOT
+  // paint ON and bail just because pin/active was set early.
+  if (
+    isTubiSeriesPage()
+    && !armedOwned
+    && sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded'
+  ) {
+    const pin = getTubiSessionPin();
+    if (!isTubiShuffleActive() && pin && isTubiReliableSeriesId(pin)) {
+      setTubiActiveShuffleSeriesId(pin);
+      console.log('[Shufflr] Re-armed Tubi single-show session from standalone pin', pin);
+    }
+    console.log('[Shufflr] Series-page PENDING hydrate — continuing kickoff via startTubiShuffle');
+    await runTubiStartTubiShuffleKickoff();
+    return true;
+  }
+
+  // Power-button pin without active key — re-arm for episode-page resume only.
   if (!isTubiShuffleActive() && !armedOwned) {
     const pin = getTubiSessionPin();
     if (pin && isTubiReliableSeriesId(pin)) {
@@ -9858,6 +9875,14 @@ async function restoreTubiShuffleSession() {
     armedPlaylistCached = false;
     if (hasShufflrButtonInDom()) updateShuffleUI('');
     return false;
+  }
+
+  // Series page with an active/pin flag but no PENDING hydrate: kickoff already
+  // finished or was never requested — do not reload-loop. Episode-end equivalence
+  // only applies once we're on an episode page (watcher install below).
+  if (isTubiSeriesPage() && !armedOwned) {
+    if (hasShufflrButtonInDom()) updateTubiShuffleUI(getTubiShowTitle());
+    return true;
   }
 
   shufflrActive = true;
@@ -9923,6 +9948,17 @@ async function stopTubiShuffle() {
   console.log('[Shufflr] Tubi shuffle stopped');
 }
 
+/** Serialize kickoff so restore + PENDING boot timeout don't double-enter startTubiShuffle. */
+async function runTubiStartTubiShuffleKickoff() {
+  if (window.__shufflrTubiKickoffInFlight) return;
+  window.__shufflrTubiKickoffInFlight = true;
+  try {
+    await startTubiShuffle();
+  } finally {
+    window.__shufflrTubiKickoffInFlight = false;
+  }
+}
+
 async function startTubiShuffle() {
   if (!isChromeContextValid()) return;
   clearShufflrAutoNavStopped();
@@ -9944,11 +9980,9 @@ async function startTubiShuffle() {
     return;
   }
 
-  // Persist active session before reload hydrate so landing restore installs the
-  // same episode-end watcher / Up Next / cop path as a manual toggle ON.
-  setTubiActiveShuffleSeriesId(showId);
-
   // One reload to hydrate React Query / episode list (Tubi SPA often needs it).
+  // Do NOT set the active session flag before this gate — restore would see it on
+  // the series page and paint ON without running collect/pick/navigate.
   if (sessionStorage.getItem(TUBI_PENDING_KEY) !== 'reloaded') {
     sessionStorage.setItem(TUBI_PENDING_KEY, 'reloaded');
     location.reload();
@@ -10171,10 +10205,19 @@ if (IS_TUBI) {
   void checkShufflrAutoNavErrorLanding();
 
   // Resume after reload hydrate or episode-end navigation.
+  // Prefer restore (which continues kickoff on series-page PENDING landings);
+  // keep a delayed startTubiShuffle backup sharing the in-flight guard.
   if (sessionStorage.getItem(TUBI_PENDING_KEY) === 'reloaded') {
+    const runPendingKickoff = () => {
+      if (!isChromeContextValid() || !IS_TUBI) return;
+      void restoreTubiShuffleSession();
+    };
+    if (document.body) runPendingKickoff();
+    else document.addEventListener('DOMContentLoaded', runPendingKickoff, { once: true });
     setTimeout(() => {
       if (!isChromeContextValid() || !IS_TUBI) return;
-      void startTubiShuffle();
+      if (sessionStorage.getItem(TUBI_PENDING_KEY) !== 'reloaded') return;
+      void runTubiStartTubiShuffleKickoff();
     }, 1200);
   } else {
     // Always restore: claim fresh Tubi armed handoffs and/or resume single-show session.
