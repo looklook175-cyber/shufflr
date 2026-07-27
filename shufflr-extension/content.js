@@ -6769,9 +6769,72 @@ async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
   return null;
 }
 
+/**
+ * Resolve the CMS pf[show.id] for episode collection.
+ * Prefer captured config / genuine /show/{uuid} URLs; on /video/watch/ pages without a
+ * trustworthy show-page URL, use resolveMaxWatchIds (2nd path UUID) — never the naive
+ * first-UUID grab extractShowId applies to watch URLs.
+ */
+function resolveShowIdForCmsEpisodeCollection(showPageUrl) {
+  const config = getCmsConfig();
+  if (config?.showId) {
+    console.log(`[Shufflr] CMS show-ID resolution: captured config → ${config.showId}`);
+    return config.showId;
+  }
+
+  const knownShow = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
+  const fromArgShowPage = extractMaxShowUuidFromUrl(showPageUrl);
+  const fromKnownShowPage = extractMaxShowUuidFromUrl(knownShow);
+  const trustworthyShowPageId = fromArgShowPage || fromKnownShowPage;
+
+  const watchSource = /\/video\/watch\//i.test(String(showPageUrl || ''))
+    ? showPageUrl
+    : location.href;
+  const watchIds = resolveMaxWatchIds(watchSource);
+  const onWatchPage = /\/video\/watch\//i.test(location.pathname)
+    || /\/video\/watch\//i.test(String(showPageUrl || ''));
+
+  // Poisoned /show/{episodeId} from a prior naive extractShowId(watchUrl) — treat as stale.
+  const showPageIsStale = !!(
+    trustworthyShowPageId
+    && watchIds?.episodeId
+    && normalizeMaxId(trustworthyShowPageId) === normalizeMaxId(watchIds.episodeId)
+  );
+
+  if (onWatchPage && (!trustworthyShowPageId || showPageIsStale)) {
+    const fromWatch = getCurrentMaxShowUuid() || watchIds?.showId;
+    if (fromWatch) {
+      console.log(`[Shufflr] CMS show-ID resolution: watch-page ID resolution → ${fromWatch}`);
+      return fromWatch;
+    }
+  }
+
+  if (trustworthyShowPageId && !showPageIsStale) {
+    console.log(`[Shufflr] CMS show-ID resolution: show-page URL → ${trustworthyShowPageId}`);
+    return trustworthyShowPageId;
+  }
+
+  const fromExtract = extractShowId(showPageUrl);
+  // Guard: if extractShowId still returned the watch episode id, prefer the watch show id.
+  if (
+    fromExtract
+    && watchIds?.episodeId
+    && watchIds?.showId
+    && normalizeMaxId(fromExtract) === normalizeMaxId(watchIds.episodeId)
+  ) {
+    console.log(`[Shufflr] CMS show-ID resolution: watch-page ID resolution → ${watchIds.showId}`);
+    return watchIds.showId;
+  }
+  if (fromExtract) {
+    const via = String(showPageUrl || '').includes('/show/') ? 'show-page URL' : 'extractShowId';
+    console.log(`[Shufflr] CMS show-ID resolution: ${via} → ${fromExtract}`);
+  }
+  return fromExtract;
+}
+
 async function collectEpisodesViaApi(showPageUrl) {
   if (!isChromeContextValid()) return null;
-  const showId = extractShowId(showPageUrl);
+  const showId = resolveShowIdForCmsEpisodeCollection(showPageUrl);
   if (!showId) {
     console.log(`[Shufflr] Could not extract show ID from: ${showPageUrl}`);
     return null;
