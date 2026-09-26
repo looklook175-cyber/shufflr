@@ -8167,6 +8167,58 @@ if (isCrunchyroll) {
 }
 
 // ── MAX PHASE 1: reliable floating-button injection (no shuffle yet) ───────
+// ── MAX PHASE 2: show-ID discovery via MAIN-world CMS route sniff ───────────
+
+const SHUFFLR_MAX_SHOW_ID_KEY = 'shufflr_max_show_id';
+let currentMaxShowId = null;
+
+function extractMaxShowIdFromShowUrl(url) {
+  if (!url || !String(url).includes('/show/')) return null;
+  const match = String(url).match(
+    /\/show\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+  );
+  return match ? match[1] : null;
+}
+
+function getCurrentMaxShowId() {
+  const fromUrl = extractMaxShowIdFromShowUrl(location.href);
+  if (fromUrl) return fromUrl;
+  if (currentMaxShowId) return currentMaxShowId;
+  try {
+    const fromSession = sessionStorage.getItem(SHUFFLR_MAX_SHOW_ID_KEY);
+    if (fromSession) return fromSession;
+  } catch {
+    /* sessionStorage may throw in rare contexts */
+  }
+  return null;
+}
+
+function installMaxShowIdCaptureListener() {
+  if (!IS_MAX) return;
+  if (window.__shufflrMaxShowIdCaptureListener) return;
+  window.__shufflrMaxShowIdCaptureListener = true;
+
+  window.addEventListener('message', event => {
+    if (event.source !== window) return;
+    if (event.data?.source !== 'shufflr-max-capture') return;
+    if (event.data?.type !== 'SHOW_ID_FOUND') return;
+    const showId = event.data?.showId;
+    if (typeof showId !== 'string' || !showId) return;
+
+    currentMaxShowId = showId;
+    try {
+      sessionStorage.setItem(SHUFFLR_MAX_SHOW_ID_KEY, showId);
+    } catch {
+      /* ignore */
+    }
+    console.log('[Shufflr Max] Captured show ID from CMS route:', showId);
+  });
+}
+
+function logCurrentMaxShowId(reason) {
+  if (!IS_MAX) return;
+  console.log('[Shufflr Max] Current show ID:', getCurrentMaxShowId(), `(${reason})`);
+}
 
 function isMaxShowPage() {
   return IS_MAX && location.pathname.includes('/show/');
@@ -8191,6 +8243,8 @@ function installMaxUrlObserver() {
     if (!IS_MAX || !isChromeContextValid()) return;
     if (location.href === lastMaxUrl) return;
     lastMaxUrl = location.href;
+
+    logCurrentMaxShowId('url-change');
 
     removeShufflrUI();
     if (reinjectTimer) {
@@ -8238,7 +8292,9 @@ function installMaxButtonPersistenceObserver() {
 }
 
 if (IS_MAX) {
+  installMaxShowIdCaptureListener();
   installMaxUrlObserver();
+  logCurrentMaxShowId('page-load');
 
   setTimeout(() => {
     if (!IS_MAX) return;
@@ -8247,6 +8303,8 @@ if (IS_MAX) {
       console.log('[Shufflr] Max page — injecting Shufflr button');
       void tryInjectButton();
     }
+    // Network sniff may have landed by now (cold watch landings).
+    logCurrentMaxShowId('page-load-delayed');
   }, 2500);
 }
 
