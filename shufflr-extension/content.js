@@ -1,124 +1,26 @@
-// Shufflr — Max Content Script v8
-// Fetches episode lists via Max Bolt CMS API (fast) with DOM-scrape fallback
+// Shufflr — Streaming service content script v8
+// Per-service blocks (Crunchyroll, Tubi) sit on top of shared playlist/UI helpers.
 
-const SHUFFLR_PENDING_KEY = 'shufflr_pending';
-const SHUFFLR_SHOW_PAGE_KEY = 'shufflr_show_page';
 const SHUFFLR_ACTIVE_PLAYLIST_KEY = 'shufflr_active_playlist';
 const SHUFFLR_PLAYLISTS_KEY = 'shufflr_playlists';
 const SHUFFLR_EPISODE_STATE_KEY = 'shufflr_episode_state';
 const SHUFFLR_SHUFFLE_SETTINGS_KEY = 'shufflr_shuffle_settings';
-const SHUFFLR_PENDING_EPISODE_ID = 'shufflr_pending_episode_id';
-const SHUFFLR_STANDALONE_SHUFFLE_KEY = 'shufflr_standalone_shuffle';
 const SHUFFLR_LAUNCH_SHOW_URL_KEY = 'shufflr_launch_show_url';
 const SHUFFLR_LAUNCH_STANDALONE_KEY = 'shufflr_launch_standalone';
 const SHUFFLR_LAUNCH_STANDALONE_AT_KEY = 'shufflr_launch_standalone_at';
 const SHUFFLR_LAUNCH_INTENT_KEY = 'shufflr_launch_intent';
 const STANDALONE_LAUNCH_MAX_AGE_MS = 2 * 60 * 1000;
-const SHUFFLR_MAX_SHOW_AUTOSTART_KEY = 'shufflr_max_show_autostart';
 const SHUFFLR_SESSION_PIN_KEY = 'shufflr_session_pin';
 const SHUFFLR_SUPABASE_SESSION_KEY = 'shufflr_supabase_session';
 const SHUFFLR_WAS_FULLSCREEN_KEY = 'shufflr_was_fullscreen';
 const SHUFFLR_AUTOPLAY_PENDING_KEY = 'shufflr_autoplay_pending';
-const SHUFFLR_EPISODE_ENDED_KEY = 'shufflr_episode_ended';
 const SHUFFLR_YOUR_SHOWS_KEY = 'shufflr_your_shows';
-const MAX_WATCH_ORIGIN = 'https://play.max.com';
-const MAX_SHOW_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function normalizeMaxId(id) {
-  return id == null || id === '' ? '' : String(id).toLowerCase();
-}
-
-function extractMaxUuidsFromWatchPath(pathname) {
-  const match = String(pathname).match(/\/video\/watch\/([^/?#]+)(?:\/([^/?#]+))?/i);
-  if (!match) return null;
-
-  const first = decodeURIComponent(match[1]);
-  const second = match[2] ? decodeURIComponent(match[2]) : null;
-  if (!MAX_SHOW_UUID_RE.test(first)) return null;
-  if (second && !MAX_SHOW_UUID_RE.test(second)) return null;
-
-  return { first, second };
-}
-
-function resolveMaxWatchIds(url, showMaxIdHint = null) {
-  try {
-    const pathname = new URL(url, MAX_WATCH_ORIGIN).pathname;
-    const uuids = extractMaxUuidsFromWatchPath(pathname);
-    if (!uuids) {
-      const legacy = String(url).match(/\/video\/watch\/([^/?#]+)/i)
-        || String(url).match(/\/video\/([^/?#]+)/i);
-      if (!legacy) return null;
-      const id = decodeURIComponent(legacy[1]);
-      return { episodeId: id, showId: null, firstUuid: id, secondUuid: null };
-    }
-
-    const { first, second } = uuids;
-    const hint = showMaxIdHint ? normalizeMaxId(showMaxIdHint) : null;
-
-    if (!second) {
-      return { episodeId: first, showId: null, firstUuid: first, secondUuid: null };
-    }
-
-    const firstNorm = normalizeMaxId(first);
-    const secondNorm = normalizeMaxId(second);
-
-    if (hint) {
-      if (firstNorm === hint && secondNorm !== hint) {
-        return { episodeId: second, showId: first, firstUuid: first, secondUuid: second };
-      }
-      if (secondNorm === hint && firstNorm !== hint) {
-        return { episodeId: first, showId: second, firstUuid: first, secondUuid: second };
-      }
-    }
-
-    return { episodeId: first, showId: second, firstUuid: first, secondUuid: second };
-  } catch {
-    return null;
-  }
-}
-
-function getMaxEpisodeIdFromUrl(url, showMaxIdHint = null) {
-  return resolveMaxWatchIds(url, showMaxIdHint)?.episodeId || null;
-}
-
-function buildMaxShowPageUrl(showMaxId) {
-  const show = String(showMaxId || '').trim();
-  if (!show) return `${MAX_WATCH_ORIGIN}/show`;
-  return `${MAX_WATCH_ORIGIN}/show/${show}`;
-}
-
-function buildMaxEpisodeWatchUrl(episodeId, showMaxId = null) {
-  const episode = String(episodeId || '');
-  if (!episode) return `${MAX_WATCH_ORIGIN}/video/watch/`;
-
-  const show = showMaxId ? String(showMaxId) : null;
-  if (!show || normalizeMaxId(episode) === normalizeMaxId(show)) {
-    return `${MAX_WATCH_ORIGIN}/video/watch/${episode}`;
-  }
-
-  return `${MAX_WATCH_ORIGIN}/video/watch/${episode}/${show}`;
-}
-
-function maxWatchUrlsRepresentSameEpisode(urlA, urlB, showMaxIdHint = null) {
-  const epA = getMaxEpisodeIdFromUrl(urlA, showMaxIdHint);
-  const epB = getMaxEpisodeIdFromUrl(urlB, showMaxIdHint);
-  if (epA && epB) return normalizeMaxId(epA) === normalizeMaxId(epB);
-
-  try {
-    return normalizeEpisodeUrl(urlA).toLowerCase() === normalizeEpisodeUrl(urlB).toLowerCase();
-  } catch {
-    return String(urlA).split('?')[0] === String(urlB).split('?')[0];
-  }
-}
-const CMS_CAPTURE_KEY = 'shufflr_cms_template';
 const EPISODE_CACHE_PREFIX = 'shufflr_episodes_';
 const SHUFFLR_CACHE_CLEARED_V2_KEY = 'shufflr_cache_cleared_v2';
 const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const SUPABASE_URL = 'https://bzrwekraevbflypxahan.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_kNuk_g4uMWvhrexbh2MBmw_zxJ_7pFz';
-const MOVIE_MIN_DURATION_SEC = 4800;
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
-const IS_MAX = ['play.max.com', 'www.max.com', 'play.hbomax.com', 'www.hbomax.com'].includes(location.hostname);
 const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_INJECT_POLL_MS = 200;
@@ -163,21 +65,9 @@ let armedUrlPopstateHandler = null;
 let armedUrlPollTimer = null;
 let shuffleWatchdogTimer = null;
 let uiRecoveryGraceTimer = null;
-let timeupdateWatcherVideo = null;
-let timeupdateWatcherHandler = null;
-let maxAutoNextObserver = null;
-let maxAutoNextVisibilityHandler = null;
-let maxAutoNextBeforeUnloadHandler = null;
-let maxAutoNextArmedCache = false;
-let maxAutoNextPollTimer = null;
-let shufflrAboutToNavigate = false;
-let shufflrTargetWatchUrl = null;
-let shufflrTargetEpisodeId = null;
-let shufflrTargetShowHint = null;
 let orderedEpisodesCached = false;
 let shuffleModeCached = 'single';
 const YOUR_SHOWS_ALL_MODE_NAME = '__your_shows_all__';
-let shufflrEpisodeEndedClearTimer = null;
 const SHUFFLR_AUTO_HIDE_MS = 5000;
 let shufflrAutoHideTimer = null;
 let shufflrButtonHovered = false;
@@ -186,9 +76,6 @@ let shufflrButtonLastActivityAt = 0;
 let shufflrAutoHideMouseMoveHandler = null;
 let shufflrAutoHideEnterHandler = null;
 let shufflrAutoHideLeaveHandler = null;
-let lastWatchHistoryLogKey = null;
-let lastWatchHistoryCurrentEpisode = null;
-let domDebugLogged = false;
 
 function isChromeContextValid() {
   try { return !!chrome.runtime?.id; } catch { return false; }
@@ -211,23 +98,11 @@ function handleExtensionContextInvalidated() {
     clearInterval(shuffleWatchdogTimer);
     shuffleWatchdogTimer = null;
   }
-  if (armedUrlPollTimer) {
-    clearInterval(armedUrlPollTimer);
-    armedUrlPollTimer = null;
-  }
   if (uiRecoveryGraceTimer) {
     clearTimeout(uiRecoveryGraceTimer);
     uiRecoveryGraceTimer = null;
   }
-  if (showPageAutoplayPollTimer) {
-    clearInterval(showPageAutoplayPollTimer);
-    showPageAutoplayPollTimer = null;
-  }
   clearNowPlayingHeartbeat();
-  if (shufflrEpisodeEndedClearTimer) {
-    clearTimeout(shufflrEpisodeEndedClearTimer);
-    shufflrEpisodeEndedClearTimer = null;
-  }
   uiMissingSince = null;
 
   teardownShufflrButtonAutoHide();
@@ -235,30 +110,6 @@ function handleExtensionContextInvalidated() {
   removeShufflrUI();
   dismissFullscreenRestorePrompt();
 
-  if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
-    try {
-      timeupdateWatcherVideo.removeEventListener('timeupdate', timeupdateWatcherHandler);
-    } catch {}
-  }
-  timeupdateWatcherVideo = null;
-  timeupdateWatcherHandler = null;
-
-  try {
-    const video = window.__shufflrAttachedVideo || document.querySelector('video');
-    if (video) {
-      video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('ended', onEpisodeEnded);
-      video.removeEventListener('playing', onVideoPlaying);
-    }
-  } catch {}
-  window.__shufflrAttachedVideo = null;
-
-  if (window.__shufflrVideoObserver) {
-    try {
-      window.__shufflrVideoObserver.disconnect();
-    } catch {}
-    window.__shufflrVideoObserver = null;
-  }
 
   if (window.__shufflrFullscreenListener) {
     try {
@@ -268,21 +119,7 @@ function handleExtensionContextInvalidated() {
     window.__shufflrFullscreenListener = false;
   }
 
-  if (armedUrlPopstateHandler) {
-    try {
-      window.removeEventListener('popstate', armedUrlPopstateHandler);
-    } catch {}
-    armedUrlPopstateHandler = null;
-  }
-  window.__shufflrArmedUrlGuard = false;
 
-  teardownMaxAutoNextSuppression();
-  cancelScheduledShuffleCop();
-  if (shufflrIsNavigatingTimer) {
-    clearTimeout(shufflrIsNavigatingTimer);
-    shufflrIsNavigatingTimer = null;
-  }
-  shufflrIsNavigating = false;
 }
 
 // Polls every 5s so we can tear down UI when the extension reloads mid-page.
@@ -361,46 +198,6 @@ function chromeStorageLocalRemove(keys) {
       resolve(false);
     }
   });
-}
-
-const MAX_TAB_URL_PATTERNS = [
-  'https://play.max.com/*',
-  'https://www.max.com/*',
-  'https://play.hbomax.com/*',
-  'https://www.hbomax.com/*',
-];
-
-// Push cloud-synced playlists from the web app to open Max tabs.
-async function broadcastPlaylistsToMaxTabs(playlists) {
-  if (!isChromeContextValid()) return;
-  if (!chrome?.tabs?.query || !chrome?.tabs?.sendMessage) return;
-
-  try {
-    const tabs = await chrome.tabs.query({ url: MAX_TAB_URL_PATTERNS });
-    await Promise.all(tabs.map(tab => new Promise(resolve => {
-      try {
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'SHUFFLR_SYNC_PLAYLISTS',
-          payload: playlists,
-        }, () => {
-          try {
-            if (handleChromeRuntimeLastError()) {
-              resolve();
-              return;
-            }
-          } catch (err) {
-            if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-          }
-          resolve();
-        });
-      } catch (err) {
-        if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-        resolve();
-      }
-    })));
-  } catch (err) {
-    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-  }
 }
 
 async function syncPlaylistsToWebApp(playlists) {
@@ -495,30 +292,34 @@ function clearNowPlayingHeartbeat() {
   }
 }
 
-function tickNowPlayingHeartbeat() {
-  if (!isChromeContextValid()) {
-    clearNowPlayingHeartbeat();
-    return;
-  }
-  if (!isVideoWatchUrl(location.href)) {
-    clearNowPlayingHeartbeat();
-    return;
-  }
-  const showName = getMaxPlayerShowName();
-  if (!showName || !String(showName).trim()) return;
-  console.log('[Shufflr] Sending now-playing heartbeat:', showName);
-  void syncNowPlayingToWebApp(showName);
-}
-
-function startNowPlayingHeartbeat() {
-  if (IS_SHUFFLR_WEB_APP) return;
-  if (!isVideoWatchUrl(location.href)) {
-    clearNowPlayingHeartbeat();
-    return;
-  }
-  if (nowPlayingHeartbeatTimer) return;
-  nowPlayingHeartbeatTimer = setInterval(tickNowPlayingHeartbeat, 20000);
-}
+// TODO(max-rebuild-phase8): re-wire to new Max ID resolution
+// The heartbeat resolved the playing title through the deleted Max player scrapers,
+// so it is parked rather than deleted. syncNowPlayingToWebApp() above is
+// service-neutral and stays live for the rebuilt caller to use.
+// function tickNowPlayingHeartbeat() {
+//   if (!isChromeContextValid()) {
+//     clearNowPlayingHeartbeat();
+//     return;
+//   }
+//   if (!isVideoWatchUrl(location.href)) {
+//     clearNowPlayingHeartbeat();
+//     return;
+//   }
+//   const showName = getMaxPlayerShowName();
+//   if (!showName || !String(showName).trim()) return;
+//   console.log('[Shufflr] Sending now-playing heartbeat:', showName);
+//   void syncNowPlayingToWebApp(showName);
+// }
+//
+// function startNowPlayingHeartbeat() {
+//   if (IS_SHUFFLR_WEB_APP) return;
+//   if (!isVideoWatchUrl(location.href)) {
+//     clearNowPlayingHeartbeat();
+//     return;
+//   }
+//   if (nowPlayingHeartbeatTimer) return;
+//   nowPlayingHeartbeatTimer = setInterval(tickNowPlayingHeartbeat, 20000);
+// }
 
 async function setShufflrPlaylistsInStorage(playlists, { syncToWebApp = false } = {}) {
   if (!isChromeContextValid()) return;
@@ -583,20 +384,8 @@ function normalizeShowName(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function extractAlternateIdFromWatchUrl(url, showMaxIdHint = null) {
-  return getMaxEpisodeIdFromUrl(url, showMaxIdHint);
-}
-
 function episodeDetailsFromCacheEntry(entry) {
-  if (entry.episodeDetails?.length) return entry.episodeDetails;
-  return (entry.episodes || []).map(url => {
-    const alternateId = extractAlternateIdFromWatchUrl(url);
-    if (!alternateId) return null;
-    return {
-      alternateId,
-      watchUrl: url.startsWith('http') ? url : `https://play.max.com/video/watch/${alternateId}`,
-    };
-  }).filter(Boolean);
+  return entry.episodeDetails?.length ? entry.episodeDetails : [];
 }
 
 async function readEpisodeCacheForShow(showName, tmdbId) {
@@ -661,7 +450,6 @@ function installWebAppHandoffBridge() {
       const playlists = event.data.playlists || [];
       applySyncedPlaylists(playlists, { syncToWebApp: false }).then(() => {
         console.log('[Shufflr] Playlists synced to chrome.storage.local');
-        broadcastPlaylistsToMaxTabs(playlists);
       });
       return;
     }
@@ -707,49 +495,27 @@ function installWebAppHandoffBridge() {
   console.log('[Shufflr] Web app handoff bridge ready');
 }
 
-let shufflrOrigFetch = null;
-
 if (IS_SHUFFLR_WEB_APP) {
   installWebAppHandoffBridge();
-} else {
-  installCmsRequestCapture();
-  installCmsPageCaptureListener();
 }
 
 let shufflrActive = false;
 let hasInjectedButton = false;
 let toggleShuffleInProgress = false;
 let documentClickBound = false;
-let lastUrl = location.href;
-let knownShowPageUrl = sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
-let shuffleInProgress = false;
-let lastPrefetchedEpisodeUrl = null;
-let prefetchInFlightShowId = null;
 let uiRecoveryInProgress = false;
 let lastUiRecoveryAt = 0;
 let uiMissingSince = null;
-let shufflrNavigating = false;
-let shufflrPendingEpisodeId = null;
-let shufflrIsNavigating = false;
-let shufflrIsNavigatingTimer = null;
-let shuffleCopTimer = null;
-let shufflrEpisodeTransitionLock = false;
 let armedPlaylistCached = false;
-let armedUrlPollLastHref = location.href;
 let wasFullscreen = false;
 let shufflrFullscreenActive = false;
 let fullscreenRestorePromptActive = false;
 let fullscreenRestoreSpaceHandler = null;
 let fullscreenRestoreDismissHandler = null;
 const FULLSCREEN_RESTORE_TOAST_MS = 5000;
-const ARMED_URL_POLL_MS = 150;
 const UI_RECOVERY_COOLDOWN_MS = 1000;
 const UI_RECOVERY_GRACE_MS = 4000;
-const EPISODE_TRANSITION_LOCK_MS = 8000;
 const TIMEUPDATE_SHUFFLE_REMAINING_SEC = 8;
-const SHUFFLR_ABOUT_TO_NAVIGATE_SEC = 10;
-const SHUFFLE_COP_DELAY_MS = 400;
-const SHUFFLR_NAVIGATION_FLAG_MS = 3000;
 const MIN_EPISODE_DURATION_SEC = 300;
 const NON_EPISODE_PLAYBACK_LOG_THROTTLE_MS = 5000;
 let lastNonEpisodePlaybackLogAt = 0;
@@ -779,59 +545,6 @@ function logNonEpisodePlaybackIgnored(video) {
   const duration = Number(video?.duration);
   const label = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : '?';
   console.log(`[Shufflr] Ignoring non-episode playback (duration ${label}s)`);
-}
-
-function isSingleUuidWatchUrl(url) {
-  try {
-    const uuids = extractMaxUuidsFromWatchPath(new URL(url, MAX_WATCH_ORIGIN).pathname);
-    return !!(uuids && !uuids.second);
-  } catch {
-    return false;
-  }
-}
-
-async function shouldRedirectSingleUuidPromo(prevUrl, nextUrl, active, showHint) {
-  if (!isChromeContextValid()) return false;
-  if (!isSingleUuidWatchUrl(nextUrl)) return false;
-
-  const nextEp = getMaxEpisodeIdFromUrl(nextUrl, showHint);
-  const currentAlt = active?.currentEpisode?.alternateId;
-  if (currentAlt && nextEp && normalizeMaxId(nextEp) === normalizeMaxId(currentAlt)) {
-    return false;
-  }
-
-  if (!isSingleUuidWatchUrl(prevUrl)) {
-    return true;
-  }
-
-  const prepared = preparePlaylistForShuffle(await resolvePlaylistForShuffle(active));
-  const showIds = getPlaylistMaxIds(prepared);
-  if (nextEp && showIds.has(normalizeMaxId(nextEp))) {
-    return true;
-  }
-
-  return false;
-}
-
-async function setPendingEpisodeIdInStorage(episodeId) {
-  if (!isChromeContextValid()) return;
-  const normalized = normalizeMaxId(episodeId);
-  if (!normalized) {
-    await chromeStorageLocalRemove(SHUFFLR_PENDING_EPISODE_ID);
-    return;
-  }
-  await chromeStorageLocalSet({ [SHUFFLR_PENDING_EPISODE_ID]: normalized });
-}
-
-async function clearPendingEpisodeIdInStorage() {
-  if (!isChromeContextValid()) return;
-  await chromeStorageLocalRemove(SHUFFLR_PENDING_EPISODE_ID);
-}
-
-async function getPendingEpisodeIdFromStorage() {
-  if (!isChromeContextValid()) return null;
-  const value = await storageLocalGet(SHUFFLR_PENDING_EPISODE_ID);
-  return value ? normalizeMaxId(value) : null;
 }
 
 function captureFullscreenBeforeShufflrNavigation() {
@@ -1033,29 +746,6 @@ function installAutoFullscreenRestore() {
   });
 }
 
-// shufflr_navigating flag: set true before any Shufflr-initiated navigation so shuffle cop
-// ignores that URL change; cleared automatically after 3 seconds.
-function beginShufflrNavigation(episodeId) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  captureFullscreenBeforeShufflrNavigation();
-  shufflrAboutToNavigate = false;
-  const normalized = normalizeMaxId(episodeId);
-  shufflrIsNavigating = true;
-  shufflrPendingEpisodeId = normalized || null;
-  shufflrNavigating = true;
-
-  if (shufflrIsNavigatingTimer) clearTimeout(shufflrIsNavigatingTimer);
-  shufflrIsNavigatingTimer = setTimeout(() => {
-    if (!isChromeContextValid()) return;
-    shufflrIsNavigating = false;
-    shufflrNavigating = false;
-    shufflrIsNavigatingTimer = null;
-  }, SHUFFLR_NAVIGATION_FLAG_MS);
-
-  void setPendingEpisodeIdInStorage(normalized);
-}
-
 function isShufflrAutoNavStopped() {
   try {
     return sessionStorage.getItem(SHUFFLR_AUTO_NAV_STOPPED_KEY) === '1';
@@ -1181,22 +871,12 @@ function detectStreamingErrorPage() {
       return 'Tubi';
     }
   }
-  if (IS_MAX) {
-    if (/\/(error|404|not-found)/i.test(path)) return 'Max';
-    if (/something went wrong|page not found|unavailable/i.test(bodyText)
-      && !location.href.includes('/video/')
-      && !location.href.includes('/play/')
-      && !location.href.includes('/show/')) {
-      return 'Max';
-    }
-  }
   return null;
 }
 
 function isExpectedWatchLandingAfterAutoNav() {
   if (isCrunchyroll) return isCrunchyrollWatchPage();
   if (IS_TUBI) return isTubiEpisodePage();
-  if (IS_MAX) return location.href.includes('/video/') || location.href.includes('/play/');
   return false;
 }
 
@@ -1238,15 +918,6 @@ async function disarmShufflrAfterErrorPage(serviceLabel) {
     updateShuffleUI('');
     return;
   }
-
-  if (IS_MAX) {
-    await setStandaloneShuffleEnabled(false);
-    const active = await getActivePlaylistFromStorage();
-    if (isArmedPlaylistOwnedByThisTab(active)) await clearActivePlaylist();
-    clearMaxSessionPin();
-    await resetShuffleModeToSingle();
-    updateShuffleUI('');
-  }
 }
 
 /**
@@ -1281,8 +952,7 @@ async function checkShufflrAutoNavErrorLanding() {
 
     // Series-page hops are valid intermediate landings — clear the check.
     if ((isCrunchyroll && isCrunchyrollSeriesPage())
-      || (IS_TUBI && isTubiSeriesPage())
-      || (IS_MAX && location.href.includes('/show/'))) {
+      || (IS_TUBI && isTubiSeriesPage())) {
       try { sessionStorage.removeItem(SHUFFLR_PENDING_ERROR_CHECK_KEY); } catch { /* ignore */ }
       return;
     }
@@ -1309,7 +979,7 @@ async function checkShufflrAutoNavErrorLanding() {
     const bodyHint = /oh\s*snap|too many requests|something went wrong|page not found|unavailable|access denied/i
       .test(`${document.title || ''}\n${document.body?.innerText?.slice(0, 2000) || ''}`);
     if (delayed || bodyHint) {
-      const fallbackLabel = isCrunchyroll ? 'Crunchyroll' : (IS_TUBI ? 'Tubi' : 'Max');
+      const fallbackLabel = isCrunchyroll ? 'Crunchyroll' : (IS_TUBI ? 'Tubi' : 'the streaming service');
       await disarmShufflrAfterErrorPage(delayed || fallbackLabel);
     }
   } finally {
@@ -1319,336 +989,6 @@ async function checkShufflrAutoNavErrorLanding() {
 
 function isVideoWatchUrl(url) {
   return String(url).includes('/video/') || String(url).includes('/play/');
-}
-
-function cancelScheduledShuffleCop() {
-  if (shuffleCopTimer) {
-    clearTimeout(shuffleCopTimer);
-    shuffleCopTimer = null;
-  }
-}
-
-function scheduleShuffleCopCheck(prevUrl) {
-  if (!isChromeContextValid()) return;
-  cancelScheduledShuffleCop();
-
-  shuffleCopTimer = setTimeout(() => {
-    if (!isChromeContextValid()) return;
-    shuffleCopTimer = null;
-    runShuffleCopCheck(prevUrl).catch(err => {
-      console.error('[Shufflr] shuffle cop error:', err);
-    });
-  }, SHUFFLE_COP_DELAY_MS);
-}
-
-function triggerShuffleCopOnUrlChange(prevUrl) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  if (prevUrl === location.href) return;
-
-  runShuffleCopCheck(prevUrl).catch(err => {
-    console.error('[Shufflr] shuffle cop error:', err);
-  });
-  scheduleShuffleCopCheck(prevUrl);
-}
-
-// Episode-end flag: timeupdate sets shufflr_episode_ended in the last 8s of playback so
-// Ordered-mode shuffle cop only reacts to Max's post-episode auto-next, not manual navigation.
-function setShufflrEpisodeEndedFlag() {
-  sessionStorage.setItem(SHUFFLR_EPISODE_ENDED_KEY, 'true');
-  if (shufflrEpisodeEndedClearTimer) {
-    clearTimeout(shufflrEpisodeEndedClearTimer);
-  }
-  shufflrEpisodeEndedClearTimer = setTimeout(() => {
-    sessionStorage.removeItem(SHUFFLR_EPISODE_ENDED_KEY);
-    shufflrEpisodeEndedClearTimer = null;
-  }, 5000);
-}
-
-function clearShufflrEpisodeEndedFlag() {
-  sessionStorage.removeItem(SHUFFLR_EPISODE_ENDED_KEY);
-  if (shufflrEpisodeEndedClearTimer) {
-    clearTimeout(shufflrEpisodeEndedClearTimer);
-    shufflrEpisodeEndedClearTimer = null;
-  }
-}
-
-async function runShuffleCopCheck(prevUrl) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  if (prevUrl === location.href) return;
-
-  const active = await getActivePlaylistFromStorage();
-  const settings = await readShuffleSettings();
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-  const owned = isArmedPlaylistOwnedByThisTab(active);
-
-  if (!owned) {
-    const standaloneOn = shufflrActive || await isStandaloneShuffleEnabled();
-    if (!standaloneOn || settings.orderedEpisodes) return;
-    if (!isVideoWatchUrl(prevUrl) || !isVideoWatchUrl(location.href)) return;
-    if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href)) return;
-    if (shufflrNavigating || shufflrIsNavigating) return;
-
-    console.log('[Shufflr] Shuffle cop (standalone): Max hijacked navigation, correcting...');
-    showToast('Shufflr correcting...');
-    // Pinned single-show stays on this show even when global mode is ALL.
-    if (isMaxSessionPinnedToCurrentShow()) {
-      await shuffleToRandomEpisode();
-    } else if (settings.shuffleMode === 'all') {
-      await shuffleFromYourShowsAllMode(null);
-    } else {
-      await shuffleToRandomEpisode();
-    }
-    return;
-  }
-
-  if (settings.orderedEpisodes) {
-    if (sessionStorage.getItem(SHUFFLR_EPISODE_ENDED_KEY) !== 'true') return;
-    if (shufflrIsNavigating) return;
-
-    const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-    const onShowPage = location.href.includes('/show/');
-    if (!onVideoPage && !onShowPage) return;
-
-    const prevShowId = resolveShowIdForCop(prevUrl, active);
-    const currShowId = resolveShowIdForCop(location.href, active);
-
-    if (prevShowId && currShowId && prevShowId === currShowId) {
-      clearShufflrEpisodeEndedFlag();
-      await clearPendingEpisodeIdInStorage();
-      shufflrPendingEpisodeId = null;
-      shufflrNavigating = false;
-      await updateOrderedCurrentEpisodeFromUrl(active, location.href);
-      if (IS_MAX) await restoreArmedShuffleSession();
-      return;
-    }
-
-    if (!prevShowId || !currShowId) return;
-
-    console.log('[Shufflr] Shuffle cop (ordered): episode ended on wrong show, redirecting...');
-    showToast('Shufflr: next show...');
-    clearShufflrEpisodeEndedFlag();
-    await clearPendingEpisodeIdInStorage();
-    await navigateToNextOrderedShow('shuffle-cop');
-    return;
-  }
-
-  const showHint = getShowMaxIdHintFromActive(active);
-  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (!onVideoPage) return;
-
-  if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
-    await clearPendingEpisodeIdInStorage();
-    return;
-  }
-
-  const arrivedEpisode = getMaxEpisodeIdFromUrl(location.href, showHint);
-  const arrivedNorm = arrivedEpisode ? normalizeMaxId(arrivedEpisode) : null;
-  const pendingId = await getPendingEpisodeIdFromStorage();
-
-  if (pendingId && arrivedNorm && pendingId === arrivedNorm) {
-    await clearPendingEpisodeIdInStorage();
-    shufflrPendingEpisodeId = null;
-    shufflrNavigating = false;
-    shufflrIsNavigating = false;
-    if (shufflrIsNavigatingTimer) {
-      clearTimeout(shufflrIsNavigatingTimer);
-      shufflrIsNavigatingTimer = null;
-    }
-    return;
-  }
-
-  if (shufflrNavigating || shufflrIsNavigating) return;
-
-  console.log('[Shufflr] Shuffle cop: Max hijacked navigation, correcting...');
-  showToast('Shufflr correcting...');
-  await clearPendingEpisodeIdInStorage();
-  await handleShufflrNextEpisode('shuffle-cop');
-}
-
-function notifyArmedUrlChange(prevUrl) {
-  if (!isChromeContextValid()) return;
-  const hrefChanged = location.href !== prevUrl;
-  armedUrlPollLastHref = location.href;
-
-  if (hrefChanged && lastUrl !== location.href) {
-    lastUrl = location.href;
-    timeupdateWatcherVideo = null;
-    timeupdateWatcherHandler = null;
-    removeShufflrUI();
-    cancelUiRecoveryGraceTimer();
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      tryInjectButton();
-    }, 2500);
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      if (!IS_MAX) return;
-      restoreArmedShuffleSession().catch(err => {
-        console.error('[Shufflr] restoreArmedShuffleSession error:', err);
-      });
-    }, 2500);
-    setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
-  }
-
-  triggerShuffleCopOnUrlChange(prevUrl);
-  handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
-    console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
-  });
-}
-
-function installArmedUrlGuard() {
-  if (!isChromeContextValid()) return;
-  if (window.__shufflrArmedUrlGuard) return;
-  window.__shufflrArmedUrlGuard = true;
-
-  armedUrlPollLastHref = location.href;
-
-  armedUrlPollTimer = setInterval(() => {
-    if (!isChromeContextValid()) {
-      clearInterval(armedUrlPollTimer);
-      armedUrlPollTimer = null;
-      return;
-    }
-    if (location.href === armedUrlPollLastHref) return;
-    const prevUrl = armedUrlPollLastHref;
-    notifyArmedUrlChange(prevUrl);
-  }, ARMED_URL_POLL_MS);
-
-  window.addEventListener('popstate', armedUrlPopstateHandler = () => {
-    if (!isChromeContextValid()) return;
-    if (location.href === armedUrlPollLastHref) return;
-    const prevUrl = armedUrlPollLastHref;
-    notifyArmedUrlChange(prevUrl);
-  });
-
-  console.log('[Shufflr] Armed URL guard ready');
-}
-
-async function navigateToNextShow() {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  const active = await getActivePlaylistFromStorage();
-  if (!isArmedPlaylistOwnedByThisTab(active)) return;
-  shufflrActive = true;
-  armedPlaylistCached = true;
-  await handleShufflrNextEpisode('timeupdate-watcher');
-}
-
-function installTimeupdateWatcher() {
-  if (!isChromeContextValid()) return;
-  const video = document.querySelector('video');
-  if (!video) {
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      installTimeupdateWatcher();
-    }, 1000);
-    return;
-  }
-
-  if (timeupdateWatcherVideo === video && timeupdateWatcherHandler) return;
-
-  if (timeupdateWatcherVideo && timeupdateWatcherHandler) {
-    timeupdateWatcherVideo.removeEventListener('timeupdate', timeupdateWatcherHandler);
-  }
-
-  timeupdateWatcherVideo = video;
-  timeupdateWatcherHandler = async function handler() {
-    const timeRemaining = video.duration > 0 ? video.duration - video.currentTime : null;
-    console.log('[Shufflr] timeupdate fired, time remaining:', timeRemaining);
-    console.log('[Shufflr] isAdPlaying:', isAdPlaying());
-    console.log('[Shufflr] shufflrEnabled:', shufflrActive);
-    if (!isChromeContextValid()) {
-      handleExtensionContextInvalidated();
-      return;
-    }
-    if (isAdPlaying()) return;
-    if (video.duration <= 0 || video.paused) return;
-    if (isNonEpisodePlayback(video)) {
-      logNonEpisodePlaybackIgnored(video);
-      return;
-    }
-    updateShufflrAboutToNavigateFromVideo(video);
-    if (video.duration - video.currentTime > TIMEUPDATE_SHUFFLE_REMAINING_SEC) return;
-    let result;
-    try {
-      result = await chrome.storage.local.get([SHUFFLR_ACTIVE_PLAYLIST_KEY]);
-    } catch (err) {
-      if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-      return;
-    }
-    if (!isArmedPlaylistOwnedByThisTab(result[SHUFFLR_ACTIVE_PLAYLIST_KEY])) return;
-    if (orderedEpisodesCached) {
-      setShufflrEpisodeEndedFlag();
-      return;
-    }
-    video.removeEventListener('timeupdate', handler);
-    timeupdateWatcherHandler = null;
-    timeupdateWatcherVideo = null;
-    navigateToNextShow();
-  };
-  video.addEventListener('timeupdate', timeupdateWatcherHandler);
-}
-
-function saveShowPageUrl(url) {
-  knownShowPageUrl = url.split('?')[0];
-  sessionStorage.setItem(SHUFFLR_SHOW_PAGE_KEY, knownShowPageUrl);
-}
-
-if (!IS_SHUFFLR_WEB_APP && location.href.includes('/show/')) {
-  saveShowPageUrl(location.href);
-}
-
-// ── URL CHANGE WATCHER ─────────────────────────────────────────────────────
-const urlObserver = new MutationObserver(() => {
-  if (!isChromeContextValid()) return;
-  if (location.href !== lastUrl) {
-    const prevUrl = lastUrl;
-    lastUrl = location.href;
-    armedUrlPollLastHref = location.href;
-    if (isVideoWatchUrl(prevUrl) && !isVideoWatchUrl(location.href)) {
-      clearNowPlayingHeartbeat();
-    }
-    if (isVideoWatchUrl(location.href)) {
-      startNowPlayingHeartbeat();
-    }
-    timeupdateWatcherVideo = null;
-    timeupdateWatcherHandler = null;
-    removeShufflrUI();
-    cancelUiRecoveryGraceTimer();
-    triggerShuffleCopOnUrlChange(prevUrl);
-    handlePossibleMaxAutoAdvance(prevUrl).catch(err => {
-      console.error('[Shufflr] handlePossibleMaxAutoAdvance error:', err);
-    });
-    // Save show page URL whenever we visit one
-    if (location.href.includes('/show/')) {
-      saveShowPageUrl(location.href);
-      console.log(`[Shufflr] Saved show page: ${knownShowPageUrl}`);
-      void prefetchShowPageEpisodeCacheIfStandalone();
-      if (sessionStorage.getItem(SHUFFLR_PENDING_KEY)) {
-        setTimeout(() => {
-          if (!isChromeContextValid()) return;
-          handleShowPageShuffle();
-        }, 500);
-      }
-    }
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      tryInjectButton();
-    }, 2500);
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      if (!IS_MAX) return;
-      restoreArmedShuffleSession().catch(err => {
-        console.error('[Shufflr] restoreArmedShuffleSession error:', err);
-      });
-    }, 2500);
-    setTimeout(runShuffleWatchdog, UI_RECOVERY_GRACE_MS + 500);
-  }
-});
-if (IS_MAX) {
-urlObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 // ── INJECT SHUFFLE BUTTON ──────────────────────────────────────────────────
@@ -1806,14 +1146,8 @@ async function submitCreatePlaylistForm() {
     };
     serviceTag = 'crunchyroll';
   } else {
-    const uuid = getCurrentMaxShowUuid();
-    if (!uuid) {
-      showToast('Could not find show ID');
-      return;
-    }
-    const title = getCurrentShowTitle();
-    showEntry = { title, maxId: uuid };
-    serviceTag = 'max';
+    showToast('Unsupported service');
+    return;
   }
   const playlists = await readPlaylistsFromStorage();
   playlists.push({
@@ -1988,32 +1322,7 @@ function renderPlaylistDropdownContent(playlists, settings = {}) {
   `;
 }
 
-function extractMaxShowUuidFromUrl(url) {
-  if (!url || !String(url).includes('/show/')) return null;
-  const match = String(url).match(
-    /\/show\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
-  );
-  return match ? match[1] : null;
-}
-
-function getCurrentMaxShowUuid() {
-  const fromLocation = extractMaxShowUuidFromUrl(location.href);
-  if (fromLocation) return fromLocation;
-
-  const fromWatch = resolveMaxWatchIds(location.href);
-  if (fromWatch?.showId) return fromWatch.showId;
-
-  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
-  return extractMaxShowUuidFromUrl(showPage);
-}
-
 function getCurrentShowTitle() {
-  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (onVideoPage) {
-    const showName = getMaxPlayerShowName();
-    if (showName) return showName;
-  }
-
   const h1 = document.querySelector('h1');
   if (h1?.textContent?.trim()) return h1.textContent.trim();
 
@@ -2275,26 +1584,7 @@ async function addCurrentShowToYourShows() {
     return;
   }
 
-  const uuid = getCurrentMaxShowUuid();
-  if (!uuid) {
-    showToast('Could not find show ID');
-    return;
-  }
-
-  const title = getCurrentShowTitle();
-  const { shows: existingShows } = await readYourShowsPreferCloud();
-  const shows = Array.isArray(existingShows) ? [...existingShows] : [];
-  const alreadyAdded = shows.some(show => (
-    show.maxId === uuid || show.maxShowId === uuid || show.max_id === uuid
-  ));
-  if (alreadyAdded) {
-    showToast('Already in Your Shows');
-    return;
-  }
-
-  shows.push({ title, maxId: uuid });
-  await writeYourShowsToStorage(shows);
-  showToast(`Added ${title} to Your Shows`);
+  showToast('Unsupported service');
 }
 
 async function addCurrentShowToPlaylist(playlistIndex) {
@@ -2335,17 +1625,8 @@ async function addCurrentShowToPlaylist(playlistIndex) {
     serviceTag = 'crunchyroll';
     alreadyAddedCheck = show => show.crunchyrollId === crunchyrollId;
   } else {
-    const showId = getCurrentMaxShowUuid();
-    if (!showId) {
-      showToast('Could not find show ID');
-      return;
-    }
-    const title = getCurrentShowTitle();
-    showEntry = { title, maxId: showId };
-    serviceTag = 'max';
-    alreadyAddedCheck = show => (
-      show.maxId === showId || show.maxShowId === showId || show.max_id === showId
-    );
+    showToast('Unsupported service');
+    return;
   }
 
   const playlists = await readPlaylistsFromStorage();
@@ -2389,18 +1670,6 @@ async function populatePlaylistDropdown() {
   dropdown.innerHTML = renderPlaylistDropdownContent(indexedPlaylists, settings);
 }
 
-function smartShuffleEpKey(seasonNum, epNum) {
-  return `s${seasonNum}e${epNum}`;
-}
-
-function episodeCacheId(ep) {
-  if (ep.seasonNum != null && ep.episode_number != null) {
-    return smartShuffleEpKey(ep.seasonNum, ep.episode_number);
-  }
-  if (ep.alternateId) return `alt-${ep.alternateId}`;
-  return null;
-}
-
 function serializePlayedByShow(playedByShow) {
   const out = {};
   Object.keys(playedByShow).forEach(showId => {
@@ -2418,15 +1687,6 @@ function deserializePlayedByShow(serialized) {
   return out;
 }
 
-function getPlaylistShowMaxId(show) {
-  const explicit = show?.maxId || show?.maxShowId || show?.max_id;
-  if (explicit) return String(explicit);
-
-  const id = show?.id;
-  if (typeof id === 'string' && MAX_SHOW_UUID_RE.test(id)) return id;
-  return null;
-}
-
 function getPlaylistShowTitle(show) {
   return show?.title || show?.name || show?.original_name || 'Untitled';
 }
@@ -2442,60 +1702,6 @@ function getPlaylistShowPosterPath(show) {
   return text.startsWith('/') ? text : `/${text}`;
 }
 
-function findPlaylistShowPosterPathInActive(active, showId) {
-  if (!showId) return null;
-  const norm = normalizeMaxId(showId);
-  for (const show of active?.shows || []) {
-    if (normalizeMaxId(getPlaylistShowMaxId(show)) === norm) {
-      return getPlaylistShowPosterPath(show);
-    }
-  }
-  return null;
-}
-
-function getPlaylistMaxIds(playlist) {
-  return new Set(
-    (playlist?.shows || [])
-      .map(getPlaylistShowMaxId)
-      .filter(Boolean)
-      .map(normalizeMaxId)
-  );
-}
-
-function filterEnrichedToPlaylist(enriched, playlist) {
-  const allowedMaxIds = getPlaylistMaxIds(playlist);
-  return enriched.filter(show => allowedMaxIds.has(normalizeMaxId(show.id)));
-}
-
-async function resolvePlaylistForShuffle(activePayload) {
-  if (!isChromeContextValid()) {
-    return {
-      name: activePayload?.playlistName || '',
-      shows: activePayload?.shows || [],
-      episodes: activePayload?.episodes || [],
-    };
-  }
-  const playlists = await readPlaylistsFromStorage();
-  const index = activePayload?.playlistIndex;
-  const name = String(activePayload?.playlistName || '');
-
-  if (Number.isFinite(index) && index >= 0 && playlists[index]) {
-    const byIndex = playlists[index];
-    if (!name || (byIndex.name || '') === name) return byIndex;
-  }
-
-  if (name) {
-    const byName = playlists.find(playlist => (playlist.name || '') === name);
-    if (byName) return byName;
-  }
-
-  return {
-    name: activePayload?.playlistName || '',
-    shows: activePayload?.shows || [],
-    episodes: activePayload?.episodes || [],
-  };
-}
-
 function deserializeRoundPlayedShows(serialized) {
   if (!Array.isArray(serialized)) return new Set();
   return new Set(serialized.map(id => String(id)));
@@ -2503,483 +1709,6 @@ function deserializeRoundPlayedShows(serialized) {
 
 function serializeRoundPlayedShows(roundPlayedShows) {
   return [...(roundPlayedShows || new Set())].map(id => String(id));
-}
-
-function resolveShowIdForCop(url, active) {
-  const fromShowPage = extractMaxShowUuidFromUrl(url);
-  if (fromShowPage) return normalizeMaxId(fromShowPage);
-
-  const hint = getShowMaxIdHintFromActive(active);
-  const resolved = resolveMaxWatchIds(url, hint);
-  if (resolved?.showId) return normalizeMaxId(resolved.showId);
-  if (active?.currentShow?.showId) return normalizeMaxId(active.currentShow.showId);
-  if (active?.currentEpisode?.showId) return normalizeMaxId(active.currentEpisode.showId);
-  if (hint) return normalizeMaxId(hint);
-  return null;
-}
-
-function pickNextShowRoundRobin(playlistShows, lastPlayedShow, roundPlayedShows) {
-  const validShows = (playlistShows || []).filter(showHasMaxId);
-  if (!validShows.length) return null;
-
-  const entries = validShows.map(show => ({
-    show,
-    id: normalizeMaxId(getPlaylistShowMaxId(show)),
-  }));
-
-  let roundPool = entries.filter(entry => !roundPlayedShows.has(entry.id));
-  if (!roundPool.length) {
-    roundPlayedShows.clear();
-    roundPool = entries;
-  }
-
-  let pool = roundPool;
-  if (lastPlayedShow && pool.length > 1) {
-    const lastNorm = normalizeMaxId(lastPlayedShow);
-    const withoutLast = pool.filter(entry => entry.id !== lastNorm);
-    if (withoutLast.length) pool = withoutLast;
-  }
-
-  return pool[0]?.show || null;
-}
-
-async function saveOrderedShowRotationState(
-  playlist,
-  show,
-  showId,
-  playlistIndex,
-  roundPlayedShows,
-  options = {}
-) {
-  if (!isChromeContextValid()) return;
-  const showTitle = getPlaylistShowTitle(show);
-  const pick = options.episode || null;
-  const watchUrl = pick?.alternateId
-    ? (pick.watchUrl || buildMaxEpisodeWatchUrl(pick.alternateId, showId))
-    : null;
-  const activePayload = {
-    armed: true,
-    playlistName: playlist.name || '',
-    playlistIndex,
-    shows: [...(playlist.shows || [])],
-    episodes: [...(playlist.episodes || [])],
-    selectedService: 'max',
-    currentShow: { showId, showName: showTitle },
-    currentEpisode: pick?.alternateId
-      ? {
-        showId,
-        showName: showTitle,
-        posterPath: getPlaylistShowPosterPath(show),
-        seasonNum: pick.seasonNum,
-        episode_number: pick.episode_number,
-        name: pick.name || '',
-        alternateId: String(pick.alternateId),
-      }
-      : null,
-    currentEpisodeUrl: watchUrl,
-    createdAt: Date.now(),
-    sessionStartedAt: Date.now(),
-    ownerTabId: getShufflrTabId(),
-  };
-  const stored = await storageLocalGet(SHUFFLR_EPISODE_STATE_KEY);
-  const episodeState = {
-    ...(stored && typeof stored === 'object' ? stored : {}),
-    lastPlayedShow: showId,
-    roundPlayedShows: serializeRoundPlayedShows(roundPlayedShows),
-    nextEpisodeIndexByShow: { ...(options.nextEpisodeIndexByShow || {}) },
-    playlistName: playlist.name || '',
-    playlistIndex,
-  };
-
-  await chromeStorageLocalSet({
-    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
-    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
-  });
-}
-
-async function updateOrderedCurrentEpisodeFromUrl(active, url) {
-  if (!isChromeContextValid() || !isArmedPlaylistOwnedByThisTab(active)) return;
-  const hint = getShowMaxIdHintFromActive(active);
-  const episodeId = getMaxEpisodeIdFromUrl(url, hint);
-  if (!episodeId) return;
-
-  const showId = resolveShowIdForCop(url, active);
-  if (showId) {
-    await writeOrderedProgressForShow(showId, episodeId);
-  }
-  const updated = {
-    ...active,
-    currentEpisode: {
-      showId,
-      showName: active.currentEpisode?.showName
-        || findPlaylistShowTitleByMaxId([{ shows: active?.shows || [] }], showId)
-        || active.currentShow?.showName
-        || '',
-      posterPath: active.currentEpisode?.posterPath
-        || findPlaylistShowPosterPathInActive(active, showId),
-      alternateId: episodeId,
-    },
-    currentEpisodeUrl: String(url).split('?')[0],
-  };
-  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
-}
-
-/** Sort Max CMS episode details by season then episode number (true airing order). */
-function sortMaxEpisodesForOrderedMode(details) {
-  return [...(details || [])]
-    .filter(ep => ep?.alternateId)
-    .sort((a, b) => {
-      const sa = Number(a.seasonNum);
-      const sb = Number(b.seasonNum);
-      const ea = Number(a.episode_number);
-      const eb = Number(b.episode_number);
-      const aHas = Number.isFinite(sa) && Number.isFinite(ea);
-      const bHas = Number.isFinite(sb) && Number.isFinite(eb);
-      if (aHas && bHas) {
-        if (sa !== sb) return sa - sb;
-        return ea - eb;
-      }
-      if (aHas !== bHas) return aHas ? -1 : 1;
-      return 0;
-    });
-}
-
-/**
- * Sequential Max pick using season/episode order.
- * Persistent shufflr_ordered_progress (by maxShowId) is the source of truth;
- * nextEpisodeIndexByShow is kept as a per-session mirror.
- */
-async function pickOrderedMaxEpisode(details, showMaxId, nextEpisodeIndexByShow = {}) {
-  const ordered = sortMaxEpisodesForOrderedMode(details);
-  if (!ordered.length) return null;
-
-  const sid = normalizeMaxId(showMaxId);
-  if (!sid) return null;
-
-  const progress = await readOrderedProgress();
-  const lastId = progress[sid]?.lastPlayedEpisodeId
-    ? normalizeMaxId(progress[sid].lastPlayedEpisodeId)
-    : null;
-
-  let idx = 0;
-  if (lastId) {
-    const found = ordered.findIndex(ep => normalizeMaxId(ep.alternateId) === lastId);
-    if (found >= 0) {
-      idx = (found + 1) % ordered.length;
-    }
-  } else {
-    const sessionIdx = Number(nextEpisodeIndexByShow[sid]);
-    if (Number.isFinite(sessionIdx) && sessionIdx >= 0) {
-      idx = sessionIdx % ordered.length;
-    }
-  }
-
-  const pick = ordered[idx];
-  if (!pick?.alternateId) return null;
-
-  nextEpisodeIndexByShow[sid] = (idx + 1) % ordered.length;
-  await writeOrderedProgressForShow(sid, pick.alternateId);
-  return pick;
-}
-
-async function navigateToOrderedShowPageFallback(
-  preparedPlaylist,
-  nextShow,
-  showMaxId,
-  showId,
-  playlistIndex,
-  roundPlayedShows,
-  nextEpisodeIndexByShow,
-  showTitle,
-  navMode = 'auto'
-) {
-  const status = document.getElementById('shufflr-status');
-  await saveOrderedShowRotationState(
-    preparedPlaylist,
-    nextShow,
-    showId,
-    playlistIndex,
-    roundPlayedShows,
-    { nextEpisodeIndexByShow }
-  );
-  showToast(`Next show: ${showTitle}`);
-  if (status) status.textContent = showTitle.toUpperCase().slice(0, 24);
-  shufflrTargetWatchUrl = null;
-  shufflrTargetEpisodeId = null;
-  sessionStorage.setItem(SHUFFLR_AUTOPLAY_PENDING_KEY, 'true');
-  await shufflrNavigateTo(buildMaxShowPageUrl(showMaxId), {
-    mode: navMode === 'user' ? 'user' : 'auto',
-    source: 'ordered-show-fallback',
-  });
-}
-
-// Ordered Episodes: round-robin shows, then Shufflr picks the exact next episode in sequence.
-async function navigateToNextOrderedShow(source, options = {}) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  const navMode = options.mode === 'user' ? 'user' : 'auto';
-
-  // handleShufflrNextEpisode may already hold the lock — proceed without re-acquiring.
-  const ownsLock = !shufflrEpisodeTransitionLock;
-  if (ownsLock) {
-    shufflrEpisodeTransitionLock = true;
-  }
-
-  const active = await getActivePlaylistFromStorage();
-  if (!isArmedPlaylistOwnedByThisTab(active)) {
-    if (ownsLock) shufflrEpisodeTransitionLock = false;
-    return;
-  }
-
-  shufflrActive = true;
-  armedPlaylistCached = true;
-  console.log(`[Shufflr] Ordered mode — next episode via ${source}`);
-
-  try {
-    const sourcePlaylist = await resolvePlaylistForShuffle(active);
-    const playlistIndex = active.playlistIndex ?? 0;
-    const preparedPlaylist = preparePlaylistForShuffle(sourcePlaylist);
-    if (!preparedPlaylist.shows.length) {
-      showToast('No shows with Max ID');
-      return;
-    }
-
-    let { lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
-      await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
-    if (!(roundPlayedShows instanceof Set)) {
-      roundPlayedShows = deserializeRoundPlayedShows(roundPlayedShows);
-    }
-    nextEpisodeIndexByShow = { ...(nextEpisodeIndexByShow || {}) };
-
-    const nextShow = pickNextShowRoundRobin(preparedPlaylist.shows, lastPlayedShow, roundPlayedShows);
-    if (!nextShow) {
-      showToast('No shows available in playlist');
-      return;
-    }
-
-    const showMaxId = getPlaylistShowMaxId(nextShow);
-    if (!showMaxId) return;
-
-    const showId = normalizeMaxId(showMaxId);
-    roundPlayedShows.add(showId);
-
-    const showTitle = getPlaylistShowTitle(nextShow);
-    const status = document.getElementById('shufflr-status');
-    const details = await ensureShowEpisodesFetched(nextShow);
-    const pick = details?.length
-      ? await pickOrderedMaxEpisode(details, showId, nextEpisodeIndexByShow)
-      : null;
-
-    if (!pick?.alternateId) {
-      console.log(`[Shufflr] Ordered mode — no episode list for ${showTitle}, falling back to show page`);
-      await navigateToOrderedShowPageFallback(
-        preparedPlaylist,
-        nextShow,
-        showMaxId,
-        showId,
-        playlistIndex,
-        roundPlayedShows,
-        nextEpisodeIndexByShow,
-        showTitle,
-        navMode
-      );
-      return;
-    }
-
-    const watchUrl = pick.watchUrl || buildMaxEpisodeWatchUrl(pick.alternateId, showMaxId);
-    await saveOrderedShowRotationState(
-      preparedPlaylist,
-      nextShow,
-      showId,
-      playlistIndex,
-      roundPlayedShows,
-      { episode: pick, nextEpisodeIndexByShow }
-    );
-
-    showToast(`Playing: ${showTitle}`);
-    if (status) status.textContent = showTitle.toUpperCase().slice(0, 24);
-
-    beginShufflrNavigation(pick.alternateId);
-    await shufflrNavigateTo(watchUrl, {
-      mode: navMode,
-      source: `ordered-${source}`,
-    });
-  } catch (err) {
-    console.error('[Shufflr] navigateToNextOrderedShow error:', err);
-  } finally {
-    if (!ownsLock) return;
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      shufflrEpisodeTransitionLock = false;
-    }, EPISODE_TRANSITION_LOCK_MS);
-  }
-}
-
-function smartShuffle(enrichedShows, playedByShow, lastPlayedShow, allowedMaxIds = null, options = {}) {
-  const roundPlayedShows = options.roundPlayedShows instanceof Set
-    ? options.roundPlayedShows
-    : deserializeRoundPlayedShows(options.roundPlayedShows);
-  const nextEpisodeIndexByShow = { ...(options.nextEpisodeIndexByShow || {}) };
-
-  let availableShows = enrichedShows.filter(show => show.episodes?.length);
-  if (allowedMaxIds?.size) {
-    availableShows = availableShows.filter(show => allowedMaxIds.has(normalizeMaxId(show.id)));
-  }
-  if (!availableShows.length) return null;
-
-  let roundShows = availableShows.filter(show => !roundPlayedShows.has(String(show.id)));
-  if (!roundShows.length) {
-    roundPlayedShows.clear();
-    roundShows = availableShows;
-  }
-
-  let showPool = roundShows;
-  if (lastPlayedShow && showPool.length > 1) {
-    const withoutLast = showPool.filter(show => String(show.id) !== String(lastPlayedShow));
-    if (withoutLast.length) showPool = withoutLast;
-  }
-
-  let candidates = [];
-
-  for (const show of showPool) {
-    const showId = String(show.id);
-    if (!playedByShow[showId]) playedByShow[showId] = new Set();
-
-    let unplayed = show.episodes.filter(ep => !playedByShow[showId].has(ep.id));
-    if (!unplayed.length) {
-      playedByShow[showId].clear();
-      unplayed = show.episodes;
-    }
-
-    candidates = candidates.concat(unplayed.map(ep => ({ ...ep, showId: show.id })));
-  }
-
-  if (!candidates.length) {
-    candidates = availableShows.flatMap(show => (
-      show.episodes.map(ep => ({ ...ep, showId: show.id }))
-    ));
-  }
-
-  if (allowedMaxIds?.size) {
-    candidates = candidates.filter(ep => allowedMaxIds.has(normalizeMaxId(ep.showId)));
-  }
-
-  if (!candidates.length) return null;
-
-  const pick = candidates[Math.floor(Math.random() * candidates.length)];
-  const pickShowId = String(pick.showId);
-  if (!playedByShow[pickShowId]) playedByShow[pickShowId] = new Set();
-  playedByShow[pickShowId].add(pick.id);
-  roundPlayedShows.add(pickShowId);
-
-  return {
-    pick,
-    lastPlayedShow: pickShowId,
-    roundPlayedShows,
-    nextEpisodeIndexByShow,
-  };
-}
-
-async function getEpisodeDetailsForPlaylistShow(show) {
-  if (!isChromeContextValid()) return [];
-  const maxId = getPlaylistShowMaxId(show);
-  if (!maxId) return [];
-
-  const entry = await getCachedEpisodeEntry(maxId);
-  if (entry) return episodeDetailsFromCacheEntry(entry);
-  return [];
-}
-
-function getEpisodeDurationSeconds(attrs) {
-  if (!attrs) return 0;
-  const raw = attrs.duration ?? attrs.runTime ?? attrs.runtime ?? attrs.length;
-  if (raw == null) return 0;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return n > 10000 ? Math.round(n / 1000) : Math.round(n);
-}
-
-function isMovieEpisodeList(episodeDetails) {
-  if (!Array.isArray(episodeDetails) || episodeDetails.length !== 1) return false;
-  const duration = Number(episodeDetails[0]?.duration) || 0;
-  return duration > MOVIE_MIN_DURATION_SEC;
-}
-
-async function ensureShowEpisodesFetched(show) {
-  if (!isChromeContextValid()) return [];
-  let details = await getEpisodeDetailsForPlaylistShow(show);
-  if (details.length) return details;
-
-  await fetchAndCachePlaylistShow(show);
-  return getEpisodeDetailsForPlaylistShow(show);
-}
-
-function mapEpisodeDetailsToShuffleEpisodes(show, details) {
-  const maxId = String(getPlaylistShowMaxId(show));
-  return details.map(ep => {
-    const id = episodeCacheId(ep);
-    if (!id || !ep.alternateId) return null;
-    return {
-      id,
-      showId: maxId,
-      showName: getPlaylistShowTitle(show),
-      posterPath: getPlaylistShowPosterPath(show),
-      seasonNum: ep.seasonNum,
-      episode_number: ep.episode_number,
-      alternateId: String(ep.alternateId),
-      watchUrl: ep.watchUrl || buildMaxEpisodeWatchUrl(ep.alternateId, maxId),
-      name: ep.name || '',
-    };
-  }).filter(Boolean);
-}
-
-async function validateShowForShuffle(show) {
-  if (!isChromeContextValid()) return null;
-  const showName = getPlaylistShowTitle(show);
-  const details = await ensureShowEpisodesFetched(show);
-
-  if (!details.length) {
-    console.log(`[Shufflr] Skipping show with no episodes: ${showName}`);
-    return null;
-  }
-
-  if (isMovieEpisodeList(details)) {
-    console.log(`[Shufflr] Skipping movie: ${showName}`);
-    return null;
-  }
-
-  const episodes = mapEpisodeDetailsToShuffleEpisodes(show, details);
-  if (!episodes.length) {
-    console.log(`[Shufflr] Skipping show with no episodes: ${showName}`);
-    return null;
-  }
-
-  return {
-    id: String(getPlaylistShowMaxId(show)),
-    name: showName,
-    episodes,
-  };
-}
-
-async function buildEnrichedPlaylistFromCache(playlist, excludedShowIds = null) {
-  if (!isChromeContextValid()) return [];
-  const allowedMaxIds = getPlaylistMaxIds(playlist);
-  const excluded = excludedShowIds instanceof Set ? excludedShowIds : new Set();
-  const shows = (playlist?.shows || []).filter(show => {
-    const maxId = getPlaylistShowMaxId(show);
-    return maxId && allowedMaxIds.has(normalizeMaxId(maxId));
-  });
-  const enriched = [];
-
-  for (const show of shows) {
-    const maxId = normalizeMaxId(getPlaylistShowMaxId(show));
-    if (excluded.has(maxId)) continue;
-
-    const enrichedShow = await validateShowForShuffle(show);
-    if (enrichedShow) enriched.push(enrichedShow);
-  }
-
-  return enriched;
 }
 
 async function loadEpisodeStateForPlaylist(playlist, playlistIndex) {
@@ -3013,129 +1742,9 @@ async function loadEpisodeStateForPlaylist(playlist, playlistIndex) {
   };
 }
 
-async function hasEpisodeCacheForPlaylistShow(show) {
-  if (!isChromeContextValid()) return false;
-  const details = await getEpisodeDetailsForPlaylistShow(show);
-  return details.length > 0;
-}
-
-async function findShowsMissingCache(shows) {
-  if (!isChromeContextValid()) return [];
-  const checks = await Promise.all(shows.map(async show => ({
-    show,
-    missing: !(await hasEpisodeCacheForPlaylistShow(show)),
-  })));
-  return checks.filter(entry => entry.missing).map(entry => entry.show);
-}
-
-function showHasMaxId(show) {
-  return !!getPlaylistShowMaxId(show);
-}
-
-function preparePlaylistForShuffle(playlist) {
-  const allShows = playlist?.shows || [];
-  const validShows = allShows.filter(showHasMaxId);
-  const skippedCount = allShows.length - validShows.length;
-
-  if (skippedCount > 0) {
-    showToast(`${skippedCount} show${skippedCount !== 1 ? 's' : ''} skipped — add them from Max using +`);
-  }
-
-  return {
-    ...playlist,
-    shows: validShows,
-  };
-}
-
-async function fetchAndCachePlaylistShow(show) {
-  if (!isChromeContextValid()) return { show, success: false };
-  const label = show.name || show.title || 'show';
-  try {
-    const maxId = getPlaylistShowMaxId(show);
-    if (!maxId) return { show, success: false };
-
-    const episodes = await collectEpisodesViaMaxShowId(
-      maxId,
-      getPlaylistShowTitle(show),
-      show.id
-    );
-    if (!episodes?.length) {
-      console.log(`[Shufflr] No episodes returned for "${label}"`);
-      return { show, success: false };
-    }
-
-    return { show, success: true };
-  } catch (err) {
-    console.log(`[Shufflr] Episode fetch failed for "${label}":`, err);
-    return { show, success: false };
-  }
-}
-
-async function prefetchMissingPlaylistShows(shows) {
-  if (!isChromeContextValid()) return { fetched: 0, failed: 0 };
-  const missing = await findShowsMissingCache(shows);
-  if (!missing.length) return { fetched: 0, failed: 0 };
-
-  showToast(`Loading ${missing.length} show${missing.length !== 1 ? 's' : ''}...`);
-  const results = await Promise.all(missing.map(show => fetchAndCachePlaylistShow(show)));
-  return {
-    fetched: results.filter(result => result.success).length,
-    failed: results.filter(result => !result.success).length,
-  };
-}
-
-async function saveArmedActivePlaylist(playlist, playlistIndex, extra = {}) {
-  if (!isChromeContextValid()) return;
-  const payload = {
-    armed: true,
-    playlistName: playlist.name || '',
-    playlistIndex,
-    shows: [...(playlist.shows || [])],
-    episodes: [...(playlist.episodes || [])],
-    selectedService: 'max',
-    createdAt: Date.now(),
-    sessionStartedAt: Date.now(),
-    ownerTabId: getShufflrTabId(),
-  };
-  if (extra.pendingFirstShow) {
-    payload.pendingFirstShow = true;
-    if (extra.pendingFirstShowId) payload.pendingFirstShowId = String(extra.pendingFirstShowId);
-  }
-
-  clearMaxSessionPin(); // playlist arming in this tab replaces any single-show pin
-
-  const ok = await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: payload });
-  if (ok) {
-    console.log('[Shufflr] Armed playlist saved to chrome.storage.local');
-    console.log('[Shufflr] armed playlist owned by this tab');
-  }
-  return payload;
-}
-
 async function clearActivePlaylist() {
   if (!isChromeContextValid()) return;
   await chromeStorageLocalRemove(SHUFFLR_ACTIVE_PLAYLIST_KEY);
-}
-
-async function setStandaloneShuffleEnabled(enabled) {
-  if (!isChromeContextValid()) return;
-  await chromeStorageLocalSet({ [SHUFFLR_STANDALONE_SHUFFLE_KEY]: !!enabled });
-}
-
-async function isStandaloneShuffleEnabled() {
-  if (!isChromeContextValid()) return false;
-  const value = await storageLocalGet(SHUFFLR_STANDALONE_SHUFFLE_KEY);
-  return value === true;
-}
-
-function attachShuffleListenersIfVideoPage() {
-  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (!isVideoPage) return;
-  const video = document.querySelector('video');
-  if (video) {
-    attachVideoListeners(video);
-    ensureVideoSwapObserver();
-  }
 }
 
 async function getActivePlaylistFromStorage() {
@@ -3191,113 +1800,6 @@ function updateShuffleUI(playlistName) {
   }
 }
 
-async function fullyRestoreArmedShuffleSessionAfterInject() {
-  if (!IS_MAX) return false;
-  if (!isChromeContextValid()) return false;
-  // Ensure tab ID exists early; web-Play claim may run below.
-  getShufflrTabId();
-
-  let active = await getActivePlaylistFromStorage();
-  active = await maybeClaimUnownedMaxArmedHandoff(active);
-
-  // Standalone web launch auto-start — only when not already in an owned armed playlist.
-  if (!isArmedPlaylistOwnedByThisTab(active) && location.href.includes('/show/')) {
-    const started = await maybeAutoStartMaxStandaloneLaunch();
-    if (started) return true;
-    active = await getActivePlaylistFromStorage();
-  }
-
-  const owned = isArmedPlaylistOwnedByThisTab(active);
-  if (owned) {
-    console.log('[Shufflr] armed playlist owned by this tab');
-  } else if (active?.armed && !isCrunchyrollArmedPayload(active)) {
-    console.log('[Shufflr] armed playlist ignored — owned by another tab (or unclaimed)');
-  }
-
-  armedPlaylistCached = owned;
-
-  if (!owned) {
-    const standaloneShuffle = await isStandaloneShuffleEnabled();
-    if (!standaloneShuffle) {
-      shufflrActive = false;
-      if (hasShufflrButtonInDom()) {
-        if (!isChromeContextValid()) return false;
-        updateShuffleUI('');
-      }
-      return false;
-    }
-
-    shufflrActive = true;
-    startShuffleWatchdog();
-
-    if (hasShufflrButtonInDom()) {
-      if (!isChromeContextValid()) return false;
-      updateShuffleUI('');
-    }
-
-    attachShuffleListenersIfVideoPage();
-    console.log('[Shufflr] Restored standalone shuffle (UI + episode listeners)');
-    return true;
-  }
-
-  shufflrActive = true;
-  startShuffleWatchdog();
-
-  if (hasShufflrButtonInDom()) {
-    if (!isChromeContextValid()) return false;
-    updateShuffleUI(active.playlistName || '');
-  }
-
-  attachShuffleListenersIfVideoPage();
-
-  console.log(
-    `[Shufflr] Restored armed playlist "${active.playlistName || 'Untitled'}" ` +
-    '(UI + episode listeners)'
-  );
-
-  if (location.href.includes('/show/')) {
-    void maybeAutoStartMaxArmedPlaylistOnShowPage(active);
-  }
-  return true;
-}
-
-async function restoreArmedShuffleSession() {
-  if (!IS_MAX) return false;
-  if (!isChromeContextValid()) return false;
-  return fullyRestoreArmedShuffleSessionAfterInject();
-}
-
-async function syncShuffleUIFromStorage() {
-  if (!IS_MAX) return;
-  if (!isChromeContextValid()) return;
-  await fullyRestoreArmedShuffleSessionAfterInject();
-}
-
-function scheduleVideoListenerRestore(retryMs = 1000) {
-  if (!isChromeContextValid()) return;
-  setTimeout(() => {
-    if (!isChromeContextValid()) return;
-    if (!shufflrActive && !armedPlaylistCached) return;
-    const video = document.querySelector('video');
-    if (!video || !document.getElementById('shufflr-wrap')) return;
-    attachVideoListeners(video);
-    ensureVideoSwapObserver();
-  }, retryMs);
-}
-
-function getShowMaxIdHintFromActive(active) {
-  if (!active) return null;
-  if (active.currentShow?.showId) return active.currentShow.showId;
-  if (active.currentEpisode?.showId) return active.currentEpisode.showId;
-
-  for (const show of active.shows || []) {
-    const maxId = getPlaylistShowMaxId(show);
-    if (maxId) return maxId;
-  }
-
-  return resolveMaxWatchIds(location.href)?.showId || null;
-}
-
 function hasShufflrButtonInDom() {
   return !!(document.getElementById('shufflr-wrap') && document.getElementById('shufflr-btn'));
 }
@@ -3345,402 +1847,11 @@ async function runUiRecoveryAfterGrace(reason) {
   if (hasShufflrButtonInDom()) {
     console.log('[Shufflr] Watchdog: button returned during grace period — no recovery needed');
     cancelUiRecoveryGraceTimer();
-    if (IS_MAX) await restoreArmedShuffleSession();
     return;
   }
 
   cancelUiRecoveryGraceTimer();
   await recoverShufflrUI(reason);
-  if (IS_MAX) await fullyRestoreArmedShuffleSessionAfterInject();
-  scheduleVideoListenerRestore(500);
-  scheduleVideoListenerRestore(1500);
-}
-
-async function handleShufflrNextEpisode(source) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  if (shufflrEpisodeTransitionLock) {
-    console.log(`[Shufflr] Episode transition already in progress (${source})`);
-    return;
-  }
-
-  const active = await getActivePlaylistFromStorage();
-  if (!isArmedPlaylistOwnedByThisTab(active)) return;
-
-  const navMode = source === 'dropdown-play' ? 'user' : 'auto';
-  if (navMode === 'auto' && isShufflrAutoNavStopped()) {
-    console.log('[Shufflr] auto-navigation blocked — stopped after error');
-    return;
-  }
-
-  shufflrEpisodeTransitionLock = true;
-  shufflrActive = true;
-  armedPlaylistCached = true;
-  console.log(`[Shufflr] Playlist next episode via ${source}`);
-
-  try {
-    const settings = await readShuffleSettings();
-    orderedEpisodesCached = !!settings.orderedEpisodes;
-    shuffleModeCached = settings.shuffleMode;
-    if (settings.orderedEpisodes) {
-      await navigateToNextOrderedShow(source, { mode: navMode });
-    } else if (settings.shuffleMode === 'all') {
-      await shuffleFromYourShowsAllMode(active, { mode: navMode });
-    } else {
-      await shuffleFromActivePlaylist(active, { mode: navMode });
-    }
-  } catch (err) {
-    console.error('[Shufflr] handleShufflrNextEpisode error:', err);
-    shufflrEpisodeTransitionLock = false;
-    return;
-  }
-
-  setTimeout(() => {
-    if (!isChromeContextValid()) return;
-    shufflrEpisodeTransitionLock = false;
-  }, EPISODE_TRANSITION_LOCK_MS);
-}
-
-async function handlePossibleMaxAutoAdvance(prevUrl) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  const active = await getActivePlaylistFromStorage();
-  const showHint = getShowMaxIdHintFromActive(active);
-
-  if (shufflrNavigating) {
-    shufflrNavigating = false;
-    const arrivedEpisode = getMaxEpisodeIdFromUrl(location.href, showHint);
-    if (shufflrPendingEpisodeId && arrivedEpisode
-      && normalizeMaxId(arrivedEpisode) === shufflrPendingEpisodeId) {
-      shufflrPendingEpisodeId = null;
-      void clearPendingEpisodeIdInStorage();
-      if (IS_MAX) await restoreArmedShuffleSession();
-      return;
-    }
-    shufflrPendingEpisodeId = null;
-    if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
-      if (IS_MAX) await restoreArmedShuffleSession();
-    }
-    return;
-  }
-
-  if (shufflrEpisodeTransitionLock) return;
-  if (!isArmedPlaylistOwnedByThisTab(active)) return;
-
-  shufflrActive = true;
-  armedPlaylistCached = true;
-
-  const onVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (!onVideoPage || prevUrl === location.href) return;
-
-  const settings = await readShuffleSettings();
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-  if (settings.orderedEpisodes) {
-    const prevShowId = resolveShowIdForCop(prevUrl, active);
-    const currShowId = resolveShowIdForCop(location.href, active);
-    if (prevShowId && currShowId && prevShowId === currShowId) {
-      if (IS_MAX) await restoreArmedShuffleSession();
-    }
-    return;
-  }
-
-  if (maxWatchUrlsRepresentSameEpisode(prevUrl, location.href, showHint)) {
-    console.log('[Shufflr] URL format changed for same episode — restoring armed UI');
-    if (IS_MAX) await restoreArmedShuffleSession();
-    return;
-  }
-
-  if (await shouldRedirectSingleUuidPromo(prevUrl, location.href, active, showHint)) {
-    if (isAdPlaying()) return;
-    console.log('[Shufflr] Single-UUID promo/trailer navigation while armed — shuffling instead');
-    await handleShufflrNextEpisode('single-uuid-promo');
-    return;
-  }
-}
-
-async function savePlaylistShuffleState(playlist, pick, playedByShow, lastPlayedShow, playlistIndex, extraState = {}) {
-  if (!isChromeContextValid()) return;
-  const watchUrl = buildMaxEpisodeWatchUrl(pick.alternateId, pick.showId);
-  const activePayload = {
-    armed: true,
-    playlistName: playlist.name || '',
-    playlistIndex,
-    shows: [...(playlist.shows || [])],
-    episodes: [...(playlist.episodes || [])],
-    selectedService: 'max',
-    currentEpisode: {
-      showId: pick.showId,
-      showName: pick.showName,
-      posterPath: pick.posterPath || null,
-      seasonNum: pick.seasonNum,
-      episode_number: pick.episode_number,
-      name: pick.name,
-      id: pick.id,
-      alternateId: pick.alternateId,
-    },
-    currentEpisodeUrl: watchUrl,
-    createdAt: Date.now(),
-    sessionStartedAt: Date.now(),
-    ownerTabId: getShufflrTabId(),
-  };
-  const episodeState = {
-    playedByShow: serializePlayedByShow(playedByShow),
-    lastPlayedShow,
-    roundPlayedShows: serializeRoundPlayedShows(extraState.roundPlayedShows),
-    nextEpisodeIndexByShow: { ...(extraState.nextEpisodeIndexByShow || {}) },
-    playlistName: playlist.name || '',
-    playlistIndex,
-  };
-
-  await chromeStorageLocalSet({
-    [SHUFFLR_ACTIVE_PLAYLIST_KEY]: activePayload,
-    [SHUFFLR_EPISODE_STATE_KEY]: episodeState,
-  });
-  console.log('[Shufflr] Saved active playlist + episode state');
-}
-
-function getYourShowsDedupeKey(show) {
-  if (show?.id != null && show.id !== '' && !MAX_SHOW_UUID_RE.test(String(show.id))) {
-    return `id:${show.id}`;
-  }
-  const maxId = getPlaylistShowMaxId(show);
-  if (maxId) return `max:${normalizeMaxId(maxId)}`;
-  const nameKey = normalizePlaylistShowMatchName(getPlaylistShowTitle(show));
-  if (nameKey) return `name:${nameKey}`;
-  return '';
-}
-
-function collectYourShowsFromLists(playlists, standaloneShows = []) {
-  const seen = new Set();
-  const items = [];
-  const addShow = (show) => {
-    if (show?.release_date) return;
-    if (!showHasMaxId(show)) return;
-    const key = getYourShowsDedupeKey(show);
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    items.push(show);
-  };
-  for (const playlist of playlists || []) {
-    for (const show of playlist?.shows || []) addShow(show);
-  }
-  for (const show of standaloneShows || []) addShow(show);
-  return items;
-}
-
-async function getYourShowsFromPlaylists(playlists) {
-  const { shows: standaloneShows } = await readYourShowsPreferCloud();
-  return collectYourShowsFromLists(playlists, standaloneShows);
-}
-
-/**
- * Arm the synthetic Your Shows ALL session (same shape episode-end expects).
- * Does not navigate — caller picks the first episode.
- */
-async function armMaxYourShowsAllModeSession(options = {}) {
-  if (!isChromeContextValid()) return null;
-
-  const playlists = await readPlaylistsFromStorage();
-  let yourShows = await getYourShowsFromPlaylists(playlists);
-  if (!yourShows.length) return null;
-
-  // Ensure the launched show is in the ALL pool when provided.
-  const ensureMaxId = options.ensureMaxId ? normalizeMaxId(options.ensureMaxId) : null;
-  if (ensureMaxId && !yourShows.some(s => normalizeMaxId(getPlaylistShowMaxId(s)) === ensureMaxId)) {
-    yourShows = [
-      ...yourShows,
-      {
-        maxId: options.ensureMaxId,
-        title: options.ensureTitle || getCurrentShowTitle() || options.ensureMaxId,
-        name: options.ensureTitle || getCurrentShowTitle() || options.ensureMaxId,
-        url: location.href.split('?')[0],
-      },
-    ];
-  }
-
-  const prior = await getActivePlaylistFromStorage();
-  const priorArmed = isArmedPlaylistOwnedByThisTab(prior);
-  const createdAt = (priorArmed && getArmedSessionCreatedAt(prior)) || Date.now();
-  const syntheticPayload = {
-    ...(priorArmed ? prior : {}),
-    armed: true,
-    playlistName: YOUR_SHOWS_ALL_MODE_NAME,
-    playlistIndex: -1,
-    shows: yourShows,
-    episodes: [],
-    selectedService: 'max',
-    createdAt,
-    sessionStartedAt: Date.now(),
-    ownerTabId: getShufflrTabId(),
-  };
-  if (options.seedLastPlayedShow && options.ensureMaxId) {
-    syntheticPayload.lastPlayedShow = normalizeMaxId(options.ensureMaxId);
-  } else {
-    delete syntheticPayload.lastPlayedShow;
-  }
-
-  clearMaxSessionPin();
-  await setStandaloneShuffleEnabled(false);
-  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: syntheticPayload });
-  shufflrActive = true;
-  armedPlaylistCached = true;
-  if (hasShufflrButtonInDom()) {
-    updateShuffleUI(YOUR_SHOWS_ALL_MODE_NAME);
-  }
-  console.log('[Shufflr] armed playlist owned by this tab');
-  return syntheticPayload;
-}
-
-async function shuffleFromYourShowsAllMode(activePayload, options = {}) {
-  if (!isChromeContextValid()) return;
-  const syntheticPayload = await armMaxYourShowsAllModeSession({
-    seedLastPlayedShow: true,
-    ensureMaxId: getCurrentMaxShowUuid()
-      || extractMaxShowUuidFromUrl(location.href)
-      || extractShowId(location.href),
-    ensureTitle: getCurrentShowTitle(),
-  });
-  if (!syntheticPayload) {
-    showToast('No shows with Max ID in Your Shows');
-    const status = document.getElementById('shufflr-status');
-    if (status) status.textContent = 'NO YOUR SHOWS';
-    return;
-  }
-  await shuffleFromActivePlaylist(syntheticPayload, options);
-}
-
-async function shuffleFromActivePlaylist(activePayload, options = {}) {
-  if (!isChromeContextValid()) return;
-  const navMode = options.mode === 'user' ? 'user' : 'auto';
-  if (navMode === 'auto' && isShufflrAutoNavStopped()) return;
-  const sourcePlaylist = await resolvePlaylistForShuffle(activePayload);
-  const playlistIndex = activePayload.playlistIndex ?? 0;
-  const status = document.getElementById('shufflr-status');
-
-  const preparedPlaylist = preparePlaylistForShuffle(sourcePlaylist);
-  if (!preparedPlaylist.shows.length) {
-    showToast('No shows with Max ID — add shows using +');
-    if (status) status.textContent = 'NO MAX SHOWS';
-    return;
-  }
-
-  const allowedMaxIds = getPlaylistMaxIds(preparedPlaylist);
-
-  if (status) status.textContent = 'SMART SHUFFLE...';
-  showToast('Smart Shuffle...');
-
-  await prefetchMissingPlaylistShows(preparedPlaylist.shows);
-
-  let { playedByShow, lastPlayedShow, roundPlayedShows, nextEpisodeIndexByShow } =
-    await loadEpisodeStateForPlaylist(preparedPlaylist, playlistIndex);
-  const excludedShowIds = new Set();
-  let result = null;
-
-  for (let attempt = 0; attempt < preparedPlaylist.shows.length; attempt++) {
-    const enriched = await buildEnrichedPlaylistFromCache(preparedPlaylist, excludedShowIds);
-    const playlistShows = filterEnrichedToPlaylist(enriched, preparedPlaylist);
-    console.log(
-      `[Shufflr] Smart Shuffle attempt ${attempt + 1}/${preparedPlaylist.shows.length} — ` +
-      `playlist "${preparedPlaylist.name || 'Untitled'}": ` +
-      `allowed maxIds [${[...allowedMaxIds].join(', ')}], ` +
-      `picking from [${playlistShows.map(show => show.name).join(', ')}]`
-    );
-
-    if (!playlistShows.length) break;
-
-    result = smartShuffle(
-      playlistShows,
-      playedByShow,
-      lastPlayedShow,
-      allowedMaxIds,
-      {
-        roundPlayedShows,
-        nextEpisodeIndexByShow,
-      }
-    );
-
-    if (!result?.pick?.alternateId) break;
-
-    const pickedShowId = normalizeMaxId(result.pick.showId);
-    const pickedShow = playlistShows.find(show => normalizeMaxId(show.id) === pickedShowId);
-    if (!pickedShow?.episodes?.length) {
-      console.log(`[Shufflr] Skipping show with no episodes: ${result.pick.showName || pickedShowId}`);
-      excludedShowIds.add(pickedShowId);
-      result = null;
-      continue;
-    }
-
-    break;
-  }
-
-  if (!result?.pick?.alternateId) {
-    showToast('No playable episodes — playlist still armed');
-    if (status) {
-      status.textContent = preparedPlaylist.name?.toUpperCase().slice(0, 24) || '';
-    }
-    return;
-  }
-
-  const { pick, lastPlayedShow: newLast, roundPlayedShows: newRound, nextEpisodeIndexByShow: newIndexes } = result;
-  await savePlaylistShuffleState(
-    preparedPlaylist,
-    pick,
-    playedByShow,
-    newLast,
-    playlistIndex,
-    {
-      roundPlayedShows: newRound,
-      nextEpisodeIndexByShow: newIndexes,
-    }
-  );
-
-  const label = (pick.showName || 'Show').slice(0, 24);
-  const watchUrl = buildMaxEpisodeWatchUrl(pick.alternateId, pick.showId);
-  showToast(`Playing: ${label}`);
-  if (status) status.textContent = label.toUpperCase().slice(0, 24);
-  shufflrTargetWatchUrl = watchUrl.split('?')[0];
-  shufflrTargetEpisodeId = normalizeMaxId(pick.alternateId);
-  void refreshMaxAutoNextArmedCache();
-  if (isAdPlaying()) return;
-  beginShufflrNavigation(pick.alternateId);
-  await shufflrNavigateTo(watchUrl, { mode: navMode, source: 'max-playlist-shuffle' });
-}
-
-async function armPlaylistFromDropdown(playlistIndex) {
-  if (!isChromeContextValid()) return;
-  const playlists = await readPlaylistsFromStorage();
-  dropdownPlaylists = playlists;
-  const playlist = playlists[playlistIndex];
-  if (!playlist) return;
-
-  const shows = playlist.shows || [];
-  if (!shows.length) {
-    showToast('No shows in this playlist');
-    return;
-  }
-
-  closePlaylistDropdown();
-
-  const preparedPlaylist = preparePlaylistForShuffle(playlist);
-  if (!preparedPlaylist.shows.length) {
-    showToast('No shows with Max ID — add shows using +');
-    return;
-  }
-
-  await prefetchMissingPlaylistShows(preparedPlaylist.shows);
-  await saveArmedActivePlaylist(preparedPlaylist, playlistIndex);
-  await setStandaloneShuffleEnabled(false);
-
-  shufflrActive = true;
-  armedPlaylistCached = true;
-  const playlistName = preparedPlaylist.name || 'Untitled';
-  if (!isChromeContextValid()) return;
-  updateShuffleUI(playlistName);
-
-  // Start playback immediately (same path as armed episode-end).
-  // On failure, shuffleFromActivePlaylist keeps the armed state and toasts.
-  showToast(`Playlist: ${playlistName}`);
-  await handleShufflrNextEpisode('dropdown-play');
 }
 
 async function playCrunchyrollPlaylistFromDropdown(playlistIndex) {
@@ -3989,8 +2100,6 @@ async function playPlaylistFromDropdown(playlistIndex) {
     await playCrunchyrollPlaylistFromDropdown(playlistIndex);
     return;
   }
-
-  await armPlaylistFromDropdown(playlistIndex);
 }
 
 function isShufflrPlayerPage() {
@@ -4001,12 +2110,10 @@ function isShufflrPlayerPage() {
 function tryInjectButton() {
   if (!isChromeContextValid()) return Promise.resolve(false);
   if (document.getElementById('shufflr-wrap')) {
-    const video = document.querySelector('video');
-    if (video && IS_MAX) attachVideoListeners(video);
     if (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage()) {
       restoreCrunchyrollShuffleSession();
     }
-    return IS_MAX ? fullyRestoreArmedShuffleSessionAfterInject() : Promise.resolve(true);
+    return Promise.resolve(true);
   }
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
@@ -4019,16 +2126,10 @@ function tryInjectButton() {
   }
 
   if (isShowPage) {
-    saveShowPageUrl(location.href);
     injectShufflrButton(null);
-    return IS_MAX ? fullyRestoreArmedShuffleSessionAfterInject() : Promise.resolve(false);
+    return Promise.resolve(false);
   }
 
-  // Save show page from referrer if we don't have it yet
-  if (!knownShowPageUrl && document.referrer.includes('/show/')) {
-    saveShowPageUrl(document.referrer);
-    console.log(`[Shufflr] Got show page from referrer: ${knownShowPageUrl}`);
-  }
   const video = document.querySelector('video');
   if (!video) {
     return new Promise(resolve => {
@@ -4042,8 +2143,7 @@ function tryInjectButton() {
     });
   }
   injectShufflrButton(video);
-  prefetchEpisodeList();
-  return IS_MAX ? fullyRestoreArmedShuffleSessionAfterInject() : Promise.resolve(false);
+  return Promise.resolve(false);
 }
 
 async function recoverShufflrUI(reason) {
@@ -4066,31 +2166,19 @@ async function recoverShufflrUI(reason) {
     const isShowPage = location.href.includes('/show/');
 
     if (isShowPage) {
-      saveShowPageUrl(location.href);
       injectShufflrButton(null);
-      if (IS_MAX) await fullyRestoreArmedShuffleSessionAfterInject();
       return;
     }
 
     const video = document.querySelector('video');
     if (video) {
       injectShufflrButton(video);
-      prefetchEpisodeList();
-      if (IS_MAX) await fullyRestoreArmedShuffleSessionAfterInject();
-      scheduleVideoListenerRestore(500);
       return;
     }
 
     setTimeout(() => {
       if (!isChromeContextValid()) return;
-      tryInjectButton().then(() => {
-        if (IS_MAX) {
-          fullyRestoreArmedShuffleSessionAfterInject().catch(err => {
-            console.error('[Shufflr] post-inject restore error:', err);
-          });
-        }
-        scheduleVideoListenerRestore(500);
-      });
+      void tryInjectButton();
     }, 500);
   } catch (err) {
     console.error('[Shufflr] recoverShufflrUI error:', err);
@@ -4105,7 +2193,6 @@ async function resetShuffleState(options = {}) {
   shufflrActive = false;
   armedPlaylistCached = false;
   toggleShuffleInProgress = false;
-  clearMaxSessionPin();
   cancelUiRecoveryGraceTimer();
   try {
     if (clearStorage) await clearActivePlaylist();
@@ -4165,7 +2252,7 @@ async function runShuffleWatchdogAsync() {
       return;
     }
 
-    // Max: only the owning tab treats storage as armed (standalone uses shufflrActive).
+    // Default path: only the owning tab treats storage as armed.
     const participates = isArmedPlaylistOwnedByThisTab(active);
     armedPlaylistCached = participates;
     const maintainSession = shufflrActive || participates;
@@ -4182,16 +2269,6 @@ async function runShuffleWatchdogAsync() {
 
     if (hasShufflrButtonInDom()) {
       cancelUiRecoveryGraceTimer();
-
-      const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-      if (isVideoPage) {
-        const video = document.querySelector('video');
-        if (video) attachVideoListeners(video);
-      }
-
-      if (IS_MAX && shufflrActive && participates) {
-        await restoreArmedShuffleSession();
-      }
       return;
     }
 
@@ -4332,7 +2409,6 @@ function onShuffleBtnClick(event) {
     void startCrunchyrollShuffle();
     return;
   }
-  toggleShuffle();
 }
 
 function onPlaylistDropdownClick(event) {
@@ -4989,23 +3065,10 @@ function injectShufflrStyles() {
   document.head.appendChild(style);
 }
 
-function ensureVideoSwapObserver() {
-  if (!isChromeContextValid()) return;
-  if (window.__shufflrVideoObserver) return;
-  window.__shufflrVideoObserver = new MutationObserver(() => {
-    if (!isChromeContextValid()) return;
-    const video = document.querySelector('video');
-    if (video && document.getElementById('shufflr-wrap')) attachVideoListeners(video);
-  });
-  window.__shufflrVideoObserver.observe(document.body, { childList: true, subtree: true });
-}
-
 function injectShufflrButton(video) {
   if (!isChromeContextValid()) return;
   if (document.getElementById('shufflr-wrap')) {
-    if (video) attachVideoListeners(video);
-    if (IS_MAX) void fullyRestoreArmedShuffleSessionAfterInject();
-    else if (isCrunchyroll) restoreCrunchyrollShuffleSession();
+    if (isCrunchyroll) restoreCrunchyrollShuffleSession();
     return;
   }
 
@@ -5052,308 +3115,15 @@ function injectShufflrButton(video) {
   startShuffleWatchdog();
   populatePlaylistDropdown();
 
-  if (video) {
-    attachVideoListeners(video);
-    ensureVideoSwapObserver();
-  }
-
   installFullscreenListener();
   installAutoFullscreenRestore();
   if (document.fullscreenElement) {
     ensureShufflrButtonForFullscreen();
   }
 
-  if (IS_MAX) void fullyRestoreArmedShuffleSessionAfterInject();
-  else if (isCrunchyroll) restoreCrunchyrollShuffleSession();
+  if (isCrunchyroll) restoreCrunchyrollShuffleSession();
 }
 
-function attachVideoListeners(video) {
-  if (!video) return;
-  video.removeEventListener('ended', onEpisodeEnded);
-  video.addEventListener('ended', onEpisodeEnded);
-  video.removeEventListener('timeupdate', onTimeUpdate);
-  video.addEventListener('timeupdate', onTimeUpdate);
-  video.removeEventListener('playing', onVideoPlaying);
-  video.addEventListener('playing', onVideoPlaying);
-  window.__shufflrAttachedVideo = video;
-  installTimeupdateWatcher();
-  suppressMaxAutoNext();
-  if (!video.paused) {
-    showFullscreenRestorePrompt();
-  }
-}
-
-const MAX_AUTO_NEXT_OVERLAY_SELECTORS = [
-  '[class*="NextEpisode"]',
-  '[class*="next-episode"]',
-  '[class*="autoplay"]',
-  '[data-testid*="next"]',
-  'button[class*="next"]',
-].join(', ');
-
-function getShufflrTargetFromActive(active) {
-  if (!isArmedPlaylistOwnedByThisTab(active)) {
-    return { watchUrl: null, episodeId: null, showHint: null };
-  }
-
-  const showHint = getShowMaxIdHintFromActive(active);
-  let watchUrl = active.currentEpisodeUrl || null;
-  if (!watchUrl && active.currentEpisode?.alternateId) {
-    watchUrl = buildMaxEpisodeWatchUrl(active.currentEpisode.alternateId, active.currentEpisode.showId);
-  }
-
-  return {
-    watchUrl: watchUrl ? watchUrl.split('?')[0] : null,
-    episodeId: active.currentEpisode?.alternateId
-      ? normalizeMaxId(active.currentEpisode.alternateId)
-      : null,
-    showHint,
-  };
-}
-
-function findMaxAutoNextDismissButton(container) {
-  const selectorMatches = [
-    'button[class*="cancel"]',
-    'button[class*="Cancel"]',
-    'button[class*="dismiss"]',
-    'button[class*="Dismiss"]',
-    'button[class*="close"]',
-    'button[class*="Close"]',
-    'button[data-testid*="cancel"]',
-    'button[data-testid*="dismiss"]',
-    'button[data-testid*="close"]',
-    '[role="button"][class*="cancel"]',
-    '[role="button"][class*="dismiss"]',
-    '[role="button"][class*="close"]',
-  ];
-
-  for (const selector of selectorMatches) {
-    try {
-      const btn = container.querySelector(selector);
-      if (btn) return btn;
-    } catch {}
-  }
-
-  const clickables = container.querySelectorAll('button, [role="button"]');
-  for (const btn of clickables) {
-    const text = `${btn.textContent || ''} ${btn.getAttribute('aria-label') || ''}`.toLowerCase();
-    if (
-      text.includes('cancel')
-      || text.includes('dismiss')
-      || text.includes('close')
-      || text.includes('stay')
-      || text.includes('not now')
-      || text.trim() === '×'
-      || text.trim() === 'x'
-    ) {
-      return btn;
-    }
-  }
-
-  return null;
-}
-
-function refreshMaxAutoNextArmedCache() {
-  if (!isChromeContextValid()) {
-    maxAutoNextArmedCache = false;
-    return Promise.resolve(false);
-  }
-  return getActivePlaylistFromStorage().then(active => {
-    maxAutoNextArmedCache = isArmedPlaylistOwnedByThisTab(active);
-    if (maxAutoNextArmedCache) {
-      const target = getShufflrTargetFromActive(active);
-      shufflrTargetWatchUrl = target.watchUrl;
-      shufflrTargetEpisodeId = target.episodeId;
-      shufflrTargetShowHint = target.showHint;
-    } else {
-      shufflrTargetWatchUrl = null;
-      shufflrTargetEpisodeId = null;
-      shufflrTargetShowHint = null;
-    }
-    return maxAutoNextArmedCache;
-  }).catch(err => {
-    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-    maxAutoNextArmedCache = false;
-    return false;
-  });
-}
-
-function updateShufflrAboutToNavigateFromVideo(video) {
-  if (isAdPlaying()) {
-    shufflrAboutToNavigate = false;
-    return;
-  }
-  if (orderedEpisodesCached) {
-    shufflrAboutToNavigate = false;
-    return;
-  }
-  if (!video || video.duration <= 0 || video.paused) return;
-  if (!shufflrActive && !armedPlaylistCached) {
-    shufflrAboutToNavigate = false;
-    return;
-  }
-  const remaining = video.duration - video.currentTime;
-  shufflrAboutToNavigate = remaining <= SHUFFLR_ABOUT_TO_NAVIGATE_SEC;
-}
-
-function suppressMaxAutoNextOverlayAggressive(element) {
-  if (isAdPlaying()) return;
-  if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
-  if (!shufflrAboutToNavigate) return;
-  if (!maxAutoNextArmedCache) return;
-
-  const height = element.getBoundingClientRect().height || element.offsetHeight || 0;
-  if (height >= 200) return;
-
-  const dismissBtn = findMaxAutoNextDismissButton(element);
-  if (dismissBtn) {
-    try {
-      dismissBtn.click();
-    } catch {}
-  }
-
-  element.style.display = 'none';
-  element.dataset.shufflrAutoNextSuppressed = '1';
-}
-
-function suppressMaxAutoNextOverlay(element) {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  if (!element || element.dataset?.shufflrAutoNextSuppressed) return;
-
-  getActivePlaylistFromStorage().then(active => {
-    maxAutoNextArmedCache = isArmedPlaylistOwnedByThisTab(active);
-    if (!maxAutoNextArmedCache) return;
-
-    const target = getShufflrTargetFromActive(active);
-    shufflrTargetWatchUrl = target.watchUrl;
-    shufflrTargetEpisodeId = target.episodeId;
-    shufflrTargetShowHint = target.showHint;
-
-    suppressMaxAutoNextOverlayAggressive(element);
-  }).catch(err => {
-    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-  });
-}
-
-function pollAndSuppressMaxAutoNextOverlays() {
-  if (!isChromeContextValid()) {
-    teardownMaxAutoNextSuppression();
-    return;
-  }
-  if (isAdPlaying()) return;
-  if (!shufflrAboutToNavigate) return;
-
-  refreshMaxAutoNextArmedCache().then(armed => {
-    if (!armed) return;
-
-    try {
-      document.querySelectorAll(MAX_AUTO_NEXT_OVERLAY_SELECTORS).forEach(suppressMaxAutoNextOverlayAggressive);
-    } catch {}
-  });
-}
-
-function scanForMaxAutoNextOverlays(root = document.body) {
-  if (!root?.querySelectorAll) return;
-  if (isAdPlaying()) return;
-  if (!shufflrAboutToNavigate) return;
-
-  try {
-    if (root.matches?.(MAX_AUTO_NEXT_OVERLAY_SELECTORS)) {
-      suppressMaxAutoNextOverlay(root);
-    }
-    root.querySelectorAll(MAX_AUTO_NEXT_OVERLAY_SELECTORS).forEach(suppressMaxAutoNextOverlay);
-  } catch {}
-}
-
-function teardownMaxAutoNextSuppression() {
-  if (maxAutoNextObserver) {
-    maxAutoNextObserver.disconnect();
-    maxAutoNextObserver = null;
-  }
-  if (maxAutoNextPollTimer) {
-    clearInterval(maxAutoNextPollTimer);
-    maxAutoNextPollTimer = null;
-  }
-  if (maxAutoNextVisibilityHandler) {
-    document.removeEventListener('visibilitychange', maxAutoNextVisibilityHandler, true);
-    maxAutoNextVisibilityHandler = null;
-  }
-  if (maxAutoNextBeforeUnloadHandler) {
-    window.removeEventListener('beforeunload', maxAutoNextBeforeUnloadHandler, true);
-    maxAutoNextBeforeUnloadHandler = null;
-  }
-  maxAutoNextArmedCache = false;
-  shufflrAboutToNavigate = false;
-  shufflrTargetWatchUrl = null;
-  shufflrTargetEpisodeId = null;
-  shufflrTargetShowHint = null;
-}
-
-function suppressMaxAutoNext() {
-  if (!isChromeContextValid()) return;
-
-  if (!maxAutoNextObserver) {
-    maxAutoNextObserver = new MutationObserver(mutations => {
-      if (!isChromeContextValid()) {
-        teardownMaxAutoNextSuppression();
-        return;
-      }
-
-      for (const mutation of mutations) {
-        mutation.addedNodes.forEach(node => {
-          if (node.nodeType !== Node.ELEMENT_NODE) return;
-          scanForMaxAutoNextOverlays(node);
-        });
-      }
-    });
-
-    maxAutoNextObserver.observe(document.body, { childList: true, subtree: true });
-
-    maxAutoNextVisibilityHandler = (event) => {
-      if (!isChromeContextValid()) return;
-      if (maxAutoNextArmedCache) event.stopImmediatePropagation();
-    };
-
-    maxAutoNextBeforeUnloadHandler = (event) => {
-      if (!isChromeContextValid()) return;
-      if (maxAutoNextArmedCache) event.stopImmediatePropagation();
-    };
-
-    document.addEventListener('visibilitychange', maxAutoNextVisibilityHandler, true);
-    window.addEventListener('beforeunload', maxAutoNextBeforeUnloadHandler, true);
-  }
-
-  if (!maxAutoNextPollTimer) {
-    maxAutoNextPollTimer = setInterval(() => {
-      if (!isChromeContextValid()) {
-        clearInterval(maxAutoNextPollTimer);
-        maxAutoNextPollTimer = null;
-        return;
-      }
-      pollAndSuppressMaxAutoNextOverlays();
-    }, 500);
-  }
-
-  refreshMaxAutoNextArmedCache();
-}
-
-function onVideoPlaying() {
-  timeupdateWatcherVideo = null;
-  timeupdateWatcherHandler = null;
-  installTimeupdateWatcher();
-  prefetchEpisodeList();
-  showFullscreenRestorePrompt();
-  void maybeLogWatchHistoryOnPlay();
-  if (isVideoWatchUrl(location.href)) {
-    startNowPlayingHeartbeat();
-  }
-  if (document.fullscreenElement) {
-    ensureShufflrButtonForFullscreen();
-  }
-}
-
-// Logs the current Max show to Supabase watch_history when the user is signed in.
 async function getStoredAuthSession() {
   if (!isChromeContextValid()) return null;
   return storageLocalGet(SHUFFLR_SUPABASE_SESSION_KEY);
@@ -5429,6 +3199,12 @@ async function getValidAuthSession() {
   }
 }
 
+// TODO(max-rebuild-phase8): re-wire to new Max ID resolution
+// Supabase watch_history enrichment is parked, not deleted. Every resolver below
+// depended on the removed Max ID helpers (resolveMaxWatchIds, getCurrentMaxShowUuid,
+// getMaxEpisodeIdFromUrl, normalizeMaxId) plus Max player DOM scraping. Restore this
+// block once the new Max ID resolution layer exists.
+/*
 function normalizeWatchHistoryShowName(title) {
   if (!title) return '';
   let text = String(title).trim();
@@ -5942,637 +3718,7 @@ async function maybeLogWatchHistoryOnPlay() {
   const payload = await buildWatchHistoryPayloadFromCache();
   await logWatchHistoryToSupabase(payload);
 }
-
-// ── TOGGLE ─────────────────────────────────────────────────────────────────
-async function toggleShuffle() {
-  if (!isChromeContextValid()) return;
-  if (toggleShuffleInProgress) return;
-
-  const btn = document.getElementById('shufflr-btn');
-  const label = document.getElementById('shufflr-label');
-  if (!btn || !label) {
-    const active = await getActivePlaylistFromStorage();
-    if (isArmedPlaylistOwnedByThisTab(active) || await isStandaloneShuffleEnabled()) {
-      await recoverShufflrUI('toggle click with missing UI');
-      return;
-    }
-    await resetShuffleState();
-    return;
-  }
-
-  toggleShuffleInProgress = true;
-  const turningOn = !shufflrActive;
-
-  try {
-    shufflrActive = turningOn;
-
-    if (turningOn) {
-      clearShufflrAutoNavStopped();
-      btn.classList.add('active');
-      label.textContent = 'ON';
-      const active = await getActivePlaylistFromStorage();
-      if (isArmedPlaylistOwnedByThisTab(active) && active.playlistName) {
-        await setStandaloneShuffleEnabled(false);
-        if (!isChromeContextValid()) return;
-        updateShuffleUI(active.playlistName);
-        showToast(`Playlist: ${active.playlistName} — shuffling...`);
-      } else {
-        await setStandaloneShuffleEnabled(true);
-        startShuffleWatchdog();
-        attachShuffleListenersIfVideoPage();
-        if (!isChromeContextValid()) return;
-        updateShuffleUI('');
-
-        const onWatchPage = location.href.includes('/video/') || location.href.includes('/play/');
-        const onShowPage = IS_MAX && location.href.includes('/show/');
-        const toggleOnFallbackToast =
-          "Shufflr ON — couldn't start yet, will shuffle when the episode ends";
-
-        // Neither watch nor show: arm only (no immediate shuffle target).
-        if (!onWatchPage && !onShowPage) {
-          showToast(toggleOnFallbackToast);
-          return;
-        }
-
-        const settings = await readShuffleSettings();
-        shuffleModeCached = settings.shuffleMode;
-        orderedEpisodesCached = !!settings.orderedEpisodes;
-
-        if (onShowPage) {
-          // Show page: toggle-ON means shuffle this show now (cache → API → DOM fallback).
-          saveShowPageUrl(location.href.split('?')[0]);
-          const showId = extractShowId(location.href);
-          if (showId) saveShowPageUrl(buildMaxShowPageUrl(showId));
-
-          const showTitle = getCurrentShowTitle() || 'show';
-          showToast(`Shuffling ${showTitle}...`);
-
-          try {
-            let started = false;
-            if (isMaxSessionPinnedToCurrentShow()) {
-              started = await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
-            } else if (settings.shuffleMode === 'all') {
-              await shuffleFromYourShowsAllMode(null, { mode: 'user' });
-              started = !location.href.includes('/show/')
-                || !!sessionStorage.getItem(SHUFFLR_PENDING_KEY);
-            } else {
-              started = await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
-            }
-            // Collection failed → stay armed; replace the start toast with an accurate wait message.
-            if (!started) {
-              showToast(toggleOnFallbackToast);
-            }
-          } catch (err) {
-            console.error('[Shufflr] toggle-ON show-page shuffle error:', err);
-            showToast(toggleOnFallbackToast);
-          }
-          return;
-        }
-
-        // Watch page: toggle-ON means shuffle now (same picks as episode-end standalone).
-        showToast('Shufflr ON — shuffling...');
-        const showId = getCurrentMaxShowUuid() || resolveMaxWatchIds(location.href)?.showId;
-        if (showId && !(knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY))) {
-          saveShowPageUrl(buildMaxShowPageUrl(showId));
-        }
-
-        try {
-          if (isMaxSessionPinnedToCurrentShow()) {
-            await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
-          } else if (settings.shuffleMode === 'all') {
-            await shuffleFromYourShowsAllMode(null, { mode: 'user' });
-          } else {
-            await shuffleToRandomEpisode({ quiet: true, mode: 'user' });
-          }
-        } catch (err) {
-          console.error('[Shufflr] toggle-ON immediate shuffle error:', err);
-          showToast(toggleOnFallbackToast);
-        }
-      }
-    } else {
-      await setStandaloneShuffleEnabled(false);
-      await clearActivePlaylist();
-      armedPlaylistCached = false;
-      clearMaxSessionPin();
-      await resetShuffleModeToSingle();
-      if (!isChromeContextValid()) return;
-      updateShuffleUI('');
-      showToast('Shufflr OFF');
-    }
-  } catch (err) {
-    console.error('[Shufflr] toggleShuffle error:', err);
-    await resetShuffleState();
-    showToast('Shufflr reset — tap again');
-  } finally {
-    toggleShuffleInProgress = false;
-  }
-}
-
-// ── VIDEO EVENTS ────────────────────────────────────────────────────────────
-function onTimeUpdate() {
-  const video = document.querySelector('video');
-  const timeRemaining = video?.duration > 0 ? video.duration - video.currentTime : null;
-  console.log('[Shufflr] timeupdate fired, time remaining:', timeRemaining);
-  console.log('[Shufflr] isAdPlaying:', isAdPlaying());
-  console.log('[Shufflr] shufflrEnabled:', shufflrActive);
-  if (isAdPlaying()) {
-    shufflrAboutToNavigate = false;
-    return;
-  }
-  if (!shufflrActive && !armedPlaylistCached) {
-    shufflrAboutToNavigate = false;
-    return;
-  }
-  if (orderedEpisodesCached) {
-    shufflrAboutToNavigate = false;
-    return;
-  }
-
-  if (!video || !video.duration || !Number.isFinite(video.duration)) return;
-  if (isNonEpisodePlayback(video)) {
-    logNonEpisodePlaybackIgnored(video);
-    shufflrAboutToNavigate = false;
-    return;
-  }
-
-  updateShufflrAboutToNavigateFromVideo(video);
-
-  const remaining = video.duration - video.currentTime;
-  const status = document.getElementById('shufflr-status');
-
-  if (status && remaining <= 30 && remaining > TIMEUPDATE_SHUFFLE_REMAINING_SEC) {
-    status.textContent = `SHUFFLING IN ${Math.floor(remaining)}s...`;
-  }
-}
-
-async function onEpisodeEnded() {
-  if (!isChromeContextValid()) return;
-  if (isAdPlaying()) return;
-  const video = window.__shufflrAttachedVideo || document.querySelector('video');
-  if (isNonEpisodePlayback(video)) {
-    logNonEpisodePlaybackIgnored(video);
-    return;
-  }
-  const active = await getActivePlaylistFromStorage();
-  const owned = isArmedPlaylistOwnedByThisTab(active);
-  if (owned) {
-    shufflrActive = true;
-    armedPlaylistCached = true;
-  } else if (!shufflrActive && await isStandaloneShuffleEnabled()) {
-    shufflrActive = true;
-  }
-  if (!shufflrActive && !owned) return;
-  if (owned) {
-    if (orderedEpisodesCached) return;
-    if (shufflrEpisodeTransitionLock) return;
-    await handleShufflrNextEpisode('video-ended');
-    return;
-  }
-  const settings = await readShuffleSettings();
-  shuffleModeCached = settings.shuffleMode;
-  // Your Shows card Play pin: stay on that show even when global mode is ALL.
-  if (isMaxSessionPinnedToCurrentShow()) {
-    await shuffleToRandomEpisode();
-    return;
-  }
-  if (settings.shuffleMode === 'all') {
-    await shuffleFromYourShowsAllMode(null);
-    return;
-  }
-  shuffleToRandomEpisode();
-}
-
-// ── BOLT CMS API (default.*.prd.api.hbomax.com) ─────────────────────────────
-const CMS_HEADER_KEYS = [
-  'x-device-info',
-  'x-disco-client',
-  'x-disco-params',
-  'x-wbd-ace',
-  'x-wbd-device-consent',
-  'x-wbd-preferred-language',
-  'x-wbd-session-state',
-  'x-wbd-time-zone',
-];
-
-function urlHasShowIdParam(url) {
-  try {
-    return new URL(url, location.origin).searchParams.has('pf[show.id]');
-  } catch {
-    return false;
-  }
-}
-
-function saveCmsTemplateFromUrl(url, headers) {
-  const match = url.match(/^(https:\/\/default\.[^/]+\.api\.hbomax\.com)\/cms\/collections\/(\d+)\?(.+)/);
-  if (!match) return;
-
-  const params = new URLSearchParams(match[3]);
-  params.delete('pf[show.id]');
-  params.delete('pf[seasonNumber]');
-
-  const captured = {
-    apiOrigin: match[1],
-    collectionId: match[2],
-    baseQuery: params.toString(),
-    showId: new URL(url).searchParams.get('pf[show.id]') || undefined,
-  };
-
-  if (headers) {
-    captured.headers = normalizeCapturedHeaders(headers);
-  } else {
-    const existing = getCmsConfig();
-    if (existing?.headers) captured.headers = existing.headers;
-  }
-
-  sessionStorage.setItem(CMS_CAPTURE_KEY, JSON.stringify(captured));
-  console.log('[Shufflr] Captured CMS template:', captured.apiOrigin, captured.collectionId);
-}
-
-function installCmsPageCaptureListener() {
-  if (window.__shufflrCmsPageCaptureListener) return;
-  window.__shufflrCmsPageCaptureListener = true;
-
-  window.addEventListener('message', event => {
-    if (event.source !== window) return;
-    if (event.data?.source !== 'shufflr-cms-capture') return;
-    if (typeof event.data.url !== 'string') return;
-    saveCmsTemplateFromUrl(event.data.url, event.data.headers || null);
-  });
-}
-
-function installCmsRequestCapture() {
-  if (window.__shufflrCmsCapture) return;
-  window.__shufflrCmsCapture = true;
-
-  const saveFromUrl = (url, headers) => {
-    saveCmsTemplateFromUrl(url, headers);
-  };
-
-  const origFetch = window.fetch;
-  shufflrOrigFetch = origFetch;
-  window.fetch = function (input, init) {
-    const url = typeof input === 'string' ? input : input?.url;
-    if (url?.includes('/cms/collections/') && urlHasShowIdParam(url)) {
-      const headers = init?.headers || (input instanceof Request ? input.headers : null);
-      saveFromUrl(url, headers);
-    }
-    return origFetch.call(this, input, init);
-  };
-
-  const origOpen = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    if (typeof url === 'string' && url.includes('/cms/collections/') && urlHasShowIdParam(url)) {
-      saveFromUrl(url, null);
-    }
-    return origOpen.call(this, method, url, ...rest);
-  };
-}
-
-function normalizeCapturedHeaders(headers) {
-  const out = {};
-  if (!headers) return out;
-
-  if (headers instanceof Headers) {
-    for (const key of CMS_HEADER_KEYS) {
-      const val = headers.get(key);
-      if (val) out[key] = val;
-    }
-    return out;
-  }
-
-  if (Array.isArray(headers)) {
-    for (const [key, val] of headers) {
-      if (CMS_HEADER_KEYS.includes(key.toLowerCase())) out[key.toLowerCase()] = val;
-    }
-    return out;
-  }
-
-  for (const key of CMS_HEADER_KEYS) {
-    const val = headers[key] || headers[key.toLowerCase()];
-    if (val) out[key] = val;
-  }
-  return out;
-}
-
-function getCmsConfig() {
-  const raw = sessionStorage.getItem(CMS_CAPTURE_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function guessCmsApiOrigin() {
-  const country = document.cookie.match(/(?:^|;\s*)countryCode=([^;]+)/i)?.[1]?.toUpperCase() || 'US';
-  const emea = new Set(['GB', 'DE', 'FR', 'NL', 'SE', 'NO', 'DK', 'FI', 'ES', 'IT', 'PL', 'BE', 'AT', 'CH', 'IE', 'PT']);
-  const latam = new Set(['BR', 'MX', 'AR', 'CL', 'CO']);
-  if (emea.has(country)) return 'https://default.any-emea.prd.api.hbomax.com';
-  if (latam.has(country)) return 'https://default.any-latam.prd.api.hbomax.com';
-  return 'https://default.any-amer.prd.api.hbomax.com';
-}
-
-function getCmsHeaders() {
-  const config = getCmsConfig();
-  return {
-    accept: '*/*',
-    'content-type': 'application/json',
-    ...(config?.headers || {}),
-  };
-}
-
-function extractShowId(showPageUrl) {
-  const config = getCmsConfig();
-  if (config?.showId) return config.showId;
-
-  try {
-    const path = decodeURIComponent(new URL(showPageUrl).pathname);
-    const uuidMatch = path.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-    if (uuidMatch) return uuidMatch[1];
-
-    const segments = path.split('/').filter(Boolean);
-    const showIdx = segments.indexOf('show');
-    if (showIdx >= 0 && segments[showIdx + 1]) return segments[showIdx + 1];
-  } catch { /* ignore */ }
-  return null;
-}
-
-function buildSeasonCollectionUrl(showId, seasonNumber) {
-  const config = getCmsConfig();
-  const apiOrigin = config?.apiOrigin || guessCmsApiOrigin();
-  const collectionId = config?.collectionId || '227084608563650952176059252419027445293';
-  const params = new URLSearchParams(config?.baseQuery || 'include=default&decorators=viewingHistory,isFavorite,contentAction,badges');
-  params.set('pf[show.id]', showId);
-  params.set('pf[seasonNumber]', String(seasonNumber));
-  return `${apiOrigin}/cms/collections/${collectionId}?${params}`;
-}
-
-async function fetchExpressContent(showId, seasonNumber) {
-  const url = buildSeasonCollectionUrl(showId, seasonNumber);
-  console.log(`[Shufflr] CMS fetch S${seasonNumber}: ${url}`);
-
-  const response = await (shufflrOrigFetch || fetch)(url, {
-    method: 'GET',
-    credentials: 'include',
-    headers: getCmsHeaders(),
-  });
-
-  if (!response.ok) {
-    console.log(`[Shufflr] CMS API ${response.status} for show=${showId} season=${seasonNumber}`);
-    return null;
-  }
-  return response.json();
-}
-
-function cmsItemToWatchUrl(item) {
-  if (!item) return null;
-
-  const attrs = item.attributes || {};
-  const alternateId = attrs.alternateId || attrs.editId;
-  if (alternateId) {
-    return normalizeEpisodeUrl(`${location.origin}/video/watch/${alternateId}`);
-  }
-
-  const route = attrs.route || attrs.clickableUri || attrs.href;
-  if (route && String(route).includes('/video/')) {
-    const href = route.startsWith('http') ? route : `${location.origin}${route}`;
-    return normalizeEpisodeUrl(href);
-  }
-
-  return null;
-}
-
-function parseEpisodesFromCmsResponse(json) {
-  if (!json) return [];
-
-  const episodes = [];
-  const seen = new Set();
-  const items = [...(json.included || [])];
-
-  if (Array.isArray(json.data)) {
-    items.push(...json.data);
-  } else if (json.data) {
-    items.push(json.data);
-  }
-
-  for (const item of items) {
-    const type = (item.type || '').toLowerCase();
-    const attrs = item.attributes || {};
-    const isEpisode = attrs.episodeNumber != null
-      || attrs.videoType === 'EPISODE'
-      || type.includes('episode')
-      || (type.includes('video') && attrs.videoType !== 'MOVIE');
-
-    if (!isEpisode) continue;
-
-    const url = cmsItemToWatchUrl(item);
-    if (url && !seen.has(url)) {
-      seen.add(url);
-      episodes.push(url);
-    }
-  }
-
-  return episodes;
-}
-
-function parseMaxCmsEpisodesDetailed(json, seasonNumber, showMaxId = null) {
-  if (!json) return [];
-
-  const episodes = [];
-  const seen = new Set();
-  const items = [...(json.included || [])];
-
-  if (Array.isArray(json.data)) {
-    items.push(...json.data);
-  } else if (json.data) {
-    items.push(json.data);
-  }
-
-  for (const item of items) {
-    const type = (item.type || '').toLowerCase();
-    const attrs = item.attributes || {};
-    const isEpisode = attrs.episodeNumber != null
-      || attrs.videoType === 'EPISODE'
-      || type.includes('episode')
-      || (type.includes('video') && attrs.videoType !== 'MOVIE');
-
-    if (!isEpisode) continue;
-
-    const alternateId = attrs.alternateId || attrs.editId;
-    const episode_number = attrs.episodeNumber ?? attrs.number;
-    const seasonNum = attrs.seasonNumber ?? seasonNumber;
-    if (!alternateId || episode_number == null || seasonNum == null) continue;
-
-    const key = `${seasonNum}-${episode_number}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    episodes.push({
-      seasonNum: Number(seasonNum),
-      episode_number: Number(episode_number),
-      alternateId: String(alternateId),
-      watchUrl: buildMaxEpisodeWatchUrl(alternateId, showMaxId),
-      name: attrs.name || attrs.title || '',
-      duration: getEpisodeDurationSeconds(attrs),
-    });
-  }
-
-  return episodes;
-}
-
-function parseAllVideosFromCmsResponse(json, showMaxId = null) {
-  if (!json) return [];
-
-  const videos = [];
-  const seen = new Set();
-  const items = [...(json.included || [])];
-
-  if (Array.isArray(json.data)) {
-    items.push(...json.data);
-  } else if (json.data) {
-    items.push(json.data);
-  }
-
-  for (const item of items) {
-    const type = (item.type || '').toLowerCase();
-    if (!type.includes('video') && !type.includes('episode')) continue;
-
-    const attrs = item.attributes || {};
-    const alternateId = attrs.alternateId || attrs.editId;
-    if (!alternateId || seen.has(String(alternateId))) continue;
-    seen.add(String(alternateId));
-
-    videos.push({
-      alternateId: String(alternateId),
-      watchUrl: buildMaxEpisodeWatchUrl(alternateId, showMaxId),
-      name: attrs.name || attrs.title || '',
-      duration: getEpisodeDurationSeconds(attrs),
-      seasonNum: attrs.seasonNumber ?? null,
-      episode_number: attrs.episodeNumber ?? attrs.number ?? null,
-    });
-  }
-
-  return videos;
-}
-
-async function collectEpisodeDetailsViaApi(showPageUrl) {
-  const showId = extractShowId(showPageUrl);
-  if (!showId) return [];
-
-  const cachedPayloads = new Map();
-  const seasonNumbers = await discoverSeasonNumbers(showId, cachedPayloads);
-  const payloads = await Promise.all(
-    seasonNumbers.map(season => (
-      cachedPayloads.has(season)
-        ? Promise.resolve(cachedPayloads.get(season))
-        : fetchExpressContent(showId, season)
-    ))
-  );
-
-  const all = [];
-  payloads.forEach((json, i) => {
-    all.push(...parseMaxCmsEpisodesDetailed(json, seasonNumbers[i], showId));
-  });
-  return all;
-}
-
-function getSeasonNumbersFromRoute(json) {
-  if (!json) return null;
-
-  const seasons = new Set();
-  let seasonCount = null;
-  const items = [...(json.included || [])];
-  if (Array.isArray(json.data)) items.push(...json.data);
-  else if (json.data) items.push(json.data);
-
-  // Collect fully first — do not early-return on seasonCount (that skipped explicit
-  // single-season entities when a count field appeared earlier in the payload).
-  for (const item of items) {
-    const type = (item.type || '').toLowerCase();
-    const attrs = item.attributes || {};
-
-    if (type.includes('season') && attrs.seasonNumber != null && attrs.seasonNumber !== '') {
-      const n = Number(attrs.seasonNumber);
-      if (Number.isFinite(n)) seasons.add(n);
-    }
-
-    const count = attrs.seasonCount ?? attrs.numberOfSeasons ?? attrs.totalSeasons;
-    if (count != null && Number(count) > 0) {
-      const c = Number(count);
-      if (Number.isFinite(c) && (seasonCount == null || c > seasonCount)) {
-        seasonCount = c;
-      }
-    }
-  }
-
-  // Prefer explicit season entities (one season → [1] or whatever CMS reports).
-  if (seasons.size) {
-    return Array.from(seasons).sort((a, b) => a - b);
-  }
-
-  // No season entities — synthesize 1..N (single-season → [1]).
-  if (seasonCount != null && seasonCount > 0) {
-    return Array.from({ length: seasonCount }, (_, i) => i + 1);
-  }
-
-  return null;
-}
-
-async function fetchShowRoute(showId) {
-  const config = getCmsConfig();
-  const apiOrigin = config?.apiOrigin || guessCmsApiOrigin();
-  const url = `${apiOrigin}/cms/routes/show/${showId}?include=default`;
-
-  const response = await fetch(url, {
-    method: 'GET',
-    credentials: 'include',
-    headers: getCmsHeaders(),
-  });
-
-  if (!response.ok) {
-    console.log(`[Shufflr] CMS routes ${response.status} for show=${showId}`);
-    return null;
-  }
-  return response.json();
-}
-
-async function discoverSeasonNumbers(showId, cachedPayloads) {
-  const routeJson = await fetchShowRoute(showId);
-  const fromRoute = getSeasonNumbersFromRoute(routeJson);
-  if (fromRoute?.length) {
-    // One season is enough — fetch that season the same as any other.
-    console.log(
-      `[Shufflr] Found ${fromRoute.length} season(s) from show route: [${fromRoute.join(', ')}]`
-    );
-    return fromRoute;
-  }
-
-  const probeResults = await Promise.all(
-    Array.from({ length: 40 }, (_, i) => i + 1).map(async season => {
-      const json = await fetchExpressContent(showId, season);
-      const episodes = parseEpisodesFromCmsResponse(json);
-      return episodes.length ? { season, json } : null;
-    })
-  );
-
-  const found = [];
-  for (const result of probeResults) {
-    if (!result) continue;
-    found.push(result.season);
-    cachedPayloads.set(result.season, result.json);
-  }
-  found.sort((a, b) => a - b);
-
-  if (found.length) {
-    console.log(`[Shufflr] Probed ${found.length} season(s): [${found.join(', ')}]`);
-    return found;
-  }
-
-  // Route empty + probe empty — still attempt season 1 (typical single-season CMS shape).
-  console.log('[Shufflr] No seasons from route/probe — defaulting to season 1');
-  return [1];
-}
+*/
 
 // ── EPISODE CACHE (chrome.storage.local, 24h TTL) ─────────────────────────
 function episodeCacheKey(showId) {
@@ -6671,12 +3817,6 @@ async function getCachedEpisodes(showId) {
   return entry?.episodes || null;
 }
 
-function getShowNameFromRouteJson(json) {
-  if (!json) return null;
-  const attrs = json.data?.attributes || {};
-  return attrs.name || attrs.title || attrs.displayName || null;
-}
-
 async function setCachedEpisodes(showId, episodes, episodeDetails, showName, tmdbId) {
   if (!isChromeContextValid()) return;
   await storageLocalSet(episodeCacheKey(showId), {
@@ -6688,460 +3828,6 @@ async function setCachedEpisodes(showId, episodes, episodeDetails, showName, tmd
     cachedAt: Date.now(),
   });
   console.log(`[Shufflr] Cached ${episodes.length} episodes for ${showId}`);
-}
-
-async function collectEpisodesViaMaxShowId(maxShowId, showName, tmdbId) {
-  if (!isChromeContextValid()) return null;
-  if (!maxShowId) return null;
-
-  console.log(`[Shufflr] === collectEpisodesViaMaxShowId: ${maxShowId} ===`);
-
-  const cached = await getCachedEpisodes(maxShowId);
-  if (cached) return cached;
-
-  const started = performance.now();
-  const cachedPayloads = new Map();
-
-  const seasonNumbers = await discoverSeasonNumbers(maxShowId, cachedPayloads);
-  const payloads = await Promise.all(
-    seasonNumbers.map(season => (
-      cachedPayloads.has(season)
-        ? Promise.resolve(cachedPayloads.get(season))
-        : fetchExpressContent(maxShowId, season)
-    ))
-  );
-
-  const episodeDetails = [];
-  const episodeSet = new Set();
-  const seasonsTried = [...seasonNumbers];
-
-  const ingestPayload = (payload, seasonNumber) => {
-    if (!payload) return;
-    parseMaxCmsEpisodesDetailed(payload, seasonNumber, maxShowId).forEach(ep => {
-      const key = `${ep.seasonNum}-${ep.episode_number}`;
-      if (episodeDetails.some(e => `${e.seasonNum}-${e.episode_number}` === key)) return;
-      episodeDetails.push(ep);
-      episodeSet.add(ep.watchUrl);
-    });
-    parseEpisodesFromCmsResponse(payload).forEach(url => episodeSet.add(url));
-  };
-
-  const ingestVideosFallback = payloadList => {
-    if (episodeDetails.length) return;
-    payloadList.forEach(payload => {
-      parseAllVideosFromCmsResponse(payload, maxShowId).forEach(video => {
-        if (episodeDetails.some(ep => ep.alternateId === video.alternateId)) return;
-        episodeDetails.push(video);
-        if (video.watchUrl) episodeSet.add(video.watchUrl);
-      });
-    });
-  };
-
-  payloads.forEach((payload, i) => ingestPayload(payload, seasonNumbers[i]));
-  ingestVideosFallback(payloads);
-
-  // Single-season safety: if discovery omitted season 1 and nothing else yielded episodes, fetch it.
-  if (!episodeSet.size && !seasonNumbers.includes(1)) {
-    console.log('[Shufflr] API empty without season 1 in discovery — retrying season 1');
-    const season1Payload = await fetchExpressContent(maxShowId, 1);
-    seasonsTried.push(1);
-    ingestPayload(season1Payload, 1);
-    ingestVideosFallback([season1Payload]);
-  }
-
-  const episodes = Array.from(episodeSet);
-  console.log(
-    `[Shufflr] API collection done in ${Math.round(performance.now() - started)}ms — ` +
-    `${episodes.length} episodes across ${seasonsTried.length} season(s) [${seasonsTried.join(', ')}]`
-  );
-
-  if (episodes.length) {
-    const routeJson = await fetchShowRoute(maxShowId);
-    const resolvedName = getShowNameFromRouteJson(routeJson) || showName || null;
-    await setCachedEpisodes(maxShowId, episodes, episodeDetails, resolvedName, tmdbId);
-    return episodes;
-  }
-
-  console.log(
-    `[Shufflr] API returned empty — CMS yielded no episodes for ${maxShowId} ` +
-    `(seasons tried: [${seasonsTried.join(', ')}])`
-  );
-  return null;
-}
-
-/**
- * Resolve the CMS pf[show.id] for episode collection.
- * Prefer captured config / genuine /show/{uuid} URLs; on /video/watch/ pages without a
- * trustworthy show-page URL, use resolveMaxWatchIds (2nd path UUID) — never the naive
- * first-UUID grab extractShowId applies to watch URLs.
- */
-function resolveShowIdForCmsEpisodeCollection(showPageUrl) {
-  const config = getCmsConfig();
-  if (config?.showId) {
-    console.log(`[Shufflr] CMS show-ID resolution: captured config → ${config.showId}`);
-    return config.showId;
-  }
-
-  const knownShow = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
-  const fromArgShowPage = extractMaxShowUuidFromUrl(showPageUrl);
-  const fromKnownShowPage = extractMaxShowUuidFromUrl(knownShow);
-  const trustworthyShowPageId = fromArgShowPage || fromKnownShowPage;
-
-  const watchSource = /\/video\/watch\//i.test(String(showPageUrl || ''))
-    ? showPageUrl
-    : location.href;
-  const watchIds = resolveMaxWatchIds(watchSource);
-  const onWatchPage = /\/video\/watch\//i.test(location.pathname)
-    || /\/video\/watch\//i.test(String(showPageUrl || ''));
-
-  // Poisoned /show/{episodeId} from a prior naive extractShowId(watchUrl) — treat as stale.
-  const showPageIsStale = !!(
-    trustworthyShowPageId
-    && watchIds?.episodeId
-    && normalizeMaxId(trustworthyShowPageId) === normalizeMaxId(watchIds.episodeId)
-  );
-
-  if (onWatchPage && (!trustworthyShowPageId || showPageIsStale)) {
-    const fromWatch = getCurrentMaxShowUuid() || watchIds?.showId;
-    if (fromWatch) {
-      console.log(`[Shufflr] CMS show-ID resolution: watch-page ID resolution → ${fromWatch}`);
-      return fromWatch;
-    }
-  }
-
-  if (trustworthyShowPageId && !showPageIsStale) {
-    console.log(`[Shufflr] CMS show-ID resolution: show-page URL → ${trustworthyShowPageId}`);
-    return trustworthyShowPageId;
-  }
-
-  const fromExtract = extractShowId(showPageUrl);
-  // Guard: if extractShowId still returned the watch episode id, prefer the watch show id.
-  if (
-    fromExtract
-    && watchIds?.episodeId
-    && watchIds?.showId
-    && normalizeMaxId(fromExtract) === normalizeMaxId(watchIds.episodeId)
-  ) {
-    console.log(`[Shufflr] CMS show-ID resolution: watch-page ID resolution → ${watchIds.showId}`);
-    return watchIds.showId;
-  }
-  if (fromExtract) {
-    const via = String(showPageUrl || '').includes('/show/') ? 'show-page URL' : 'extractShowId';
-    console.log(`[Shufflr] CMS show-ID resolution: ${via} → ${fromExtract}`);
-  }
-  return fromExtract;
-}
-
-async function collectEpisodesViaApi(showPageUrl) {
-  if (!isChromeContextValid()) return null;
-  const showId = resolveShowIdForCmsEpisodeCollection(showPageUrl);
-  if (!showId) {
-    console.log(`[Shufflr] Could not extract show ID from: ${showPageUrl}`);
-    return null;
-  }
-
-  return collectEpisodesViaMaxShowId(showId);
-}
-
-async function prefetchEpisodeList() {
-  if (!isChromeContextValid()) return;
-  const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
-  if (!isVideoPage) return;
-
-  const episodeUrl = location.href.split('?')[0];
-  if (episodeUrl === lastPrefetchedEpisodeUrl) return;
-
-  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
-  if (!showPage) {
-    console.log('[Shufflr] Prefetch skipped — no show page URL');
-    return;
-  }
-
-  const showId = extractShowId(showPage);
-  if (!showId) return;
-
-  const cached = await getCachedEpisodes(showId);
-  if (cached) {
-    lastPrefetchedEpisodeUrl = episodeUrl;
-    console.log(`[Shufflr] Prefetch skipped — cache warm (${cached.length} episodes)`);
-    return;
-  }
-
-  if (prefetchInFlightShowId === showId) return;
-
-  lastPrefetchedEpisodeUrl = episodeUrl;
-  prefetchInFlightShowId = showId;
-  console.log('[Shufflr] Prefetching episode list in background...');
-
-  try {
-    const episodes = await collectEpisodesViaApi(showPage);
-    if (episodes?.length) {
-      console.log(`[Shufflr] Prefetch complete — ${episodes.length} episodes ready`);
-    } else {
-      console.log('[Shufflr] Prefetch returned no episodes');
-      lastPrefetchedEpisodeUrl = null;
-    }
-  } catch (err) {
-    console.log('[Shufflr] Prefetch error:', err);
-    lastPrefetchedEpisodeUrl = null;
-  } finally {
-    if (prefetchInFlightShowId === showId) prefetchInFlightShowId = null;
-  }
-}
-
-// ── SHUFFLE LOGIC ───────────────────────────────────────────────────────────
-async function shuffleToRandomEpisode(options = {}) {
-  if (isAdPlaying()) return false;
-  const quiet = !!options.quiet;
-  const navMode = options.mode === 'user' ? 'user' : 'auto';
-  if (navMode === 'auto' && isShufflrAutoNavStopped()) return false;
-  const status = document.getElementById('shufflr-status');
-  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY);
-  const lastEpisodeUrl = location.href;
-
-  if (!showPage) {
-    if (!quiet) showToast('Visit the show page first so Shufflr can find all episodes.');
-    if (status) status.textContent = 'NO SHOW PAGE';
-    console.log('[Shufflr] Aborting — no knownShowPageUrl');
-    return false;
-  }
-
-  console.log(`[Shufflr] Shuffle triggered from: ${lastEpisodeUrl}`);
-  if (status) status.textContent = 'FETCHING EPISODES...';
-  if (!quiet) showToast('Fetching episode list via API...');
-
-  let episodes = null;
-  try {
-    episodes = await collectEpisodesViaApi(showPage);
-  } catch (err) {
-    console.log('[Shufflr] API fetch error:', err);
-  }
-
-  if (!episodes?.length) {
-    console.log('[Shufflr] API returned empty — falling back to show-page DOM scrape');
-    sessionStorage.setItem(SHUFFLR_PENDING_KEY, JSON.stringify({ lastEpisodeUrl, showPageUrl: showPage, navMode }));
-    if (status) status.textContent = 'LOADING SHOW PAGE...';
-
-    // Already on this show page — same-URL assignment won't navigate; run DOM fallback now.
-    const currentShowId = extractShowId(location.href);
-    const targetShowId = extractShowId(showPage);
-    const alreadyOnShowPage = !!(
-      location.href.includes('/show/')
-      && currentShowId
-      && targetShowId
-      && normalizeMaxId(currentShowId) === normalizeMaxId(targetShowId)
-    );
-    if (alreadyOnShowPage) {
-      if (!quiet) showToast('API unavailable — scraping show page...');
-      return handleShowPageShuffle();
-    }
-
-    if (!quiet) showToast('API unavailable — loading show page...');
-    shufflrAboutToNavigate = false;
-    captureFullscreenBeforeShufflrNavigation();
-    await shufflrNavigateTo(showPage, { mode: navMode, source: 'max-show-page-fallback' });
-    return true;
-  }
-
-  await navigateToRandomEpisode(episodes, lastEpisodeUrl, status, { mode: navMode, source: 'max-random-episode' });
-  return true;
-}
-
-async function handleShowPageShuffle() {
-  if (shuffleInProgress) return false;
-
-  const raw = sessionStorage.getItem(SHUFFLR_PENDING_KEY);
-  if (!raw) return false;
-
-  shuffleInProgress = true;
-  let pending;
-  try {
-    pending = JSON.parse(raw);
-  } catch {
-    sessionStorage.removeItem(SHUFFLR_PENDING_KEY);
-    shuffleInProgress = false;
-    return false;
-  }
-
-  sessionStorage.removeItem(SHUFFLR_PENDING_KEY);
-  console.log('[Shufflr] === handleShowPageShuffle: START (DOM fallback) ===');
-
-  let episodes = null;
-  let apiReturnedEmpty = false;
-  try {
-    episodes = await collectEpisodesViaApi(pending.showPageUrl);
-  } catch (err) {
-    console.log('[Shufflr] API retry on show page failed:', err);
-  }
-
-  if (!episodes?.length) {
-    apiReturnedEmpty = true;
-    console.log('[Shufflr] API returned empty — waiting for show page episode UI before DOM scrape...');
-    await waitForShowPageScrapeReady(3000);
-    episodes = await collectEpisodesFromAllSeasons();
-    if (episodes?.length) {
-      const showId = extractShowId(pending.showPageUrl);
-      if (showId) {
-        await setCachedEpisodes(showId, episodes, [], null, null);
-      }
-    }
-  }
-
-  if (!episodes?.length) {
-    console.log(
-      '[Shufflr] Genuinely no episodes exist (or none discoverable) — ' +
-      `API ${apiReturnedEmpty ? 'returned empty' : 'unavailable'} and DOM scrape returned none`
-    );
-    showToast('Could not find episodes on show page.');
-    shuffleInProgress = false;
-    return false;
-  }
-
-  await navigateToRandomEpisode(
-    episodes,
-    pending.lastEpisodeUrl,
-    document.getElementById('shufflr-status'),
-    { mode: pending.navMode === 'user' ? 'user' : 'auto', source: 'max-show-page-scrape' }
-  );
-  shuffleInProgress = false;
-  return true;
-}
-
-async function navigateToRandomEpisode(episodes, lastEpisodeUrl, status, options = {}) {
-  if (isAdPlaying()) return;
-  const navMode = options.mode === 'user' ? 'user' : 'auto';
-  if (navMode === 'auto' && isShufflrAutoNavStopped()) return;
-  const showHint = getCurrentMaxShowUuid();
-  const currentKeys = buildCurrentEpisodeKeys(lastEpisodeUrl, showHint);
-  let pool = episodes.filter(ep => !isCurrentEpisode(ep, currentKeys, showHint));
-  pool = await filterEpisodesByBlockedSeasons(pool, showHint);
-
-  if (!pool.length) {
-    showToast('No other episodes to shuffle to.');
-    if (status) status.textContent = 'NO OTHER EPISODES';
-    return;
-  }
-
-  const pickIndex = Math.floor(Math.random() * pool.length);
-  const pick = pool[pickIndex];
-  console.log(`[Shufflr] Picked ${pickIndex + 1}/${pool.length}: ${pick}`);
-
-  if (status) status.textContent = 'SHUFFLING...';
-  showToast(`Shuffling to episode ${pickIndex + 1} of ${pool.length}!`);
-  shufflrAboutToNavigate = false;
-  const episodeId = getMaxEpisodeIdFromUrl(pick, showHint);
-  beginShufflrNavigation(episodeId);
-  await shufflrNavigateTo(pick, { mode: navMode, source: options.source || 'max-random-episode' });
-}
-
-function readBlockedSeasonsFromLocalStorage(maxId) {
-  if (!maxId) return [];
-  try {
-    const raw = localStorage.getItem(`shufflr_blocked_seasons_${maxId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return [...new Set(parsed.map(Number).filter(n => Number.isFinite(n) && n > 0))];
-  } catch {
-    return [];
-  }
-}
-
-async function filterEpisodesByBlockedSeasons(episodes, showMaxId) {
-  const maxId = showMaxId || getCurrentMaxShowUuid();
-  if (!maxId || !episodes?.length) return episodes;
-
-  const blockedSeasons = readBlockedSeasonsFromLocalStorage(maxId);
-  if (!blockedSeasons.length) return episodes;
-
-  const blockedSet = new Set(blockedSeasons);
-  const entry = await getCachedEpisodeEntry(maxId);
-  const details = entry?.episodeDetails || [];
-  if (!details.length) return episodes;
-
-  const blockedUrls = new Set();
-  details.forEach(ep => {
-    if (ep.seasonNum == null || !blockedSet.has(Number(ep.seasonNum))) return;
-    if (ep.watchUrl) blockedUrls.add(normalizeEpisodeUrl(ep.watchUrl).toLowerCase());
-    if (ep.alternateId) {
-      blockedUrls.add(normalizeEpisodeUrl(buildMaxEpisodeWatchUrl(ep.alternateId, maxId)).toLowerCase());
-    }
-  });
-
-  return episodes.filter(url => {
-    const normalized = normalizeEpisodeUrl(url).toLowerCase();
-    if (blockedUrls.has(normalized)) return false;
-    const episodeId = getMaxEpisodeIdFromUrl(url, maxId);
-    if (!episodeId) return true;
-    const normEpId = normalizeMaxId(episodeId);
-    const detail = details.find(d => d.alternateId && normalizeMaxId(d.alternateId) === normEpId);
-    if (!detail || detail.seasonNum == null) return true;
-    return !blockedSet.has(Number(detail.seasonNum));
-  });
-}
-
-function normalizeEpisodeUrl(url) {
-  try {
-    const u = new URL(url);
-    u.search = '';
-    u.hash = '';
-    return u.href.replace(/\/$/, '');
-  } catch {
-    return url.split('?')[0].split('#')[0].replace(/\/$/, '');
-  }
-}
-
-function extractVideoSlug(url, showMaxIdHint = null) {
-  const episodeId = getMaxEpisodeIdFromUrl(url, showMaxIdHint);
-  return episodeId ? normalizeMaxId(episodeId) : null;
-}
-
-function extractPlayerEpisodeUrn(url) {
-  try {
-    const match = new URL(url).pathname.match(/urn:hbo:episode:([a-z0-9-]+)/i);
-    return match ? match[1].toLowerCase() : null;
-  } catch { /* ignore */ }
-  return null;
-}
-
-function buildCurrentEpisodeKeys(pageUrl, showMaxIdHint = null) {
-  const keys = new Set();
-  keys.add(normalizeEpisodeUrl(pageUrl).toLowerCase());
-
-  const resolved = resolveMaxWatchIds(pageUrl, showMaxIdHint);
-  if (resolved?.episodeId) {
-    keys.add(normalizeMaxId(resolved.episodeId));
-    keys.add(buildMaxEpisodeWatchUrl(resolved.episodeId).toLowerCase());
-    if (resolved.showId) {
-      keys.add(buildMaxEpisodeWatchUrl(resolved.episodeId, resolved.showId).toLowerCase());
-      keys.add(`${MAX_WATCH_ORIGIN}/video/watch/${resolved.episodeId}/${resolved.showId}`.toLowerCase());
-      keys.add(`${MAX_WATCH_ORIGIN}/video/watch/${resolved.showId}/${resolved.episodeId}`.toLowerCase());
-    }
-  }
-
-  if (resolved?.firstUuid) keys.add(normalizeMaxId(resolved.firstUuid));
-  if (resolved?.secondUuid) keys.add(normalizeMaxId(resolved.secondUuid));
-
-  const videoSlug = extractVideoSlug(pageUrl, showMaxIdHint);
-  if (videoSlug) keys.add(videoSlug);
-
-  const urnId = extractPlayerEpisodeUrn(pageUrl);
-  if (urnId) keys.add(urnId);
-
-  return keys;
-}
-
-function isCurrentEpisode(episodeUrl, currentKeys, showMaxIdHint = null) {
-  const normalized = normalizeEpisodeUrl(episodeUrl).toLowerCase();
-  if (currentKeys.has(normalized)) return true;
-
-  const episodeId = getMaxEpisodeIdFromUrl(episodeUrl, showMaxIdHint);
-  if (episodeId && currentKeys.has(normalizeMaxId(episodeId))) return true;
-
-  const slug = extractVideoSlug(episodeUrl, showMaxIdHint);
-  if (slug && currentKeys.has(slug)) return true;
-
-  return false;
 }
 
 function clickElement(el) {
@@ -7273,61 +3959,6 @@ function findSeasonDropdownOptions() {
   return options;
 }
 
-function episodeHrefSetKey(links) {
-  return (links || []).slice().sort().join('\n');
-}
-
-/** Quiet href scrape for polling — same selectors/normalization as extractEpisodeLinksFromPage. */
-function getEpisodeWatchHrefs() {
-  const seen = new Set();
-  const links = [];
-  for (const a of document.querySelectorAll('a[href*="/video/watch/"]')) {
-    const href = a.href;
-    if (!href || href.includes('javascript')) continue;
-    const normalized = normalizeEpisodeUrl(href);
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    links.push(normalized);
-  }
-  return links;
-}
-
-async function waitForPollCondition(checkFn, timeoutMs, intervalMs = 100) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (!isChromeContextValid()) return false;
-    if (checkFn()) return true;
-    await wait(intervalMs);
-  }
-  return !!checkFn();
-}
-
-async function waitForShowPageScrapeReady(timeoutMs = 3000) {
-  console.log('[Shufflr] Polling for show page episode links or season dropdown...');
-  const ready = await waitForPollCondition(
-    () => getEpisodeWatchHrefs().length > 0 || !!findSeasonDropdownButton(),
-    timeoutMs
-  );
-  console.log(`[Shufflr] Show page scrape ready: ${ready}`);
-  return ready;
-}
-
-async function waitForSeasonEpisodeLinks(previousLinks, { isFirstSeason, timeoutMs = 3000 } = {}) {
-  const previousKey = episodeHrefSetKey(previousLinks || []);
-  const started = Date.now();
-
-  while (Date.now() - started < timeoutMs) {
-    if (!isChromeContextValid()) break;
-    const links = getEpisodeWatchHrefs();
-    const nonEmpty = links.length > 0;
-    const changed = episodeHrefSetKey(links) !== previousKey;
-    if (nonEmpty && (isFirstSeason || changed)) return links;
-    await wait(100);
-  }
-
-  return getEpisodeWatchHrefs();
-}
-
 async function openSeasonDropdown(stepLabel) {
   console.log(`[Shufflr] ${stepLabel}: finding season dropdown button...`);
   const dropdown = findSeasonDropdownButton();
@@ -7343,149 +3974,14 @@ async function openSeasonDropdown(stepLabel) {
   return opened;
 }
 
-async function collectEpisodesFromAllSeasons() {
-  const allEpisodes = new Set();
-  console.log('[Shufflr] === collectEpisodesFromAllSeasons: START ===');
-
-  const addLinks = (links, stepLabel) => {
-    console.log(`[Shufflr] ${stepLabel}: scanning DOM for episode links...`);
-    const before = allEpisodes.size;
-    links.forEach((link, j) => {
-      const isNew = !allEpisodes.has(link);
-      allEpisodes.add(link);
-      console.log(`[Shufflr] ${stepLabel}: link ${j + 1} ${isNew ? '(new)' : '(dup)'} → ${link}`);
-    });
-    console.log(
-      `[Shufflr] ${stepLabel}: ${links.length} on page, +${allEpisodes.size - before} new, master total ${allEpisodes.size}`
-    );
-  };
-
-  console.log('[Shufflr] Step 1: collecting episodes from default visible season...');
-  let defaultLinks = extractEpisodeLinksFromPage();
-  // Single-season pages often omit the dropdown and lazy-load watch links slightly later.
-  if (!defaultLinks.length) {
-    console.log('[Shufflr] Step 1: no watch links yet — polling for lazy-loaded episodes (up to 3s)...');
-    await waitForPollCondition(() => getEpisodeWatchHrefs().length > 0, 3000, 250);
-    defaultLinks = extractEpisodeLinksFromPage();
-    if (!defaultLinks.length) {
-      console.log('[Shufflr] DOM Step 1 found no links after retrying');
-    } else {
-      console.log(`[Shufflr] Step 1: lazy-load poll found ${defaultLinks.length} link(s)`);
-    }
+async function waitForPollCondition(checkFn, timeoutMs, intervalMs = 100) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (!isChromeContextValid()) return false;
+    if (checkFn()) return true;
+    await wait(intervalMs);
   }
-  addLinks(defaultLinks, 'Step 1 default season');
-  let lastSeasonLinks = defaultLinks;
-
-  let dropdownReady = false;
-  for (let attempt = 1; attempt <= 8; attempt++) {
-    console.log(`[Shufflr] Step 2.${attempt}: trying to open season dropdown...`);
-    dropdownReady = await openSeasonDropdown(`Step 2.${attempt}`);
-    if (dropdownReady) break;
-    console.log(`[Shufflr] Step 2.${attempt}: polling for dropdown button before retry...`);
-    await waitForPollCondition(() => !!findSeasonDropdownButton(), 500);
-  }
-
-  if (!dropdownReady) {
-    console.log('[Shufflr] Step 3: SKIPPED — could not open season dropdown');
-    if (!allEpisodes.size) {
-      console.log(
-        '[Shufflr] DOM Step 1 found no links after retrying; no season dropdown available'
-      );
-    }
-    console.log(`[Shufflr] Step 4: total unique episode count = ${allEpisodes.size}`);
-    console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
-    return Array.from(allEpisodes);
-  }
-
-  console.log('[Shufflr] Step 3: reading season options from open dropdown...');
-  const seasonOptions = findSeasonDropdownOptions();
-
-  if (!seasonOptions.length) {
-    console.log('[Shufflr] Step 4: FAIL — dropdown open but no season options found');
-    console.log(`[Shufflr] Step 5: total unique episode count = ${allEpisodes.size}`);
-    console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
-    return Array.from(allEpisodes);
-  }
-
-  console.log(`[Shufflr] Step 4: will click ${seasonOptions.length} season options`);
-
-  for (let i = 0; i < seasonOptions.length; i++) {
-    const sub = `5.${i + 1}`;
-    const { label } = seasonOptions[i];
-
-    if (i > 0) {
-      console.log(`[Shufflr] Step ${sub}a: reopening dropdown before next season...`);
-      const reopened = await openSeasonDropdown(`Step ${sub}a`);
-      if (!reopened) {
-        console.log(`[Shufflr] Step ${sub}a: FAIL — could not reopen dropdown, skipping "${label}"`);
-        continue;
-      }
-    }
-
-    console.log(`[Shufflr] Step ${sub}b: finding option "${label}" in dropdown...`);
-    const freshOptions = findSeasonDropdownOptions();
-    const option = freshOptions.find(opt => opt.label === label);
-    if (!option) {
-      console.log(`[Shufflr] Step ${sub}b: FAIL — "${label}" not found in dropdown, skipping`);
-      continue;
-    }
-    console.log(
-      `[Shufflr] Step ${sub}b: found option <${option.el.tagName.toLowerCase()}> "${label}"`
-    );
-
-    console.log(`[Shufflr] Step ${sub}c: clicking season option ${i + 1}/${seasonOptions.length} "${label}"...`);
-    clickElement(option.el);
-    console.log(`[Shufflr] Step ${sub}c: click dispatched`);
-
-    console.log(`[Shufflr] Step ${sub}d: polling for season episode links (max 3s)...`);
-    lastSeasonLinks = await waitForSeasonEpisodeLinks(lastSeasonLinks, { isFirstSeason: i === 0 });
-    console.log(`[Shufflr] Step ${sub}d: poll complete — ${lastSeasonLinks.length} link(s)`);
-
-    console.log(`[Shufflr] Step ${sub}e: collecting episode links for "${label}"...`);
-    addLinks(extractEpisodeLinksFromPage(), `Step ${sub}e "${label}"`);
-  }
-
-  const deduped = Array.from(allEpisodes);
-  console.log(`[Shufflr] Step 6: all seasons done — total unique episode count = ${deduped.length}`);
-  deduped.forEach((url, i) => console.log(`[Shufflr] Step 6: master[${i + 1}] ${url}`));
-  console.log('[Shufflr] === collectEpisodesFromAllSeasons: END ===');
-  return deduped;
-}
-
-function extractEpisodeLinksFromPage() {
-  const seen = new Set();
-  const links = [];
-  const anchors = document.querySelectorAll('a[href*="/video/watch/"]');
-
-  console.log(`[Shufflr] extractEpisodeLinksFromPage: ${anchors.length} anchors matching a[href*="/video/watch/"]`);
-
-  anchors.forEach((a, i) => {
-    const href = a.href;
-    if (!href || href.includes('javascript')) return;
-
-    const normalized = normalizeEpisodeUrl(href);
-    const isNew = !seen.has(normalized);
-    if (isNew) {
-      seen.add(normalized);
-      links.push(normalized);
-    }
-    console.log(`[Shufflr] extractEpisodeLinksFromPage: [${i + 1}] ${isNew ? '(new)' : '(dup)'} → ${normalized}`);
-  });
-
-  console.log(`[Shufflr] extractEpisodeLinksFromPage: ${links.length} unique /video/watch/ links`);
-  return links;
-}
-
-function logCollectedEpisodeLinks(episodes) {
-  if (!episodes || episodes.length === 0) return;
-  console.log(`[Shufflr] Collected episode URLs (${episodes.length}):`);
-  episodes.forEach((href, i) => {
-    console.log(`[Shufflr] ${i + 1}. ${href}`);
-  });
-}
-
-function extractVideoLinks() {
-  return extractEpisodeLinksFromPage();
+  return !!checkFn();
 }
 
 function wait(ms) {
@@ -7515,392 +4011,6 @@ function showToast(message) {
 }
 
 let showPageAutoplayPollTimer = null;
-
-// Warm the CMS episode cache on show pages when standalone shuffle is active.
-async function prefetchShowPageEpisodeCacheIfStandalone() {
-  if (!isChromeContextValid()) return;
-  if (!location.href.includes('/show/')) return;
-  if (!shufflrActive || armedPlaylistCached || orderedEpisodesCached) return;
-
-  const active = await getActivePlaylistFromStorage();
-  if (isArmedPlaylistOwnedByThisTab(active)) return;
-
-  const showId = extractShowId(location.href) || extractMaxShowUuidFromUrl(location.href);
-  if (!showId) return;
-
-  const cached = await getCachedEpisodes(showId);
-  if (cached?.length) return;
-
-  void collectEpisodesViaApi(location.href);
-}
-
-function findResumeOrWatchButton() {
-  const candidates = document.querySelectorAll('button, a[role="button"], [role="button"]');
-  for (const el of candidates) {
-    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    if (text.includes('Resume')) return el;
-  }
-  for (const el of candidates) {
-    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    if (text.includes('Watch')) return el;
-  }
-  return null;
-}
-
-// Ordered-mode show-page autoplay: shuffle cop sets shufflr_autoplay_pending before navigating
-// to a show page; on load we clear the flag and poll once for Max's Resume/Watch button.
-async function maybeAutoClickShowPageResume() {
-  if (!isChromeContextValid()) return;
-  if (showPageAutoplayPollTimer) return;
-  if (!location.href.includes('/show/')) return;
-  if (sessionStorage.getItem(SHUFFLR_AUTOPLAY_PENDING_KEY) !== 'true') return;
-
-  const settings = await readShuffleSettings();
-  if (!settings.orderedEpisodes) return;
-
-  const active = await getActivePlaylistFromStorage();
-  if (!isArmedPlaylistOwnedByThisTab(active)) return;
-
-  sessionStorage.removeItem(SHUFFLR_AUTOPLAY_PENDING_KEY);
-
-  const startedAt = Date.now();
-  const maxMs = 5000;
-
-  showPageAutoplayPollTimer = setInterval(() => {
-    if (!isChromeContextValid()) {
-      clearInterval(showPageAutoplayPollTimer);
-      showPageAutoplayPollTimer = null;
-      return;
-    }
-
-    const button = findResumeOrWatchButton();
-    if (button) {
-      clearInterval(showPageAutoplayPollTimer);
-      showPageAutoplayPollTimer = null;
-      try {
-        button.click();
-      } catch {}
-      return;
-    }
-
-    if (Date.now() - startedAt >= maxMs) {
-      clearInterval(showPageAutoplayPollTimer);
-      showPageAutoplayPollTimer = null;
-    }
-  }, 300);
-}
-
-// Max tabs: accept SHUFFLR_SYNC_PLAYLISTS from web app and refresh storage-backed UI.
-function installMaxPlaylistSyncListener() {
-  if (IS_SHUFFLR_WEB_APP) return;
-  if (!isChromeContextValid()) return;
-
-  try {
-    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (message?.type !== 'SHUFFLR_SYNC_PLAYLISTS') return;
-      const playlists = message.payload || message.playlists || [];
-      applySyncedPlaylists(playlists, { syncToWebApp: false }).then(() => {
-        console.log('[Shufflr] Playlists updated from web app');
-        sendResponse({ ok: true });
-      });
-      return true;
-    });
-  } catch (err) {
-    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-  }
-
-  try {
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local' || !changes[SHUFFLR_PLAYLISTS_KEY]) return;
-      const newValue = changes[SHUFFLR_PLAYLISTS_KEY].newValue;
-      if (!Array.isArray(newValue)) return;
-      dropdownPlaylists = newValue;
-      const dropdown = document.getElementById('shufflr-playlist-dropdown');
-      if (dropdown?.classList.contains('open')) {
-        populatePlaylistDropdown();
-      }
-    });
-  } catch (err) {
-    if (isExtensionContextInvalidatedError(err)) handleExtensionContextInvalidated();
-  }
-}
-
-function normalizePlaylistShowMatchName(name) {
-  return String(name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
-
-function playlistShowMatchesCurrentPage(show, currentUrl) {
-  const showMaxId = show.maxId || show.maxShowId || show.max_id;
-  if (showMaxId && currentUrl.includes(String(showMaxId))) return true;
-
-  const showName = normalizePlaylistShowMatchName(getPlaylistShowTitle(show));
-  if (!showName) return false;
-
-  const pageTitle = normalizePlaylistShowMatchName(document.title);
-  if (!pageTitle) return false;
-
-  if (pageTitle.includes(showName)) return true;
-  const words = showName.split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.every(word => pageTitle.includes(word));
-}
-
-async function updatePlaylistShowUrl() {
-  if (!isChromeContextValid()) return;
-  const currentUrl = window.location.href.split('?')[0];
-
-  // Only run on show pages (not episode pages, home, search, etc.)
-  if (!currentUrl.includes('/show/')) return;
-
-  const playlists = await readPlaylistsFromStorage();
-  if (!Array.isArray(playlists) || !playlists.length) return;
-
-  let updated = false;
-
-  for (const playlist of playlists) {
-    for (const show of playlist.shows || []) {
-      if (!playlistShowMatchesCurrentPage(show, currentUrl)) continue;
-      if (show.url !== currentUrl) {
-        show.url = currentUrl;
-        updated = true;
-      }
-    }
-  }
-
-  if (updated) {
-    await setShufflrPlaylistsInStorage(playlists, { syncToWebApp: true });
-    console.log('[Shufflr] Updated Max URL for matched playlist show(s)');
-  }
-}
-
-// ── INIT ────────────────────────────────────────────────────────────────────
-async function clearMaxStandaloneLaunchKeys() {
-  if (!isChromeContextValid()) return;
-  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
-  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_KEY);
-  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_STANDALONE_AT_KEY);
-  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_INTENT_KEY);
-}
-
-/**
- * Detect + consume a fresh standalone web launch targeting this Max show page.
- * Returns { maxId, launchUrl, launchIntent } or null.
- */
-async function consumeMaxStandaloneLaunchIfMatching() {
-  if (!isChromeContextValid() || !IS_MAX) return null;
-  if (window.__shufflrMaxStandaloneLaunchConsumed) return null;
-
-  const result = await chrome.storage.local.get([
-    SHUFFLR_LAUNCH_SHOW_URL_KEY,
-    SHUFFLR_LAUNCH_STANDALONE_KEY,
-    SHUFFLR_LAUNCH_STANDALONE_AT_KEY,
-    SHUFFLR_LAUNCH_INTENT_KEY,
-  ]);
-  const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
-  const isStandalone = result[SHUFFLR_LAUNCH_STANDALONE_KEY] === true;
-  if (!isStandalone || !launchUrl) return null;
-
-  const currentUrl = window.location.href.split('?')[0];
-  let launchPath = '';
-  try {
-    launchPath = new URL(launchUrl).pathname;
-  } catch {
-    return null;
-  }
-  if (!launchPath || !currentUrl.includes(launchPath)) return null;
-
-  let launchedAt = Number(result[SHUFFLR_LAUNCH_STANDALONE_AT_KEY]);
-  if (!Number.isFinite(launchedAt) || launchedAt <= 0) {
-    launchedAt = Date.now();
-  } else if (Date.now() - launchedAt > STANDALONE_LAUNCH_MAX_AGE_MS) {
-    console.log('[Shufflr] Max standalone launch expired — clearing');
-    await clearMaxStandaloneLaunchKeys();
-    return null;
-  }
-
-  const launchMaxId = extractMaxShowUuidFromUrl(launchUrl)
-    || extractMaxShowUuidFromUrl(location.href)
-    || extractShowId(location.href);
-  if (!launchMaxId) return null;
-
-  if (launchMaxId) {
-    const blockedKey = `shufflr_blocked_seasons_${launchMaxId}`;
-    const blockedResult = await chrome.storage.local.get(blockedKey);
-    const blockedSeasons = blockedResult[blockedKey];
-    if (Array.isArray(blockedSeasons)) {
-      try {
-        localStorage.setItem(blockedKey, JSON.stringify(blockedSeasons));
-      } catch { /* ignore */ }
-    }
-    await chromeStorageLocalRemove(blockedKey);
-  }
-
-  const launchIntent = result[SHUFFLR_LAUNCH_INTENT_KEY] === 'single' ? 'single' : 'mode';
-
-  window.__shufflrMaxStandaloneLaunchConsumed = true;
-  await clearMaxStandaloneLaunchKeys();
-
-  console.log('[Shufflr] Consumed Max standalone launch for show', launchMaxId, `(intent=${launchIntent})`);
-  return { maxId: launchMaxId, launchUrl, launchIntent };
-}
-
-/** Auto-start an episode of the current Max show page (cache → API → DOM fallback). */
-async function autoStartMaxShowPageEpisode(source = 'standalone-launch') {
-  if (!isChromeContextValid()) return false;
-  if (location.href.includes('/show/')) {
-    saveShowPageUrl(location.href);
-  }
-  const showPage = knownShowPageUrl || sessionStorage.getItem(SHUFFLR_SHOW_PAGE_KEY) || location.href.split('?')[0];
-  if (!showPage || !String(showPage).includes('/show/')) {
-    console.log(`[Shufflr] Max auto-start aborted — no show page (${source})`);
-    return false;
-  }
-  saveShowPageUrl(showPage);
-
-  showToast('Starting...');
-  console.log(`[Shufflr] Max auto-start episode via ${source}`);
-  await shuffleToRandomEpisode();
-  return true;
-}
-
-/**
- * Auto-start after a web-app standalone launch. Playlist armed flows take priority.
- * Mode-following launches read shuffle settings first and adopt ALL immediately when set.
- */
-async function maybeAutoStartMaxStandaloneLaunch() {
-  if (!isChromeContextValid() || !IS_MAX) return false;
-  if (!location.href.includes('/show/') && !location.href.includes('/video/')) return false;
-
-  // Armed playlist owned by this tab wins — do not override with standalone.
-  const existing = await getActivePlaylistFromStorage();
-  if (isArmedPlaylistOwnedByThisTab(existing)) return false;
-
-  const launch = await consumeMaxStandaloneLaunchIfMatching();
-  if (!launch?.maxId) return false;
-
-  // Never clear another tab's owned armed playlist — leave storage alone if not ours.
-  armedPlaylistCached = false;
-
-  const settings = await readShuffleSettings();
-  shuffleModeCached = settings.shuffleMode;
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-
-  if (location.href.includes('/show/')) {
-    saveShowPageUrl(location.href);
-  }
-
-  // Your Shows card Play → pin + single-show auto-start (ignore global ALL).
-  if (launch.launchIntent === 'single') {
-    const title = getCurrentShowTitle() || launch.maxId;
-    setMaxSessionPin(launch.maxId, title);
-    await setStandaloneShuffleEnabled(true);
-    shufflrActive = true;
-    if (hasShufflrButtonInDom()) updateShuffleUI(title);
-    console.log('[Shufflr] Max standalone launch → pinned single-show auto-start');
-    await autoStartMaxShowPageEpisode('standalone-launch-single');
-    return true;
-  }
-
-  // Power-button / mode-following launch — clear pin and follow global mode.
-  clearMaxSessionPin();
-
-  if (settings.shuffleMode === 'all') {
-    const synthetic = await armMaxYourShowsAllModeSession({
-      seedLastPlayedShow: false,
-      ensureMaxId: launch.maxId,
-      ensureTitle: getCurrentShowTitle() || launch.maxId,
-    });
-    if (!synthetic) {
-      console.log('[Shufflr] ALL mode launch: no Your Shows — falling back to single-show');
-      await setStandaloneShuffleEnabled(true);
-      shufflrActive = true;
-      const title = getCurrentShowTitle() || launch.maxId;
-      if (hasShufflrButtonInDom()) updateShuffleUI(title);
-      await autoStartMaxShowPageEpisode('standalone-launch-all-fallback');
-      return true;
-    }
-    console.log('[Shufflr] Max standalone launch → ALL mode auto-start');
-    await autoStartMaxShowPageEpisode('standalone-launch-all');
-    return true;
-  }
-
-  await setStandaloneShuffleEnabled(true);
-  shufflrActive = true;
-  const title = getCurrentShowTitle() || launch.maxId;
-  if (hasShufflrButtonInDom()) updateShuffleUI(title);
-  console.log('[Shufflr] Max standalone launch → single-show auto-start (mode)');
-  await autoStartMaxShowPageEpisode('standalone-launch-mode');
-  return true;
-}
-
-async function checkForLaunchStandaloneShow() {
-  if (!isChromeContextValid() || !IS_MAX) return;
-  const started = await maybeAutoStartMaxStandaloneLaunch();
-  if (started) {
-    setTimeout(() => {
-      if (!isChromeContextValid()) return;
-      tryInjectButton();
-    }, 1500);
-    return;
-  }
-
-  // No fresh launch — leave page as-is (manual visits do not auto-start).
-}
-
-async function checkForLaunchPlaylist() {
-  if (!isChromeContextValid()) return;
-  const result = await chrome.storage.local.get([
-    SHUFFLR_ACTIVE_PLAYLIST_KEY,
-    SHUFFLR_LAUNCH_SHOW_URL_KEY,
-    SHUFFLR_LAUNCH_STANDALONE_KEY,
-  ]);
-  // Standalone / Your Shows launches must never be treated as playlist Play.
-  if (result[SHUFFLR_LAUNCH_STANDALONE_KEY] === true) return;
-
-  const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
-  const storedPlaylist = result[SHUFFLR_ACTIVE_PLAYLIST_KEY];
-  if (!storedPlaylist || !launchUrl) return;
-
-  const currentUrl = window.location.href.split('?')[0];
-  let launchPath = '';
-  try {
-    launchPath = new URL(launchUrl).pathname;
-  } catch {
-    return;
-  }
-  if (!launchPath || !currentUrl.includes(launchPath)) return;
-
-  await chromeStorageLocalRemove(SHUFFLR_LAUNCH_SHOW_URL_KEY);
-
-  const playlists = await readPlaylistsFromStorage();
-  let playlistIndex = playlists.findIndex(p => (
-    (storedPlaylist.id && p.id === storedPlaylist.id)
-    || (storedPlaylist.name && p.name === storedPlaylist.name)
-  ));
-  if (playlistIndex < 0) playlistIndex = 0;
-
-  const prepared = preparePlaylistForShuffle(storedPlaylist);
-  if (!prepared.shows.length) return;
-
-  const pendingFirstShowId = extractMaxShowUuidFromUrl(location.href)
-    || extractShowId(location.href)
-    || null;
-  clearMaxSessionPin(); // playlist arming in this tab replaces any single-show pin
-  const armed = await saveArmedActivePlaylist(prepared, playlistIndex, {
-    pendingFirstShow: true,
-    pendingFirstShowId,
-  });
-  await setStandaloneShuffleEnabled(false);
-  shufflrActive = true;
-  armedPlaylistCached = true;
-
-  void maybeAutoStartMaxArmedPlaylistOnShowPage(armed);
-
-  setTimeout(() => {
-    if (!isChromeContextValid()) return;
-    tryInjectButton();
-  }, 1500);
-}
-
 
 function installCrunchyrollUrlObserver() {
   if (window.__shufflrCrunchyrollUrlObserver) return;
@@ -9012,7 +5122,7 @@ function consumeTubiOrderedAcceptLanding(pageSeriesId) {
 
 /**
  * Ordered Episodes: after landing on a series page, click Tubi's own Play/resume CTA.
- * Mirrors Max's maybeAutoClickShowPageResume — Tubi decides which episode to start.
+ * Tubi decides which episode to start.
  */
 async function maybeAutoClickTubiSeriesPlayOrResume() {
   if (!isChromeContextValid() || !IS_TUBI) return false;
@@ -11008,179 +7118,6 @@ async function claimUnownedTubiArmedPlaylist(active) {
   return claimUnownedArmedPlaylist(active);
 }
 
-function maxHandoffTargetsThisTab(active) {
-  const targetUrl = active?.currentEpisodeUrl;
-  if (!targetUrl) {
-    // Unclaimed handoffs without a URL may only be claimed when pendingFirstShow
-    // explicitly targets this show page — never "any Max tab".
-    if (active?.pendingFirstShow && active.pendingFirstShowId) {
-      const pageId = extractMaxShowUuidFromUrl(location.href) || extractShowId(location.href);
-      return !!(pageId && normalizeMaxId(pageId) === normalizeMaxId(active.pendingFirstShowId));
-    }
-    return false;
-  }
-  const hint = getShowMaxIdHintFromActive(active);
-  if (maxWatchUrlsRepresentSameEpisode(location.href, targetUrl, hint)) return true;
-  try {
-    const launchPath = new URL(targetUrl, MAX_WATCH_ORIGIN).pathname;
-    return !!(launchPath && location.href.includes(launchPath));
-  } catch {
-    return false;
-  }
-}
-
-async function isMaxStandaloneLaunchPendingForThisPage() {
-  if (!isChromeContextValid() || !IS_MAX) return false;
-  try {
-    const result = await chrome.storage.local.get([
-      SHUFFLR_LAUNCH_SHOW_URL_KEY,
-      SHUFFLR_LAUNCH_STANDALONE_KEY,
-    ]);
-    if (result[SHUFFLR_LAUNCH_STANDALONE_KEY] !== true) return false;
-    const launchUrl = result[SHUFFLR_LAUNCH_SHOW_URL_KEY];
-    if (!launchUrl) return false;
-    let launchPath = '';
-    try {
-      launchPath = new URL(launchUrl).pathname;
-    } catch {
-      return false;
-    }
-    return !!(launchPath && location.href.includes(launchPath));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Max web-Play / playlist claim: unclaimed + fresh (~2 min) + handoff URL targets this tab.
- * Standalone/single-show launches must never claim.
- * Returns the (possibly claimed) payload.
- */
-async function maybeClaimUnownedMaxArmedHandoff(active) {
-  if (!IS_MAX || !active?.armed || isCrunchyrollArmedPayload(active) || isTubiArmedPayload(active)) {
-    return active;
-  }
-  if (isArmedPlaylistOwnedByThisTab(active)) return active;
-
-  if (active.ownerTabId != null && active.ownerTabId !== '') {
-    return active;
-  }
-  // Your Shows / standalone launches never adopt an unclaimed playlist handoff.
-  if (await isMaxStandaloneLaunchPendingForThisPage()) return active;
-  if (!isArmedHandoffFreshForClaim(active)) return active;
-  if (!maxHandoffTargetsThisTab(active)) return active;
-
-  const claimed = await claimUnownedArmedPlaylist(active);
-  return claimed || active;
-}
-
-function isMaxShowPage() {
-  return IS_MAX && location.href.includes('/show/');
-}
-
-/**
- * True only when the handoff's own launch target is this show page —
- * not merely "this show appears somewhere in the playlist".
- */
-function maxArmedHandoffTargetsCurrentShowPage(active) {
-  if (!active?.armed || !isMaxShowPage()) return false;
-  const pageShowId = extractMaxShowUuidFromUrl(location.href) || extractShowId(location.href);
-  if (!pageShowId) return false;
-  const pageNorm = normalizeMaxId(pageShowId);
-
-  if (active.pendingFirstShow && active.pendingFirstShowId
-    && normalizeMaxId(active.pendingFirstShowId) === pageNorm) {
-    return true;
-  }
-  if (active.currentEpisodeUrl && String(active.currentEpisodeUrl).includes('/show/')) {
-    const handoffShow = extractMaxShowUuidFromUrl(active.currentEpisodeUrl);
-    if (handoffShow && normalizeMaxId(handoffShow) === pageNorm) return true;
-  }
-  // Watch-URL handoffs that somehow landed on the matching show page.
-  if (active.currentEpisode?.showId && normalizeMaxId(active.currentEpisode.showId) === pageNorm) {
-    return true;
-  }
-  if (active.currentShow?.showId && normalizeMaxId(active.currentShow.showId) === pageNorm) {
-    return true;
-  }
-  return false;
-}
-
-async function clearMaxPendingFirstShowFlag(active) {
-  if (!isChromeContextValid() || !active) return active;
-  if (!active.pendingFirstShow && !active.pendingFirstShowId) return active;
-  const updated = { ...active };
-  delete updated.pendingFirstShow;
-  delete updated.pendingFirstShowId;
-  await chromeStorageLocalSet({ [SHUFFLR_ACTIVE_PLAYLIST_KEY]: updated });
-  return updated;
-}
-
-function hasConsumedMaxShowPageAutoStart(active) {
-  const createdAt = getArmedSessionCreatedAt(active);
-  if (!createdAt) return false;
-  try {
-    return sessionStorage.getItem(SHUFFLR_MAX_SHOW_AUTOSTART_KEY) === String(createdAt);
-  } catch {
-    return false;
-  }
-}
-
-function markMaxShowPageAutoStartConsumed(active) {
-  const createdAt = getArmedSessionCreatedAt(active);
-  if (!createdAt) return;
-  try {
-    sessionStorage.setItem(SHUFFLR_MAX_SHOW_AUTOSTART_KEY, String(createdAt));
-  } catch { /* ignore */ }
-}
-
-/**
- * Plan-B for Max playlist Play: show-page landing with a fresh armed handoff
- * auto-continues into an episode (same role as Crunchyroll pending collect).
- * Ordered mode keeps show-page + Max resume — skipped here.
- */
-async function maybeAutoStartMaxArmedPlaylistOnShowPage(activeOverride = null) {
-  if (!isChromeContextValid() || !isMaxShowPage()) return false;
-  if (window.__shufflrMaxShowAutoStartInFlight) return false;
-
-  let active = activeOverride || await getActivePlaylistFromStorage();
-  if (!active?.armed || isCrunchyrollArmedPayload(active) || isTubiArmedPayload(active)) return false;
-
-  active = await maybeClaimUnownedMaxArmedHandoff(active);
-  if (!isArmedPlaylistOwnedByThisTab(active)) return false;
-  if (!maxArmedHandoffTargetsCurrentShowPage(active)) return false;
-
-  const settings = await readShuffleSettings();
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-  if (settings.orderedEpisodes) return false;
-
-  const pending = !!active.pendingFirstShow;
-  const hasWatchTarget = !!(
-    active.currentEpisode?.alternateId
-    || (active.currentEpisodeUrl && String(active.currentEpisodeUrl).includes('/video/'))
-  );
-  // Auto-start only for this handoff's own show-page launch target.
-  if (!pending && hasWatchTarget) return false;
-  if (!pending && !maxArmedHandoffTargetsCurrentShowPage(active)) return false;
-  if (!isArmedHandoffFreshForClaim(active)) return false;
-  if (hasConsumedMaxShowPageAutoStart(active)) return false;
-
-  window.__shufflrMaxShowAutoStartInFlight = true;
-  markMaxShowPageAutoStartConsumed(active);
-  try {
-    active = await clearMaxPendingFirstShowFlag(active);
-    showToast('Starting playlist...');
-    console.log('[Shufflr] Max show-page auto-start — collecting episodes and playing');
-    await shuffleFromActivePlaylist(active, { mode: 'user' });
-    return true;
-  } catch (err) {
-    console.error('[Shufflr] Max show-page auto-start error:', err);
-    return false;
-  } finally {
-    window.__shufflrMaxShowAutoStartInFlight = false;
-  }
-}
-
 function getArmedSessionCreatedAt(active) {
   const raw = active?.createdAt ?? active?.sessionStartedAt;
   const n = Number(raw);
@@ -11945,45 +7882,6 @@ function isCrunchyrollSessionPinnedToCurrentShow() {
   return !!(currentId && String(currentId) === String(pin));
 }
 
-// ── Max single-show pin (Your Shows card Play) — same sessionStorage key, Max origin ──
-function setMaxSessionPin(maxId, title = null) {
-  if (!maxId) {
-    clearMaxSessionPin();
-    return;
-  }
-  try {
-    sessionStorage.setItem(SHUFFLR_SESSION_PIN_KEY, String(maxId));
-    const label = title || getCurrentShowTitle() || String(maxId);
-    console.log(`[Shufflr] single-intent launch — pinned to ${label}`);
-  } catch { /* ignore */ }
-}
-
-function clearMaxSessionPin() {
-  try {
-    sessionStorage.removeItem(SHUFFLR_SESSION_PIN_KEY);
-  } catch { /* ignore */ }
-}
-
-function getMaxSessionPin() {
-  try {
-    return sessionStorage.getItem(SHUFFLR_SESSION_PIN_KEY) || null;
-  } catch {
-    return null;
-  }
-}
-
-/** True when this Max tab is pinned to the current show (Your Shows card Play). */
-function isMaxSessionPinnedToCurrentShow() {
-  if (!IS_MAX) return false;
-  const pin = getMaxSessionPin();
-  if (!pin) return false;
-  const currentId = getCurrentMaxShowUuid()
-    || extractMaxShowUuidFromUrl(location.href)
-    || extractShowId(location.href)
-    || resolveMaxWatchIds(location.href)?.showId;
-  return !!(currentId && normalizeMaxId(currentId) === normalizeMaxId(pin));
-}
-
 function crunchyrollLaunchUrlMatchesCurrentSeries(launchUrl) {
   if (!launchUrl) return false;
   try {
@@ -12257,32 +8155,3 @@ if (isCrunchyroll) {
   void checkShufflrAutoNavErrorLanding();
 }
 
-if (IS_MAX) {
-installMaxPlaylistSyncListener();
-void maybeClearStaleEpisodeCachesOnce();
-void checkForLaunchStandaloneShow();
-void checkForLaunchPlaylist();
-void readShuffleSettings().then(settings => {
-  orderedEpisodesCached = !!settings.orderedEpisodes;
-  shuffleModeCached = settings.shuffleMode;
-});
-void maybeAutoClickShowPageResume();
-void checkShufflrAutoNavErrorLanding();
-setTimeout(() => {
-  if (!isChromeContextValid()) return;
-  startExtensionContextHealthCheck();
-  handleShowPageShuffle();
-  void updatePlaylistShowUrl();
-  tryInjectButton();
-  installFullscreenListener();
-  installAutoFullscreenRestore();
-  startShuffleWatchdog();
-  installTimeupdateWatcher();
-  installArmedUrlGuard();
-  void syncShuffleUIFromStorage().then(() => {
-    void maybeAutoClickShowPageResume();
-    void prefetchShowPageEpisodeCacheIfStandalone();
-  });
-  void checkShufflrAutoNavErrorLanding();
-}, 2500);
-}

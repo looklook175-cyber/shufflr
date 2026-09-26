@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Shufflr",
   "version": "1.1",
-  "description": "Shuffle random episodes on Max. Press the button and Shufflr picks a random episode when your current one ends.",
+  "description": "Shuffle random episodes on your streaming services. Press the button and Shufflr picks a random episode when your current one ends.",
   "permissions": ["activeTab", "storage", "tabs"],
   "host_permissions": [
     "https://play.max.com/*",
@@ -18,17 +18,6 @@
     "https://bzrwekraevbflypxahan.supabase.co/*"
   ],
   "content_scripts": [
-    {
-      "matches": [
-        "https://play.max.com/*",
-        "https://www.max.com/*",
-        "https://play.hbomax.com/*",
-        "https://www.hbomax.com/*"
-      ],
-      "js": ["page-capture.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
     {
       "matches": [
         "https://play.max.com/*",
