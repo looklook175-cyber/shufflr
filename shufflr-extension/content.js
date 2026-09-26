@@ -21,6 +21,7 @@ const EPISODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const SUPABASE_URL = 'https://bzrwekraevbflypxahan.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_kNuk_g4uMWvhrexbh2MBmw_zxJ_7pFz';
 const IS_SHUFFLR_WEB_APP = location.hostname === 'shufflr-app.netlify.app';
+const IS_MAX = ['play.max.com', 'www.max.com', 'play.hbomax.com', 'www.hbomax.com'].includes(location.hostname);
 const IS_TUBI = ['tubitv.com', 'www.tubitv.com'].includes(location.hostname);
 const isCrunchyroll = window.location.hostname.includes('crunchyroll.com');
 const TUBI_INJECT_POLL_MS = 200;
@@ -2118,9 +2119,15 @@ function tryInjectButton() {
   const isVideoPage = location.href.includes('/video/') || location.href.includes('/play/');
   const isShowPage = location.href.includes('/show/');
   const isCrunchyrollPage = isCrunchyroll && (isCrunchyrollWatchPage() || isCrunchyrollSeriesPage());
-  if (!isVideoPage && !isShowPage && !isCrunchyrollPage) return Promise.resolve(false);
+  const isMaxPage = IS_MAX && isMaxInjectablePage();
+  if (!isVideoPage && !isShowPage && !isCrunchyrollPage && !isMaxPage) return Promise.resolve(false);
 
   if (isCrunchyrollPage) {
+    injectShufflrButton(null);
+    return Promise.resolve(true);
+  }
+
+  if (isMaxPage) {
     injectShufflrButton(null);
     return Promise.resolve(true);
   }
@@ -2407,6 +2414,10 @@ function onShuffleBtnClick(event) {
       return;
     }
     void startCrunchyrollShuffle();
+    return;
+  }
+  if (IS_MAX && isMaxInjectablePage()) {
+    showToast('Max shuffle coming soon');
     return;
   }
 }
@@ -8153,5 +8164,89 @@ if (isCrunchyroll) {
   crunchyrollCopObserver.observe(document.body, { childList: true, subtree: true });
 
   void checkShufflrAutoNavErrorLanding();
+}
+
+// ── MAX PHASE 1: reliable floating-button injection (no shuffle yet) ───────
+
+function isMaxShowPage() {
+  return IS_MAX && location.pathname.includes('/show/');
+}
+
+function isMaxWatchPage() {
+  return IS_MAX && location.pathname.includes('/video/watch/');
+}
+
+function isMaxInjectablePage() {
+  return isMaxShowPage() || isMaxWatchPage();
+}
+
+function installMaxUrlObserver() {
+  if (window.__shufflrMaxUrlObserver) return;
+  window.__shufflrMaxUrlObserver = true;
+
+  let lastMaxUrl = location.href;
+  let reinjectTimer = null;
+
+  function routeMaxPageAfterUrlChange() {
+    if (!IS_MAX || !isChromeContextValid()) return;
+    if (location.href === lastMaxUrl) return;
+    lastMaxUrl = location.href;
+
+    removeShufflrUI();
+    if (reinjectTimer) {
+      clearTimeout(reinjectTimer);
+      reinjectTimer = null;
+    }
+
+    if (!isMaxInjectablePage()) return;
+
+    reinjectTimer = setTimeout(() => {
+      reinjectTimer = null;
+      if (!isChromeContextValid()) return;
+      if (!isMaxInjectablePage()) return;
+      console.log('[Shufflr] Max URL changed — re-injecting');
+      void tryInjectButton();
+    }, 2500);
+  }
+
+  const observer = new MutationObserver(routeMaxPageAfterUrlChange);
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    }, { once: true });
+  }
+
+  window.addEventListener('popstate', routeMaxPageAfterUrlChange);
+  // Poll location — Max SPA pushState may run in the page world (same as Crunchyroll).
+  setInterval(routeMaxPageAfterUrlChange, 500);
+}
+
+function installMaxButtonPersistenceObserver() {
+  if (!isChromeContextValid()) return;
+  if (window.__shufflrMaxButtonObserver) return;
+  window.__shufflrMaxButtonObserver = true;
+
+  const maxButtonObserver = new MutationObserver(() => {
+    if (!IS_MAX) return;
+    if (!isMaxInjectablePage()) return;
+    if (document.getElementById('shufflr-wrap')) return;
+    void tryInjectButton();
+  });
+  maxButtonObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+if (IS_MAX) {
+  installMaxUrlObserver();
+
+  setTimeout(() => {
+    if (!IS_MAX) return;
+    installMaxButtonPersistenceObserver();
+    if (isMaxInjectablePage()) {
+      console.log('[Shufflr] Max page — injecting Shufflr button');
+      void tryInjectButton();
+    }
+  }, 2500);
 }
 
